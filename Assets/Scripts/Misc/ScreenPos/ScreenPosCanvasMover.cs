@@ -32,6 +32,8 @@ namespace MajdataPlay
         const float SUB_DISPLAY_ORIGINAL_POS_Y = 735f;
         const float SUB_DISPLAY_HEIGHT = 450f;
         const float MAIN_DISPLAY_HEIGHT = 1080f;
+        // 横屏时副屏放在左侧栏，与屏幕边缘、主屏之间留出的间距（Canvas 单位）
+        const float LANDSCAPE_SIDE_MARGIN = 24f;
 
         int _flag = FLAG_NOT_INIT;
 
@@ -123,6 +125,15 @@ namespace MajdataPlay
 
         private bool _isSubCoverPendingRefresh = false;
 
+        // 横屏布局（GameplayScreenLayout）状态
+        bool _isLandscape = false;
+        int _lastLandscapeScreenWidth;
+        int _lastLandscapeScreenHeight;
+        float _lastLandscapeScale = float.NaN;
+        Vector2 _originalMainAnchorMin;
+        Vector2 _originalMainAnchorMax;
+        float _originalSubDisplayPosX;
+
 
         void Awake()
         {
@@ -132,6 +143,8 @@ namespace MajdataPlay
             _parentRt = _transform.parent as RectTransform;
             // 保存预制体的原始Y位置，用于关闭MainScreenTransform时恢复
             _originalPosY = _rt.anchoredPosition.y;
+            _originalMainAnchorMin = _rt.anchorMin;
+            _originalMainAnchorMax = _rt.anchorMax;
 
             _parentRt = _transform.parent as RectTransform;
             // 先查找CanvasScaler，再计算屏幕中心
@@ -192,6 +205,7 @@ namespace MajdataPlay
             if (subDisplay is not null)
             {
                 _subDisplay = subDisplay.GetComponent<RectTransform>();
+                _originalSubDisplayPosX = _subDisplay.anchoredPosition.x;
             }
             _canvasScaleFactor = Mathf.Max(
                 Screen.width / _baseReferenceResolution.x,
@@ -341,6 +355,93 @@ namespace MajdataPlay
             }
         }
 
+        float GetLandscapeScale()
+        {
+            var scale = _displayOptions!.MainScreenTransform ? _displayOptions.MainScreenScale : 1f;
+            return scale > 0 ? scale : 1f;
+        }
+
+        /// <summary>
+        /// 横屏布局：主屏（判定圆）居中占满屏高，副屏按左侧栏宽度等比缩小放在左上，遮罩收起。
+        /// </summary>
+        void ApplyLandscape(float scale)
+        {
+            var referenceResolution = new Vector2(GameplayScreenLayout.LANDSCAPE_REFERENCE_WIDTH / scale,
+                                                  GameplayScreenLayout.LANDSCAPE_REFERENCE_HEIGHT / scale);
+            if (_canvasScaler != null)
+            {
+                _canvasScaler.referenceResolution = referenceResolution;
+            }
+            _rt.anchorMin = new Vector2(0.5f, 0.5f);
+            _rt.anchorMax = new Vector2(0.5f, 0.5f);
+            _rt.anchoredPosition = Vector2.zero;
+            _rt.localScale = Vector3.one;
+
+            // CanvasScaler Expand：取宽高比例中的较小值
+            var scaleFactor = Mathf.Min(Screen.width / referenceResolution.x, Screen.height / referenceResolution.y);
+            var canvasWidth = Screen.width / scaleFactor;
+            var canvasHeight = Screen.height / scaleFactor;
+            if (_subDisplay != null)
+            {
+                var sideWidth = Mathf.Max(0f, (canvasWidth - MAIN_DISPLAY_HEIGHT) / 2f);
+                var subScale = Mathf.Clamp((sideWidth - LANDSCAPE_SIDE_MARGIN * 2f) / SCREEN_CANVAS_WIDTH, 0.05f, 1f);
+                var x = -(MAIN_DISPLAY_HEIGHT / 2f + sideWidth / 2f);
+                var y = canvasHeight / 2f - SUB_DISPLAY_HEIGHT * subScale / 2f - LANDSCAPE_SIDE_MARGIN;
+                _subDisplay.anchoredPosition = new Vector2(x, y);
+                _subDisplay.localScale = new Vector3(subScale, subScale, 1f);
+            }
+            // 遮罩只用于竖屏主副屏之间的区域，横屏下收起。
+            if (_subCoverRectTransform != null)
+            {
+                _subCoverRectTransform.sizeDelta = Vector2.zero;
+            }
+            if (_subCoverBottomRectTransform != null)
+            {
+                _subCoverBottomRectTransform.sizeDelta = Vector2.zero;
+            }
+            _isSubCoverPendingRefresh = false;
+        }
+
+        /// <summary>
+        /// 处理横屏布局的进入与退出。返回 true 表示当前为横屏，竖屏逻辑应跳过。
+        /// </summary>
+        bool UpdateLandscapeLayout()
+        {
+            if (GameplayScreenLayout.IsLandscape)
+            {
+                var width = Screen.width;
+                var height = Screen.height;
+                var scale = GetLandscapeScale();
+                if (!_isLandscape || width != _lastLandscapeScreenWidth || height != _lastLandscapeScreenHeight || scale != _lastLandscapeScale)
+                {
+                    _isLandscape = true;
+                    _lastLandscapeScreenWidth = width;
+                    _lastLandscapeScreenHeight = height;
+                    _lastLandscapeScale = scale;
+                    ApplyLandscape(scale);
+                }
+                return true;
+            }
+            else if (_isLandscape)
+            {
+                _isLandscape = false;
+                _lastLandscapeScale = float.NaN;
+                _rt.anchorMin = _originalMainAnchorMin;
+                _rt.anchorMax = _originalMainAnchorMax;
+                if (_subDisplay != null)
+                {
+                    _subDisplay.anchoredPosition = new Vector2(_originalSubDisplayPosX, _subDisplay.anchoredPosition.y);
+                }
+                _lastMainDisplayOffset = float.NaN;
+                _lastMainDisplayScale = float.NaN;
+                _lastSubDisplayOffset = float.NaN;
+                _lastSubDisplayScale = float.NaN;
+                ApplyTransform();
+                _isSubCoverPendingRefresh = _lastTransformDisplay;
+            }
+            return false;
+        }
+
         void ApplyTransform()
         {
             var initTransform = _displayOptions!.MainScreenTransform;
@@ -393,6 +494,10 @@ namespace MajdataPlay
                     return;
                 case FLAG_INITED:
                     {
+                        if (UpdateLandscapeLayout())
+                        {
+                            return;
+                        }
                         var transformDisplay = _displayOptions!.MainScreenTransform;
 
                         if (!transformDisplay)

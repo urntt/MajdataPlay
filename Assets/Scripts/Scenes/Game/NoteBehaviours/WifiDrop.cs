@@ -201,6 +201,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     }
                 }
             }
+            InitLanePath();
 
             State = NoteStatus.Inited;
         }
@@ -310,6 +311,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 AutoplayUpdate();
                 SensorCheck();
                 MineCheck();
+                UpdateLanePath();
 
                 var stars = Stars.Span;
                 var starTransforms = StarTransforms.Span;

@@ -4,6 +4,7 @@ using MajdataPlay.Editor;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Settings;
 using MajdataPlay.UnsafeKit;
 using MajdataPlay.Utils;
@@ -75,6 +76,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         static bool _isUseButtonRingForTouch = false;
 #endif
 
+        // 下落式模式
+        bool _isLaneMode = false;
+        readonly LaneInputProvider _laneInput = new();
+        readonly bool[] _isPhysicalBtnOnInThisFrame = new bool[8];
+        readonly bool[] _isPhysicalBtnClickedInThisFrame = new bool[8];
+
         const string SENSOR_IS_NULL = "Sensor index requested by Note is null";
         const string SENSOR_OUT_OF_RANGE = "Sensor index requested by Note is out of range";
         const string BUTTON_IS_NULL = "Button index requested by Note is null";
@@ -116,6 +123,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 #if !(UNITY_ANDROID || UNITY_IOS)
             _isUseButtonRingForTouch = Majdata<INoteController>.Instance?.ModInfo.ButtonRingForTouch ?? false;
 #endif
+            _isLaneMode = LaneMode.IsEnabled;
         }
         void OnDestroy()
         {
@@ -285,6 +293,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 #endif
             Array.Fill(_noteCurrentIndex, 0);
             Array.Fill(_touchCurrentIndex, 0);
+            _laneInput.Clear();
         }
         public void ResetCounter()
         {
@@ -300,6 +309,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         void GameIOUpdate()
         {
+            if (_isLaneMode)
+            {
+                LaneIOUpdate();
+                return;
+            }
             var previousButtonStatus = InputManager.ButtonStatusInPreviousFrame;
             var currentButtonStatus = InputManager.ButtonStatusInThisFrame;
 
@@ -345,6 +359,114 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                                                  _sensorStatusInThisFrame[i] == SwitchStatus.On;
             }
 #endif
+        }
+        /// <summary>
+        /// 下落式模式：实体按键（键盘、按键环、手柄）与轨道触摸合并为按键状态，悬空 Touch 区合并为传感器状态。
+        /// 屏幕触摸到圆形传感器的映射已由 InputManager.SuppressTouchPanelSimulation 关闭。
+        /// </summary>
+        void LaneIOUpdate()
+        {
+            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge);
+
+            var previousButtonStatus = InputManager.ButtonStatusInPreviousFrame;
+            var currentButtonStatus = InputManager.ButtonStatusInThisFrame;
+            var previousSensorStatus = InputManager.SensorStatusInPreviousFrame;
+            var currentSensorStatus = InputManager.SensorStatusInThisFrame;
+            var laneHeld = _laneInput.LaneHeld;
+            var laneClickedCount = _laneInput.LaneClickedCount;
+            var floatSensorHeld = _laneInput.FloatSensorHeld;
+            var floatSensorClickedCount = _laneInput.FloatSensorClickedCount;
+#if UNITY_ANDROID || UNITY_IOS
+            var btnClickedCount = InputManager.ButtonClickedCountInThisFrame;
+            var sensorClickedCount = InputManager.SensorClickedCountInThisFrame;
+#endif
+            for (var i = 0; i < 8; i++)
+            {
+                var isPhysicalOn = currentButtonStatus[i] == SwitchStatus.On;
+#if UNITY_ANDROID || UNITY_IOS
+                var physicalClickedCount = btnClickedCount[i];
+#else
+                var physicalClickedCount = previousButtonStatus[i] == SwitchStatus.Off && isPhysicalOn ? 1 : 0;
+#endif
+                var clickedCount = physicalClickedCount + laneClickedCount[i];
+                _isPhysicalBtnOnInThisFrame[i] = isPhysicalOn;
+                _isPhysicalBtnClickedInThisFrame[i] = physicalClickedCount != 0;
+
+                _btnStatusInPreviousFrame[i] = _btnStatusInThisFrame[i];
+                _btnStatusInThisFrame[i] = isPhysicalOn || laneHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
+                _isBtnClickedInThisFrame[i] = clickedCount != 0;
+#if UNITY_ANDROID || UNITY_IOS
+                _btnClickedCountInThisFrame[i] = clickedCount;
+#endif
+            }
+            for (var i = 0; i < 33; i++)
+            {
+                var isPhysicalOn = currentSensorStatus[i] == SwitchStatus.On;
+#if UNITY_ANDROID || UNITY_IOS
+                var physicalClickedCount = sensorClickedCount[i];
+#else
+                var physicalClickedCount = previousSensorStatus[i] == SwitchStatus.Off && isPhysicalOn ? 1 : 0;
+                if (_isUseButtonRingForTouch && i < 8)
+                {
+                    isPhysicalOn |= _isPhysicalBtnOnInThisFrame[i];
+                    physicalClickedCount += _isPhysicalBtnClickedInThisFrame[i] ? 1 : 0;
+                }
+#endif
+                var clickedCount = physicalClickedCount + floatSensorClickedCount[i];
+
+                _sensorStatusInPreviousFrame[i] = _sensorStatusInThisFrame[i];
+                _sensorStatusInThisFrame[i] = isPhysicalOn || floatSensorHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
+                _isSensorClickedInThisFrame[i] = clickedCount != 0;
+#if UNITY_ANDROID || UNITY_IOS
+                _sensorClickedCountInThisFrame[i] = clickedCount;
+#endif
+            }
+        }
+        /// <summary>
+        /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SwitchStatus GetLaneDragStatusInThisFrame(SensorArea area)
+        {
+            for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
+            {
+                if (!LaneLayout.IsSensorInLane(area, lane))
+                {
+                    continue;
+                }
+                if (_btnStatusInThisFrame[lane - 1] == SwitchStatus.On)
+                {
+                    return SwitchStatus.On;
+                }
+            }
+            return SwitchStatus.Off;
+        }
+        /// <summary>
+        /// 下落式 Flick：触屏划动，或实体按键按下（键盘无法划动）
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsLaneFlickedInThisFrame(int lane)
+        {
+            if (lane is < 1 or > LaneLayout.LANE_COUNT)
+            {
+                return false;
+            }
+            return _laneInput.IsFlicked(lane) || _isPhysicalBtnClickedInThisFrame[lane - 1];
+        }
+        /// <param name="lane">1~8</param>
+        public bool TryUseLaneFlick(int lane)
+        {
+            if (lane is < 1 or > LaneLayout.LANE_COUNT)
+            {
+                return false;
+            }
+            if (_laneInput.TryUseFlick(lane))
+            {
+                return true;
+            }
+            var zone = (ButtonZone)(lane - 1);
+            return _isPhysicalBtnClickedInThisFrame[lane - 1] && TryUseButtonClickEvent(zone);
         }
         void AutoplayIOUpdate()
         {

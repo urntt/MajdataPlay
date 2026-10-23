@@ -1,4 +1,5 @@
 ﻿using MajdataPlay.IO;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Utils;
@@ -34,6 +35,12 @@ namespace MajdataPlay.Scenes.Game
         
         void Start()
         {
+            _isEnabled = MajEnv.Settings.Display.InnerJudgeDistance != 0;
+            if (LaneMode.IsEnabled)
+            {
+                StartInLane();
+                return;
+            }
             var distance = NoteHelper.GetTouchAreaDistance(SensorPos.GetGroup());
             var rotation = NoteHelper.GetTouchRoation(NoteHelper.GetTouchAreaPosition(SensorPos), SensorPos);
             var textDistance = distance - (0.66f * (2 - DistanceRatio));
@@ -52,8 +59,25 @@ namespace MajdataPlay.Scenes.Game
             var fastLatePos = _fastLateDisplayerA.LocalPosition;
             fastLatePos.y = fastLateDistance;
             _fastLateDisplayerA.LocalPosition = fastLatePos;
+        }
+        /// <summary>
+        /// 下落式：特效不旋转，放在悬空 Touch 的位置，判定文字与 Fast/Late 显示在其上方
+        /// </summary>
+        void StartInLane()
+        {
+            var textDistance = 0.66f * (2 - DistanceRatio);
+            var fastLateDistance = textDistance + 0.56f;
+            transform.rotation = Quaternion.identity;
+            transform.position = LaneLayout.GetSensorFloatPosition(SensorPos);
 
-            _isEnabled = MajEnv.Settings.Display.InnerJudgeDistance != 0;
+            var textPos = _judgeTextDisplayer.LocalPosition;
+            textPos.y = textDistance;
+            _judgeTextDisplayer.LocalPosition = textPos;
+            _fastLateDisplayerB.LocalPosition = textPos;
+
+            var fastLatePos = _fastLateDisplayerA.LocalPosition;
+            fastLatePos.y = fastLateDistance;
+            _fastLateDisplayerA.LocalPosition = fastLatePos;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Reset()

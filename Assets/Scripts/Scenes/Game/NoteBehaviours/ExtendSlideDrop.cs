@@ -86,6 +86,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             SetStarActive(false);
             SetSlideBarAlpha(0f);
             SlideLength = SlideBars.Count + 1;
+            InitLanePath();
 
             State = NoteStatus.Inited;
             DJAutoplayRatio = SlideLength / 14;

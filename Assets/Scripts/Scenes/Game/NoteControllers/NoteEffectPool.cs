@@ -1,6 +1,7 @@
 ﻿using MajdataPlay.Buffers;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.IO;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.Utils;
 using System;
@@ -57,6 +58,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
         private FireworkDisplayer _fireworkDisplayer;
 
+        private bool _isLaneMode = false;
+        /// <summary>
+        /// 下落式：判定特效放在判定点下方这一距离处的父节点上，判定文字沿着指向父节点的方向显示在特效上方
+        /// </summary>
+        const float LANE_EFFECT_TEXT_ANCHOR_DISTANCE = 4.8f;
+
         private void Awake()
         {
             Majdata<NoteEffectPool>.Instance = this;
@@ -112,6 +119,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             var touchFeedbackParent = transform.GetChild(3);
 
             _gpManager = Majdata<GamePlayManager>.Instance!;
+            _isLaneMode = LaneMode.IsEnabled;
             var noteLoader = Majdata<NoteLoader>.Instance!;
             var isHasTap = noteLoader.IsHasTap;
             var isHasHold = noteLoader.IsHasHold;
@@ -132,6 +140,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     obj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 0);
                 var displayer = obj.GetComponent<TapEffectDisplayer>();
                 displayer.DistanceRatio = MajEnv.Settings.Display.OuterJudgeDistance;
+                if (_isLaneMode)
+                {
+                    PlaceInLane(obj.transform, displayer, LaneLayout.GetJudgePosition(i + 1));
+                }
                 displayer.ResetAll();
                 _tapJudgeEffects[i] = displayer;
                 generatedTapEffectDisplayers.Add(displayer);
@@ -161,7 +173,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 }
                 var obj = Instantiate(_holdEffectPrefab, tapParent);
                 obj.name = $"HoldEffect_{i + 1}";
-                var position = NoteHelper.GetTapPosition(i + 1, 4.8f);
+                var position = _isLaneMode ? LaneLayout.GetJudgePosition(i + 1) : NoteHelper.GetTapPosition(i + 1, 4.8f);
                 var displayer = obj.GetComponent<HoldEffectDisplayer>();
                 displayer.Position = position;
                 displayer.Reset();
@@ -177,7 +189,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 var sensorPos = (SensorArea)i;
                 var obj = Instantiate(_holdEffectPrefab, touchHoldParent);
                 obj.name = $"TouchHold_HoldingEffect_{sensorPos}";
-                var position = NoteHelper.GetTouchAreaPosition(sensorPos);
+                var position = _isLaneMode ? LaneLayout.GetSensorFloatPosition(sensorPos) : NoteHelper.GetTouchAreaPosition(sensorPos);
                 var displayer = obj.GetComponent<HoldEffectDisplayer>();
                 displayer.Position = position;
                 displayer.Reset();
@@ -192,6 +204,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 obj4Hold.transform.rotation = rotation;
                 displayer4Hold.DistanceRatio = MajEnv.Settings.Display.InnerJudgeDistance;
                 displayer4Hold.LocalPosition = position2;
+                if (_isLaneMode)
+                {
+                    PlaceInLane(obj4Hold.transform, displayer4Hold, LaneLayout.GetSensorFloatPosition(sensorPos));
+                }
                 obj4Hold.name = $"TouchHoldEffect_{sensorPos}";
                 displayer4Hold.ResetAll();
                 _touchHoldJudgeEffects[i] = displayer4Hold;
@@ -219,6 +235,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 obj.transform.localScale = new Vector3(0.5f, 0.5f, 1);
                 _touchFeedbackEffects[i] = displayer;
             }
+            if (_isLaneMode)
+            {
+                // 圆形传感器的触摸反馈在下落式中没有对应位置
+                touchFeedbackParent.gameObject.SetActive(false);
+            }
             _rentedArrayForGeneratedTapEffectDisplayers = Pool<TapEffectDisplayer>.Rent(generatedTapEffectDisplayers.Count);
             _rentedArrayForGeneratedHoldEffectDisplayers = Pool<HoldEffectDisplayer>.Rent(generatedHoldEffectDisplayers.Count);
             _rentedArrayForGeneratedTouchEffectDisplayers = Pool<TouchEffectDisplayer>.Rent(generatedTouchEffectDisplayers.Count);
@@ -230,6 +251,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _generatedTouchEffectDisplayers = _rentedArrayForGeneratedTouchEffectDisplayers.AsMemory(0, generatedTouchEffectDisplayers.Count);
 
             _isInited = true;
+        }
+        /// <summary>
+        /// 下落式：特效不旋转，判定点放在 <paramref name="target"/>，判定文字与 Fast/Late 显示在其上方
+        /// </summary>
+        static void PlaceInLane(Transform root, TapEffectDisplayer displayer, Vector3 target)
+        {
+            root.rotation = Quaternion.identity;
+            displayer.LocalPosition = new Vector3(0, -LANE_EFFECT_TEXT_ANCHOR_DISTANCE, 0);
+            root.position = target + new Vector3(0, LANE_EFFECT_TEXT_ANCHOR_DISTANCE, 0);
         }
         [Il2CppSetOption(Option.NullChecks, false)]
         [Il2CppSetOption(Option.ArrayBoundsChecks, false)]
@@ -352,7 +382,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void PlayFeedbackEffect(SensorArea sensorPos)
         {
-            if (!_isInited)
+            if (!_isInited || _isLaneMode)
             {
                 return;
             }
@@ -364,7 +394,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ResetFeedbackEffect(SensorArea sensorPos)
         {
-            if (!_isInited)
+            if (!_isInited || _isLaneMode)
             {
                 return;
             }

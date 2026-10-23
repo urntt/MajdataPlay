@@ -7,6 +7,7 @@ using MajdataPlay.IO;
 using MajdataPlay.Net;
 using MajdataPlay.Numerics;
 using MajdataPlay.Recording;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.List;
@@ -239,6 +240,24 @@ namespace MajdataPlay.Scenes.Game
             }
             //print(MajInstances.GameManager.SelectedIndex);
             _screenRotationAngle = _gameSettings.Display.GameplayScreenRotationAngle;
+            if (_gameSettings.Game.PlayStyle == PlayStyleOption.Falling)
+            {
+                LaneMode.Enable(_gameSettings.Game);
+                // 下落式的轨道不随画面旋转
+                _screenRotationAngle = GameplayScreenRotationAngleOption.Zero;
+            }
+            else
+            {
+                LaneMode.Disable();
+            }
+            if (_gameSettings.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
+            {
+                GameplayScreenLayout.RequestLandscape();
+            }
+            else
+            {
+                GameplayScreenLayout.Reset();
+            }
             _songDetail = _gameInfo.Current;
             HistoryScore = ScoreManager.GetScore(_songDetail, _listConfig.SelectedDiff);
             if(HistoryScore is not null)
@@ -274,6 +293,14 @@ namespace MajdataPlay.Scenes.Game
             {
                 LoadDanModSettings();
             }
+            if (LaneMode.IsEnabled && ModInfo.AutoPlay is AutoplayModeOption.DJAuto_ButtonRing_First or AutoplayModeOption.DJAuto_TouchPanel_First)
+            {
+                // DJAuto 按圆形传感器位置模拟输入，下落式中改为直接判定
+                ModInfo = new GameModInfo(ModInfo)
+                {
+                    AutoPlay = AutoplayModeOption.Enable
+                };
+            }
             if (InputManager.IsTouchPanelConnected)
             {
                 Destroy(GameObject.Find("EventSystem"));
@@ -283,6 +310,8 @@ namespace MajdataPlay.Scenes.Game
             InputManager.UseGameplayTouchEnhancementFeatures = true;
 #endif
             InputManager.TouchButtonRingEdge = 5.4f;
+            // 下落式由 NoteManager 自行把触摸换算为轨道
+            InputManager.SuppressTouchPanelSimulation = LaneMode.IsEnabled;
             InputManager.Override_TouchSimulationRadius = default;
             InputManager.Override_TouchAAreaExtraRadius = default;
             InputManager.Override_TouchBAreaExtraRadius = default;
@@ -957,7 +986,29 @@ namespace MajdataPlay.Scenes.Game
             MajInstances.SceneSwitcher.SetLoadingText($"{"MAJTEXT_LOADING_CHART".i18n()}...\n100.00%");
 
             _noteEffectPool.Init();
+            if (LaneMode.IsEnabled)
+            {
+                ApplyLaneModeVisuals();
+            }
             await UniTask.Yield();
+        }
+        /// <summary>
+        /// 下落式：隐藏只属于圆形模式的图形，并绘制轨道
+        /// </summary>
+        void ApplyLaneModeVisuals()
+        {
+            var notes = _noteManager.transform;
+            // 2: SlideArrowPool 3: SlidePool 6: EachLines 7: TapLines（Notes 的子节点顺序）
+            LaneVisuals.SetLayerRecursively(notes.GetChild(2), MajEnv.HIDDEN_LAYER);
+            LaneVisuals.SetLayerRecursively(notes.GetChild(3), MajEnv.HIDDEN_LAYER);
+            LaneVisuals.SetLayerRecursively(notes.GetChild(6), MajEnv.HIDDEN_LAYER);
+            LaneVisuals.SetLayerRecursively(notes.GetChild(7), MajEnv.HIDDEN_LAYER);
+            var outline = Majdata<OutlineLoader>.Instance;
+            if (outline != null)
+            {
+                LaneVisuals.SetLayerRecursively(outline.transform, MajEnv.HIDDEN_LAYER);
+            }
+            LaneVisuals.CreateBackground(DefaultMaterial);
         }
         async UniTask PrepareToPlay()
         {
@@ -967,7 +1018,7 @@ namespace MajdataPlay.Scenes.Game
             }
             CabinetLed.SetAllLight(Color.white);
             await UniTask.SwitchToMainThread();
-            switch (ModInfo.NoteMask)
+            switch (LaneMode.IsEnabled ? "Disable" : ModInfo.NoteMask)
             {
                 case "Inner":
                     _noteMask.gameObject.SetActive(true);
@@ -1905,6 +1956,8 @@ namespace MajdataPlay.Scenes.Game
                 Cursor.visible = true;
                 InputManager.UseOuterTouchAsSensor = false;
                 InputManager.UseGameplayTouchEnhancementFeatures = false;
+                InputManager.SuppressTouchPanelSimulation = false;
+                LaneMode.Disable();
                 InputManager.Override_TouchSimulationRadius = 0.1f;
                 InputManager.Override_TouchAAreaExtraRadius = 0f;
                 InputManager.Override_TouchBAreaExtraRadius = 0f;

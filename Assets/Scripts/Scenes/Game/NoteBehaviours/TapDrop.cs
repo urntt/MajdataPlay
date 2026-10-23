@@ -4,6 +4,7 @@ using MajdataPlay.Game.Notes;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.Settings;
@@ -39,6 +40,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         NotePoolManager _notePoolManager;
 
         bool _isStarRotation = false;
+        // 下落式模式
+        bool _isLaneMode = false;
+        /// <summary>
+        /// 下落式 Break 转 Flick：外观为红色 Tap，需要划动才判定
+        /// </summary>
+        bool _isFlick = false;
+        Color _defaultColor = Color.white;
 
         ButtonZone? _buttonPos;
 
@@ -50,14 +58,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         const int TAP_SPRITE_SORT_ORDER = 1;
         const int TAP_EX_SORT_ORDER = 0;
+        static readonly Color FLICK_COLOR = new Color(1f, 0.22f, 0.22f);
 
         protected override void Awake()
         {
             base.Awake();
             _noteAppearRate = MajEnv.Settings.Debug.NoteAppearRate;
             _isStarRotation = Settings.Game.StarRotation;
+            _isLaneMode = LaneMode.IsEnabled;
             _notePoolManager = FindAnyObjectByType<NotePoolManager>();
             _thisRenderer = GetComponent<SpriteRenderer>();
+            _defaultColor = _thisRenderer.color;
 
             _exObject = Transform.GetChild(0).gameObject;
             _exRenderer = _exObject.GetComponent<SpriteRenderer>();
@@ -101,6 +112,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _outerPos = NoteHelper.GetTapPosition(StartPos, 4.8f);
             SensorPos = (SensorArea)(StartPos - 1);
             _buttonPos = SensorPos.ToButtonZone();
+            _isFlick = _isLaneMode && LaneMode.IsBreakToFlick && IsBreak && !IsMine;
             if (IsMine)
             {
                 JudgableRange = new(JudgeTimingWithOffset - (TAP_JUDGE_SEG_3RD_PERFECT_MSEC / 1000), JudgeTimingWithOffset + (TAP_JUDGE_SEG_3RD_PERFECT_MSEC / 1000), ContainsType.Closed);
@@ -110,7 +122,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 JudgableRange = new(JudgeTimingWithOffset - (TAP_JUDGE_GOOD_AREA_MSEC / 1000), JudgeTimingWithOffset + (TAP_JUDGE_GOOD_AREA_MSEC / 1000), ContainsType.Closed);
             }
 
-            Transform.rotation = Quaternion.Euler(0, 0, -22.5f + (-45f * (StartPos - 1)));
+            Transform.rotation = _isLaneMode ? LaneLayout.NoteRotation : Quaternion.Euler(0, 0, -22.5f + (-45f * (StartPos - 1)));
             Transform.localScale = new Vector3(0, 0);
 
             _tapLineObject.transform.rotation = Quaternion.Euler(0, 0, -22.5f + (-45f * (StartPos - 1)));
@@ -192,7 +204,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     case NoteStatus.Inited:
                         if (destScale >= 0f)
                         {
-                            Transform.position = _innerPos;
+                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, 1.225f) : _innerPos;
                             _tapLineTransform.localScale = new Vector3(1.225f / 4.8f, 1.225f / 4.8f, 1f);
                             SetNoteRendererActive(true);
                             SetExRendererActive(true);
@@ -222,7 +234,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     case NoteStatus.Running:
                         {
                             Distance = distance;
-                            Transform.position = _outerPos * (distance / 4.8f);
+                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, distance) : _outerPos * (distance / 4.8f);
                             var lineScale = Mathf.Abs(distance / 4.8f);
                             _tapLineTransform.localScale = new Vector3(lineScale, lineScale, 1f);
                         }
@@ -318,12 +330,21 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
 
-            if (NoteManager.IsButtonClickedInThisFrame(_buttonPos) && NoteManager.TryUseButtonClickEvent(_buttonPos))
+            if (_isFlick)
+            {
+                if (!NoteManager.IsLaneFlickedInThisFrame(StartPos) || !NoteManager.TryUseLaneFlick(StartPos))
+                {
+                    return;
+                }
+                Judge(ThisFrameSec);
+            }
+            else if (NoteManager.IsButtonClickedInThisFrame(_buttonPos) && NoteManager.TryUseButtonClickEvent(_buttonPos))
             {
                 Judge(ThisFrameSec);
             }
-            else if (NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
+            else if (!_isLaneMode && NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
             {
+                // 下落式中 Tap 只响应轨道，悬空 Touch 区不触发 Tap
                 Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
             }
             else
@@ -371,6 +392,32 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 LoadTapSkin();
             }
+            if (_isFlick)
+            {
+                LoadFlickSkin();
+            }
+            else
+            {
+                _thisRenderer.color = _defaultColor;
+            }
+        }
+        /// <summary>
+        /// Break 转 Flick：复用普通 Tap/星星贴图并染成红色
+        /// </summary>
+        private void LoadFlickSkin()
+        {
+            if (IsStar)
+            {
+                var skin = MajInstances.SkinManager.GetStarSkin();
+                _thisRenderer.sprite = IsDouble ? skin.Double : skin.Normal;
+            }
+            else
+            {
+                var skin = MajInstances.SkinManager.GetTapSkin();
+                _thisRenderer.sprite = skin.Normal;
+            }
+            _thisRenderer.sharedMaterial = DefaultMaterial;
+            _thisRenderer.color = FLICK_COLOR;
         }
         public override void SetActive(bool state)
         {
@@ -408,7 +455,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         }
         private void SetTapLineActive(bool state)
         {
-            _tapLineRenderer.enabled = state;
+            // 下落式不显示圆形引导线
+            _tapLineRenderer.enabled = state && !_isLaneMode;
         }
         private void LoadTapSkin()
         {

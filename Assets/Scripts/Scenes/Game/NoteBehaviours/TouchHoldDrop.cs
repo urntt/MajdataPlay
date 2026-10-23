@@ -6,6 +6,7 @@ using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Rendering;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Notes.Touch;
 using MajdataPlay.Scenes.Game.Utils;
@@ -169,7 +170,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             SetFansColor(new Color(1f, 1f, 1f, 0f));
             SetActiveWithoutRenderer(true);
 
-            Transform.position = NoteHelper.GetTouchAreaPosition(SensorPos);
+            // 下落式：悬空在对应轨道与高度
+            Transform.position = LaneMode.IsEnabled ? LaneLayout.GetSensorFloatPosition(SensorPos) : NoteHelper.GetTouchAreaPosition(SensorPos);
             SetFansPosition(0.4f);
 
             for (var i = 0; i < 4; i++)

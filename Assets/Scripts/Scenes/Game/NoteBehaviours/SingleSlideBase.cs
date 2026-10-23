@@ -47,6 +47,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 AutoplayUpdate();
                 SensorCheck();
                 MineCheck();
+                UpdateLanePath();
 
                 switch (State)
                 {

@@ -22,6 +22,7 @@ namespace MajdataPlay
         int _screenHeight;
         float _screenOrthographicSize;
         float _screenYAdjustment;
+        bool _isLandscape;
         //float _lastMainScreenPos = 1f;
 
         Transform _transform;
@@ -70,11 +71,22 @@ namespace MajdataPlay
         {
             int width = Screen.width;
             int height = Screen.height;
-            if (width <= 0 || height <= 0 || (width == _screenWidth && height == _screenHeight))
+            bool isLandscape = GameplayScreenLayout.IsLandscape;
+            if (width <= 0 || height <= 0 || (width == _screenWidth && height == _screenHeight && isLandscape == _isLandscape))
                 return false;
 
             _screenWidth = width;
             _screenHeight = height;
+            _isLandscape = isLandscape;
+            if (isLandscape)
+            {
+                // 横屏：与 ScreenPosCanvasMover 的 1920×1080 / Expand 对齐，判定圆居中并占满屏高。
+                float landscapeCanvasScale = Mathf.Min(width / GameplayScreenLayout.LANDSCAPE_REFERENCE_WIDTH,
+                                                       height / GameplayScreenLayout.LANDSCAPE_REFERENCE_HEIGHT);
+                _screenOrthographicSize = GameplayScreenLayout.LANDSCAPE_HALF_HEIGHT * (height / GameplayScreenLayout.LANDSCAPE_REFERENCE_HEIGHT) / landscapeCanvasScale;
+                _screenYAdjustment = 0f;
+                return true;
+            }
             // Canvas Expand 使用宽高比例中的较小值。长屏 UI 按宽度缩放，
             // 相机也要保持相同的每世界单位像素数，而不能继续固定可见高度。
             float canvasScale = Mathf.Min(width / ReferenceWidth, height / ReferenceHeight);
@@ -86,6 +98,15 @@ namespace MajdataPlay
         }
         void RestoreOriginal()
         {
+            if (_isLandscape)
+            {
+                _transform.position = new Vector3(0, 0, -10);
+                if (_cam.orthographic)
+                {
+                    _cam.orthographicSize = _screenOrthographicSize;
+                }
+                return;
+            }
             _transform.position = new Vector3(0, _originalCameraY + _screenYAdjustment, -10);
             if (_cam.orthographic)
             {
@@ -95,7 +116,9 @@ namespace MajdataPlay
 
         void ApplyPosition(float offset, float scale)
         {
-            _transform.position = new Vector3(0, _baseY + offset * 2.7f + _screenYAdjustment, -10);
+            // 横屏时判定圆始终居中，只应用缩放，不应用纵向偏移。
+            _transform.position = _isLandscape ? new Vector3(0, 0, -10)
+                                               : new Vector3(0, _baseY + offset * 2.7f + _screenYAdjustment, -10);
             if (scale > 0 && _cam.orthographic)
             {
                 _cam.orthographicSize = _screenOrthographicSize / scale;

@@ -218,6 +218,11 @@ namespace MajdataPlay
         }
         async UniTask SwitchSceneCoreAsync(string sceneName, bool autoFadeOut)
         {
+            if (sceneName != nameof(MajScenes.Game))
+            {
+                // 横屏只用于游戏场景；在这里而不是 Game 场景销毁时恢复竖屏，快速重开时不会来回旋转。
+                GameplayScreenLayout.Reset();
+            }
             if (sceneName == nameof(MajScenes.Game))
             {
                 SetLoadingText("MAJTEXT_COMPILING_SHADERS".i18n());

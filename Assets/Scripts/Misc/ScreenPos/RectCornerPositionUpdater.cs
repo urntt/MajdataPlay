@@ -32,6 +32,12 @@ namespace MajdataPlay
         [SerializeField]
         [ReadOnlyField]
         int _frameCount = 0;
+        [SerializeField]
+        [ReadOnlyField]
+        bool _lastIsLandscape;
+        [SerializeField]
+        [ReadOnlyField]
+        Vector2Int _lastScreenSize;
 
         DisplayOptions? _displayOptions;
         RectTransform _rectTransform;
@@ -70,7 +76,11 @@ namespace MajdataPlay
             var screenScale = displayOptions.MainScreenScale;
             var subChanged = subDisplayOffset != _lastSubDisplayOffset || subDisplayScale != _lastSubDisplayScale;
             var mainChanged = screenOffset != _lastMainDisplayOffset || screenScale != _lastMainDisplayScale;
-            var isAnyUpdated = transformDisplay != _lastTransformDisplay || subChanged || mainChanged;
+            // 横屏布局切换或屏幕旋转后，副屏位置会改变
+            var isLandscape = GameplayScreenLayout.IsLandscape;
+            var screenSize = new Vector2Int(Screen.width, Screen.height);
+            var layoutChanged = isLandscape != _lastIsLandscape || screenSize != _lastScreenSize;
+            var isAnyUpdated = transformDisplay != _lastTransformDisplay || subChanged || mainChanged || layoutChanged;
 
             if(isAnyUpdated)
             {
@@ -79,6 +89,8 @@ namespace MajdataPlay
                 _lastMainDisplayOffset = screenOffset;
                 _lastMainDisplayScale = screenScale;
                 _lastTransformDisplay = transformDisplay;
+                _lastIsLandscape = isLandscape;
+                _lastScreenSize = screenSize;
                 _frameCount = FRAME_DELAY;
             }
         }

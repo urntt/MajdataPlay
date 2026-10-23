@@ -2,6 +2,7 @@ using MajdataPlay.Buffers;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Game.Notes;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Settings;
 using MajdataPlay.Utils;
@@ -135,7 +136,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         }
                         return;
                     case NoteStatus.Scaling:
-                        if (destScale > 0.3f)
+                        // 下落式不显示圆弧形的 Each 连线
+                        if (destScale > 0.3f && !LaneMode.IsEnabled)
                         {
                             RendererState = RendererStatus.On;
                             GameObject.layer = MajEnv.DEFAULT_LAYER;

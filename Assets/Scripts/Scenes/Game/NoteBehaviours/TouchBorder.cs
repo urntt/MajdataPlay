@@ -1,4 +1,5 @@
 using MajdataPlay.Collections;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.IO;
 using MajdataPlay.Utils;
@@ -31,7 +32,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 SensorGroup.E => 'E',
                 _ => 'C',
             };
-            var pos = NoteHelper.GetTouchAreaPosition(index, area);
+            // 下落式：跟随悬空 Touch 的位置
+            var pos = LaneMode.IsEnabled ? LaneLayout.GetSensorFloatPosition(AreaPosition) : NoteHelper.GetTouchAreaPosition(index, area);
             transform.position = pos;
             transform.localScale *= USERSETTING_TOUCH_SCALE;
             _two = transform.GetChild(0).gameObject;

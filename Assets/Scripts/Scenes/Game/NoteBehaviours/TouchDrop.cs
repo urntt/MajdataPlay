@@ -4,6 +4,7 @@ using MajdataPlay.Extensions;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Notes.Touch;
 using MajdataPlay.Scenes.Game.Utils;
@@ -138,7 +139,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
             LoadSkin();
 
-            Transform.position = NoteHelper.GetTouchAreaPosition(SensorPos);
+            // 下落式：悬空在对应轨道与高度
+            Transform.position = LaneMode.IsEnabled ? LaneLayout.GetSensorFloatPosition(SensorPos) : NoteHelper.GetTouchAreaPosition(SensorPos);
             //_pointObject.SetActive(false);
             //_justBorderObject.SetActive(false);
 

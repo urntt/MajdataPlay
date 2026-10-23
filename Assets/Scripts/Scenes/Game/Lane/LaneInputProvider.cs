@@ -1,0 +1,213 @@
+using MajdataPlay.IO;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
+using TouchPhase = UnityEngine.InputSystem.TouchPhase;
+#nullable enable
+namespace MajdataPlay.Scenes.Game.Lane
+{
+    /// <summary>
+    /// 下落式模式的触屏输入：按屏幕位置换算为轨道（列）与高度。
+    /// <para>Tap/Hold/Break/Flick/Slide 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。</para>
+    /// <para>悬空 Touch 使用“悬空区”：必须按在该传感器所在的轨道和高度。</para>
+    /// </summary>
+    internal sealed class LaneInputProvider
+    {
+        /// <summary>
+        /// 手指速度超过该值（世界单位/秒）视为 Flick
+        /// </summary>
+        const float FLICK_SPEED = 10f;
+        /// <summary>
+        /// 速度回落到该值以下后，同一根手指才能再次触发 Flick
+        /// </summary>
+        const float FLICK_REARM_SPEED = 4f;
+        /// <summary>
+        /// Flick 在多少帧内可被音符使用，避免划动与判定跨帧错过
+        /// </summary>
+        const int FLICK_LATCH_FRAMES = 3;
+        const int MOUSE_TOUCH_ID = int.MinValue;
+
+        public ReadOnlySpan<bool> LaneHeld => _laneHeld;
+        public ReadOnlySpan<int> LaneClickedCount => _laneClickedCount;
+        public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
+        public ReadOnlySpan<int> FloatSensorClickedCount => _floatSensorClickedCount;
+
+        readonly bool[] _laneHeld = new bool[LaneLayout.LANE_COUNT];
+        readonly int[] _laneClickedCount = new int[LaneLayout.LANE_COUNT];
+        readonly int[] _flickLatch = new int[LaneLayout.LANE_COUNT];
+        readonly bool[] _floatSensorHeld = new bool[33];
+        readonly int[] _floatSensorClickedCount = new int[33];
+
+        readonly Dictionary<int, TouchRecord> _records = new(16);
+        readonly List<int> _staleTouchIds = new(16);
+        readonly HashSet<int> _activeTouchIds = new();
+
+        struct TouchRecord
+        {
+            public Vector2 LastPosition;
+            /// <summary>
+            /// 上一帧所在的悬空区（33 位）
+            /// </summary>
+            public ulong LastFloatSensors;
+            public bool IsFlickArmed;
+        }
+
+        /// <summary>
+        /// 每帧在音符判定前调用
+        /// </summary>
+        public void Update(Camera? camera, Vector4 subScreenEdge)
+        {
+            Array.Clear(_laneHeld, 0, _laneHeld.Length);
+            Array.Clear(_laneClickedCount, 0, _laneClickedCount.Length);
+            Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
+            Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+            for (var i = 0; i < _flickLatch.Length; i++)
+            {
+                if (_flickLatch[i] > 0)
+                {
+                    _flickLatch[i]--;
+                }
+            }
+            _activeTouchIds.Clear();
+            if (camera is null)
+            {
+                _records.Clear();
+                return;
+            }
+            var deltaTime = Mathf.Max(MajTimeline.UnscaledDeltaTime, 1e-4f);
+            var touches = Touch.activeTouches;
+            if (touches.Count > 0)
+            {
+                for (var i = 0; i < touches.Count; i++)
+                {
+                    var touch = touches[i];
+                    if (!touch.valid || touch.phase is TouchPhase.Ended or TouchPhase.Canceled)
+                    {
+                        continue;
+                    }
+                    var isBegan = touch.phase == TouchPhase.Began;
+                    HandlePointer(touch.touchId, touch.screenPosition, isBegan, camera, subScreenEdge, deltaTime);
+                }
+            }
+#if UNITY_STANDALONE || UNITY_EDITOR
+            else if (Mouse.current is Mouse mouse && mouse.leftButton.isPressed)
+            {
+                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime);
+            }
+#endif
+            _staleTouchIds.Clear();
+            foreach (var id in _records.Keys)
+            {
+                if (!_activeTouchIds.Contains(id))
+                {
+                    _staleTouchIds.Add(id);
+                }
+            }
+            foreach (var id in _staleTouchIds)
+            {
+                _records.Remove(id);
+            }
+        }
+        /// <param name="lane">1~8</param>
+        public bool IsFlicked(int lane)
+        {
+            return lane is >= 1 and <= LaneLayout.LANE_COUNT && _flickLatch[lane - 1] > 0;
+        }
+        /// <summary>
+        /// 使用一次 Flick，一次划动只能判定一个音符
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool TryUseFlick(int lane)
+        {
+            if (!IsFlicked(lane))
+            {
+                return false;
+            }
+            _flickLatch[lane - 1] = 0;
+            return true;
+        }
+        public void Clear()
+        {
+            _records.Clear();
+            Array.Clear(_laneHeld, 0, _laneHeld.Length);
+            Array.Clear(_laneClickedCount, 0, _laneClickedCount.Length);
+            Array.Clear(_flickLatch, 0, _flickLatch.Length);
+            Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
+            Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+        }
+        void HandlePointer(int id, Vector2 screenPosition, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime)
+        {
+            _activeTouchIds.Add(id);
+            var world = camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, -camera.transform.position.z));
+            var position = new Vector2(world.x, world.y);
+            var hasRecord = _records.TryGetValue(id, out var record);
+            if (!hasRecord)
+            {
+                record = new TouchRecord()
+                {
+                    LastPosition = position,
+                    LastFloatSensors = 0,
+                    IsFlickArmed = true
+                };
+                // 第一次出现的手指视为按下
+                isBegan = true;
+            }
+            // 副屏区域用于跳过乐曲等操作，不参与轨道判定
+            var isInSubScreen = position.x > subScreenEdge.x && position.x < subScreenEdge.z &&
+                                position.y > subScreenEdge.w && position.y < subScreenEdge.y;
+            var lane = isInSubScreen ? 0 : LaneLayout.GetLaneAt(position.x);
+            var isInLineArea = lane != 0 &&
+                               (LaneMode.IsVerticalJudge || Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT);
+            if (isInLineArea)
+            {
+                _laneHeld[lane - 1] = true;
+                if (isBegan)
+                {
+                    _laneClickedCount[lane - 1]++;
+                }
+            }
+            // Flick
+            var speed = hasRecord ? (position - record.LastPosition).magnitude / deltaTime : 0f;
+            if (record.IsFlickArmed)
+            {
+                if (isInLineArea && speed >= FLICK_SPEED)
+                {
+                    _flickLatch[lane - 1] = FLICK_LATCH_FRAMES;
+                    record.IsFlickArmed = false;
+                }
+            }
+            else if (speed <= FLICK_REARM_SPEED)
+            {
+                record.IsFlickArmed = true;
+            }
+            // 悬空 Touch：进入某个悬空区即视为点击
+            var floatSensors = 0UL;
+            if (lane != 0)
+            {
+                for (var i = 0; i < _floatSensorHeld.Length; i++)
+                {
+                    var area = (SensorArea)i;
+                    if (!LaneLayout.IsSensorInLane(area, lane))
+                    {
+                        continue;
+                    }
+                    if (Mathf.Abs(position.y - LaneLayout.GetSensorFloatY(area)) > LaneLayout.FLOAT_BAND_HALF_HEIGHT)
+                    {
+                        continue;
+                    }
+                    floatSensors |= 1UL << i;
+                    _floatSensorHeld[i] = true;
+                    if ((record.LastFloatSensors & (1UL << i)) == 0)
+                    {
+                        _floatSensorClickedCount[i]++;
+                    }
+                }
+            }
+            record.LastFloatSensors = floatSensors;
+            record.LastPosition = position;
+            _records[id] = record;
+        }
+    }
+}

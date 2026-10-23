@@ -5,6 +5,7 @@ using MajdataPlay.Editor;
 using MajdataPlay.Extensions;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Notes.Slide;
 using MajdataPlay.Settings;
@@ -212,6 +213,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         private SlideArea?[] _lastTriggerAreas = new SlideArea?[3];
 
+        // 下落式：路径线
+        private LaneSlidePath? _lanePath;
+        static readonly Color LANE_PATH_COLOR = new Color(0.35f, 0.8f, 1f, 0.85f);
+        static readonly Color LANE_PATH_EACH_COLOR = new Color(1f, 0.85f, 0.2f, 0.85f);
+        static readonly Color LANE_PATH_BREAK_COLOR = new Color(1f, 0.5f, 0.15f, 0.85f);
+
         public abstract void Init();
         protected void MineCheck()
         {
@@ -296,7 +303,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     for (var i = 0; i < fAreas.Length; i++)
                     {
                         var area = fAreas[i];
-                        var sensorState = NoteManager.GetSensorStatusInThisFrame(area);
+                        var sensorState = GetAreaStatus(area);
                         first.Check(area, sensorState);
                     }
 
@@ -309,7 +316,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         for (var i = 0; i < sAreas.Length; i++)
                         {
                             var area = sAreas[i];
-                            var sensorState = NoteManager.GetSensorStatusInThisFrame(area);
+                            var sensorState = GetAreaStatus(area);
                             second.Check(area, sensorState);
                         }
 
@@ -352,6 +359,45 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             };
         }
 
+        /// <summary>
+        /// 下落式按 Phigros Drag 判定：判定区对应的轨道被按住即可，不需要点击，也不读取悬空 Touch 的传感器
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        SwitchStatus GetAreaStatus(SensorArea area)
+        {
+            return LaneMode.IsEnabled ? NoteManager.GetLaneDragStatusInThisFrame(area)
+                                      : NoteManager.GetSensorStatusInThisFrame(area);
+        }
+        /// <summary>
+        /// 下落式：根据判定队列生成路径线。需要在 StartTiming、Length 与判定队列确定后调用
+        /// </summary>
+        protected void InitLanePath()
+        {
+            if (!LaneMode.IsEnabled)
+            {
+                return;
+            }
+            _lanePath?.End();
+            var color = IsBreak ? LANE_PATH_BREAK_COLOR : IsEach ? LANE_PATH_EACH_COLOR : LANE_PATH_COLOR;
+            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, color, DefaultMaterial, 0);
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        protected void UpdateLanePath()
+        {
+            _lanePath?.Update(ThisFrameSec);
+        }
+        /// <summary>
+        /// 下落式：Slide 判定文字显示在终点轨道的判定线上方
+        /// </summary>
+        void PlaceSlideOKInLane(SlideOK slideOK)
+        {
+            var okTransform = slideOK.transform;
+            slideOK.Shape = SlideOKShape.Str;
+            slideOK.SetR();
+            okTransform.SetPositionAndRotation(LaneLayout.GetJudgePosition(EndPos) + new Vector3(0, 1f, 0), Quaternion.identity);
+            okTransform.localScale = Vector3.one;
+            LaneVisuals.SetLayerRecursively(okTransform, MajEnv.DEFAULT_LAYER);
+        }
         [Il2CppSetOption(Option.NullChecks, false)]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected sealed override void Judge(float currentSec)
@@ -661,6 +707,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
 
             SetActive(false);
+            _lanePath?.End();
 
             if (!ConnectInfo.IsConnSlide || ConnectInfo.IsGroupPartEnd)
             {
@@ -680,6 +727,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 ObjectCounter.ReportResult(this, result, Multiple);
                 if (PlaySlideOK(result))
                 {
+                    if (LaneMode.IsEnabled)
+                    {
+                        PlaceSlideOKInLane(SlideOK);
+                    }
                     SlideOK.PlayResult(result);
                 }
 

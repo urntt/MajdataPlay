@@ -5,6 +5,7 @@ using MajdataPlay.Game.Notes;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.Settings;
@@ -60,6 +61,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         ButtonZone? _buttonPos;
         Range<float> _bodyCheckRange;
 
+        bool _isLaneMode = false;
+
         readonly float _noteAppearRate = MajEnv.Settings?.Debug.NoteAppearRate ?? 0.265f;
         //readonly float _touchPanelOffset = MajEnv.UserSetting?.Judge.TouchPanelOffset ?? 0;
 
@@ -70,6 +73,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         protected override void Awake()
         {
             base.Awake();
+            _isLaneMode = LaneMode.IsEnabled;
             _poolManager = FindFirstObjectByType<NotePoolManager>();
             var notes = NoteManager.gameObject.transform;
 
@@ -147,7 +151,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 _bodyCheckRange = new Range<float>(JudgeTimingWithOffset + HOLD_HEAD_IGNORE_LENGTH_SEC, JudgeTimingWithOffset + Length - HOLD_TAIL_IGNORE_LENGTH_SEC, ContainsType.Closed);
             }
 
-            Transform.rotation = Quaternion.Euler(0, 0, -22.5f + -45f * (StartPos - 1));
+            Transform.rotation = _isLaneMode ? LaneLayout.NoteRotation : Quaternion.Euler(0, 0, -22.5f + -45f * (StartPos - 1));
             Transform.localScale = new Vector3(0, 0);
 
             _tapLineTransform.rotation = Quaternion.Euler(0, 0, -22.5f + -45f * (StartPos - 1));
@@ -276,7 +280,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                             _exRenderer.size = new Vector2(1.22f, 1.42f);
                             _thisRenderer.size = new Vector2(1.22f, 1.42f);
                             _tapLineTransform.localScale = new Vector3(0.2552f, 0.2552f, 1f);
-                            Transform.position = _innerPos;
+                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, 1.225f) : _innerPos;
                             SetExRendererActive(true);
                             SetNoteRendererActive(true);
 
@@ -328,12 +332,14 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         }
                         Distance = distance;
                         var dis = (distance - holdDistance) / 2 + holdDistance;
-                        var size = (distance - holdDistance + 1.4f * USERSETTING_HOLD_SCALE) / USERSETTING_HOLD_SCALE;
+                        // 下落式把径向距离线性放大到轨道长度，身体长度同样按比例放大
+                        var bodyLength = _isLaneMode ? (distance - holdDistance) * LaneLayout.DistanceScale : distance - holdDistance;
+                        var size = (bodyLength + 1.4f * USERSETTING_HOLD_SCALE) / USERSETTING_HOLD_SCALE;
                         var lineScale = Mathf.Abs(distance / 4.8f);
 
                         lineScale = lineScale >= 1f ? 1f : lineScale;
 
-                        Transform.position = _outerPos * (dis / 4.8f); //0.325
+                        Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, dis) : _outerPos * (dis / 4.8f); //0.325
                         _tapLineTransform.localScale = new Vector3(lineScale, lineScale, 1f);
                         _thisRenderer.size = new Vector2(1.22f, size);
                         _exRenderer.size = new Vector2(1.22f, size);
@@ -347,7 +353,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         var scale = Mathf.Abs(ratio);
                         _tapLineTransform.localScale = new Vector3(1f, 1f, 1f);
                         Distance = endDistance;
-                        Transform.position = _outerPos * ratio;
+                        Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, endDistance) : _outerPos * ratio;
                         _tapLineTransform.localScale = new Vector3(scale, scale, 1f);
                         break;
                     default:
@@ -416,7 +422,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 Judge(ThisFrameSec);
             }
-            else if (NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
+            else if (!_isLaneMode && NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
             {
                 Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
             }
@@ -471,7 +477,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var isButtonPressed = NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On);
-            var isSensorPressed = NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
+            // 下落式中 Hold 只响应轨道，悬空 Touch 区不算按住
+            var isSensorPressed = !_isLaneMode && NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
             var isPressed = isButtonPressed || isSensorPressed;
 
             if(isPressed)
@@ -512,7 +519,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var isButtonPressed = NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On);
-            var isSensorPressed = NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
+            // 下落式中 Hold 只响应轨道，悬空 Touch 区不算按住
+            var isSensorPressed = !_isLaneMode && NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
             var isPressed = isButtonPressed || isSensorPressed;
 
             if(IsClassic)
@@ -647,7 +655,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         }
         private void SetTapLineActive(bool state)
         {
-            switch (state)
+            // 下落式不显示圆形引导线
+            switch (state && !_isLaneMode)
             {
                 case true:
                     _tapLineObject.layer = MajEnv.DEFAULT_LAYER;

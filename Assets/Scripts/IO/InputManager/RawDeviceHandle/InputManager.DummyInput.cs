@@ -70,6 +70,10 @@ namespace MajdataPlay.IO
         //readonly static Dictionary<SensorArea, HashSet<int>> _touchRecords = new(8);
         public static bool UseOuterTouchAsSensor { get; set; }
         public static bool UseGameplayTouchEnhancementFeatures { get; set; } = false;
+        /// <summary>
+        /// 下落式模式由游戏场景自行把触摸换算为轨道，此时屏幕触摸只保留副屏（P1）点击，不再映射到圆形传感器和按键。
+        /// </summary>
+        public static bool SuppressTouchPanelSimulation { get; set; } = false;
         static void UpdateMousePosition()
         {
             Profiler.BeginSample("ButtonRing.OnPreUpdate.UpdateMousePosition");
@@ -383,6 +387,11 @@ namespace MajdataPlay.IO
                 // we directly set the output, not using isAnyExtraButtonTriggered..
                 buttonStates[9] |= true;
                 newP |= 1UL << 9;
+            }
+            if (SuppressTouchPanelSimulation)
+            {
+                rawPositionData = newP;
+                return;
             }
             if(radToCenter > _lastTouchButtonRingEdge)
             {

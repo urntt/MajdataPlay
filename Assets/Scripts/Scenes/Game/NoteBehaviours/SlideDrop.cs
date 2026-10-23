@@ -174,6 +174,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 Destroy(SlideOK);
                 SlideOK = null;
             }
+            InitLanePath();
 
             State = NoteStatus.Inited;
             DJAutoplayRatio = SlideLength / 14;
