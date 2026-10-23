@@ -423,6 +423,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             }
         }
         /// <summary>
+        /// 下落式暂停恢复时调用：当前按住屏幕的手指在抬起前都不参与判定
+        /// </summary>
+        internal void IgnoreActiveLanePointers()
+        {
+            _laneInput.IgnoreActivePointers();
+        }
+        /// <summary>
         /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

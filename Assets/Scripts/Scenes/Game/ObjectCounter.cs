@@ -291,6 +291,12 @@ namespace MajdataPlay.Scenes.Game
         Utf16ValueStringBuilder _sb = ZString.CreateStringBuilder();
 
 
+        // 下落式 HUD 需要把这些显示对象挪到游玩区四周
+        internal TextMeshProUGUI SubScreenInfoDisplayerText => _subScreenInfoDisplayerText;
+        internal GameObject CenterInfoDisplayerObject => _centerInfoDisplayerText.gameObject;
+        internal GameObject SecondaryInfoDisplayerObject => _secondaryInfoDisplayerText.gameObject;
+        internal GameObject JudgeTimingGaugeObject => _judgeTimingGaugeParent;
+
         void Awake()
         {
             Majdata<ObjectCounter>.Instance = this;

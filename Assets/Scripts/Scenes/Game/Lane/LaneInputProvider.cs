@@ -52,6 +52,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// </summary>
             public ulong LastFloatSensors;
             public bool IsFlickArmed;
+            /// <summary>
+            /// 从 HUD 按钮上开始、或恢复游戏时已按住的手指，在抬起前都不参与判定
+            /// </summary>
+            public bool IsIgnored;
         }
 
         /// <summary>
@@ -128,6 +132,36 @@ namespace MajdataPlay.Scenes.Game.Lane
             _flickLatch[lane - 1] = 0;
             return true;
         }
+        /// <summary>
+        /// 暂停恢复时调用：当前按住屏幕的手指在抬起前都不参与判定，避免被当成新的点击
+        /// </summary>
+        public void IgnoreActivePointers()
+        {
+            var touches = Touch.activeTouches;
+            for (var i = 0; i < touches.Count; i++)
+            {
+                var touch = touches[i];
+                if (!touch.valid || touch.phase is TouchPhase.Ended or TouchPhase.Canceled)
+                {
+                    continue;
+                }
+                _records[touch.touchId] = new TouchRecord()
+                {
+                    LastPosition = touch.screenPosition,
+                    IsIgnored = true
+                };
+            }
+#if UNITY_STANDALONE || UNITY_EDITOR
+            if (Mouse.current is Mouse mouse && mouse.leftButton.isPressed)
+            {
+                _records[MOUSE_TOUCH_ID] = new TouchRecord()
+                {
+                    LastPosition = mouse.position.value,
+                    IsIgnored = true
+                };
+            }
+#endif
+        }
         public void Clear()
         {
             _records.Clear();
@@ -149,10 +183,17 @@ namespace MajdataPlay.Scenes.Game.Lane
                 {
                     LastPosition = position,
                     LastFloatSensors = 0,
-                    IsFlickArmed = true
+                    IsFlickArmed = true,
+                    // 按在暂停键、跳过键上的手指不打音符
+                    IsIgnored = LaneHud.IsPointerBlocked(screenPosition)
                 };
                 // 第一次出现的手指视为按下
                 isBegan = true;
+            }
+            if (record.IsIgnored)
+            {
+                _records[id] = record;
+                return;
             }
             // 副屏区域用于跳过乐曲等操作，不参与轨道判定
             var isInSubScreen = position.x > subScreenEdge.x && position.x < subScreenEdge.z &&

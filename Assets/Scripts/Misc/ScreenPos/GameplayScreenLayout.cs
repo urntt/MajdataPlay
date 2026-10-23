@@ -19,15 +19,24 @@ namespace MajdataPlay
         public const float LANDSCAPE_HALF_HEIGHT = 5.4f;
 
         static bool _isLandscapeRequested = false;
+        static bool _isFallingPlayArea = false;
 
         public static bool IsLandscapeRequested => _isLandscapeRequested;
         /// <summary>
-        /// 已请求横屏，并且屏幕（或窗口）实际为横向。手机旋转完成前、或 PC 竖向窗口时为 false，回退到竖屏布局。
+        /// 下落式：游玩区固定为 1920×1080（16:9），更宽的屏幕两侧、更窄的屏幕上下留黑边；
+        /// 不显示副屏，忽略主屏缩放设置。
         /// </summary>
-        public static bool IsLandscape => _isLandscapeRequested && Screen.width > Screen.height;
+        public static bool IsFallingPlayArea => _isLandscapeRequested && _isFallingPlayArea;
+        /// <summary>
+        /// 已请求横屏，并且屏幕（或窗口）实际为横向。手机旋转完成前、或 PC 竖向窗口时为 false，回退到竖屏布局。
+        /// 下落式始终使用横屏布局（竖向窗口时上下留黑边）。
+        /// </summary>
+        public static bool IsLandscape => _isLandscapeRequested && (_isFallingPlayArea || Screen.width > Screen.height);
 
-        public static void RequestLandscape()
+        /// <param name="isFallingPlayArea">下落式的 16:9 游玩区</param>
+        public static void RequestLandscape(bool isFallingPlayArea = false)
         {
+            _isFallingPlayArea = isFallingPlayArea;
             if (_isLandscapeRequested)
             {
                 return;
@@ -44,6 +53,7 @@ namespace MajdataPlay
         }
         public static void Reset()
         {
+            _isFallingPlayArea = false;
             if (!_isLandscapeRequested)
             {
                 return;

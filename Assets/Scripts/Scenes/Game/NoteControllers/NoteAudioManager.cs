@@ -587,6 +587,18 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _noteSFXPlaybackRequests[TOUCHHOLD] = false;
             //_audioManager.StopSFX("touch_Hold_riser.wav");
         }
+        /// <summary>
+        /// 下落式暂停：立即停止循环播放的音效（TouchHold 上升音）。暂停期间不会运行 OnLateUpdate，不能等它来停止
+        /// </summary>
+        internal void StopLoopingSounds()
+        {
+            _noteSFXPlaybackRequests[TOUCHHOLD] = false;
+            if (_isTouchHoldRiserPlaying)
+            {
+                _isTouchHoldRiserPlaying = false;
+                _noteSFXs[TOUCHHOLD].Stop();
+            }
+        }
         [Il2CppSetOption(Option.NullChecks, false)]
         [Il2CppSetOption(Option.ArrayBoundsChecks, false)]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

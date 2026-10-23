@@ -31,14 +31,16 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
     }
     /// <summary>
-    /// 下落式模式的轨道几何。轨道放在主屏（判定圆所在的 10.8×10.8 世界单位正方形）内，
-    /// 竖屏与横屏共用同一套世界坐标，由相机负责适配屏幕。
+    /// 下落式模式的轨道几何。游玩区固定为 19.2×10.8 世界单位（16:9，对应画布 1920×1080），
+    /// 8 条轨道铺满游玩区宽度；相机与画布按横屏布局适配屏幕，多余部分留黑边。
     /// </summary>
     internal static class LaneLayout
     {
         public const int LANE_COUNT = 8;
-        public const float LEFT = -5.4f;
-        public const float LANE_WIDTH = 1.35f;
+        public const float PLAY_AREA_WIDTH = 19.2f;
+        public const float PLAY_AREA_HEIGHT = 10.8f;
+        public const float LEFT = -PLAY_AREA_WIDTH / 2f;
+        public const float LANE_WIDTH = PLAY_AREA_WIDTH / LANE_COUNT;
         public const float JUDGE_LINE_Y = -4.2f;
         public const float TOP_Y = 5.4f;
         public const float BOTTOM_Y = -5.4f;

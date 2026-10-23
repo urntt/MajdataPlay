@@ -138,6 +138,10 @@ namespace MajdataPlay.Scenes.Game
 #endif
         }
 
+        // 下落式 HUD 按显示中的封面或视频尺寸把背景放大到铺满游玩区
+        internal Image CoverRenderer => _coverRenderer;
+        internal RawImage VideoRenderer => _videoRenderer;
+
         public void PauseVideo()
         {
             if (_usePictureAsBackground)

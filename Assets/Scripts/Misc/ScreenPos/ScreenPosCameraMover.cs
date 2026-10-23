@@ -23,6 +23,7 @@ namespace MajdataPlay
         float _screenOrthographicSize;
         float _screenYAdjustment;
         bool _isLandscape;
+        bool _isFallingPlayArea;
         //float _lastMainScreenPos = 1f;
 
         Transform _transform;
@@ -72,12 +73,14 @@ namespace MajdataPlay
             int width = Screen.width;
             int height = Screen.height;
             bool isLandscape = GameplayScreenLayout.IsLandscape;
-            if (width <= 0 || height <= 0 || (width == _screenWidth && height == _screenHeight && isLandscape == _isLandscape))
+            bool isFallingPlayArea = GameplayScreenLayout.IsFallingPlayArea;
+            if (width <= 0 || height <= 0 || (width == _screenWidth && height == _screenHeight && isLandscape == _isLandscape && isFallingPlayArea == _isFallingPlayArea))
                 return false;
 
             _screenWidth = width;
             _screenHeight = height;
             _isLandscape = isLandscape;
+            _isFallingPlayArea = isFallingPlayArea;
             if (isLandscape)
             {
                 // 横屏：与 ScreenPosCanvasMover 的 1920×1080 / Expand 对齐，判定圆居中并占满屏高。
@@ -116,6 +119,12 @@ namespace MajdataPlay
 
         void ApplyPosition(float offset, float scale)
         {
+            if (_isFallingPlayArea)
+            {
+                // 下落式的 16:9 游玩区始终铺满屏幕，不应用主屏缩放
+                RestoreOriginal();
+                return;
+            }
             // 横屏时判定圆始终居中，只应用缩放，不应用纵向偏移。
             _transform.position = _isLandscape ? new Vector3(0, 0, -10)
                                                : new Vector3(0, _baseY + offset * 2.7f + _screenYAdjustment, -10);

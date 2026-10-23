@@ -78,6 +78,11 @@ namespace MajdataPlay.Scenes.Game
             get => ModInfo.PlaybackSpeed;
         }
         public GamePlayStatus State { get; private set; } = GamePlayStatus.Start;
+        /// <summary>
+        /// 下落式暂停中：游戏时间冻结，音符不更新
+        /// </summary>
+        public bool IsPaused { get; private set; } = false;
+        internal bool CanPause => !IsPaused && _isAudioStarted && (State is GamePlayStatus.Running or GamePlayStatus.WaitForEnd);
         // Data
         public bool IsPracticeMode => _gameInfo.IsPracticeMode;
         internal GameMode Mode => _gameInfo.Mode;
@@ -198,6 +203,8 @@ namespace MajdataPlay.Scenes.Game
         GameplayScreenRotationAngleOption _screenRotationAngle = GameplayScreenRotationAngleOption.Zero;
 
         AudioSampleWrap? _audioSample = null;
+        bool _isAudioStarted = false;
+        float _pausedSec = 0f;
 
         BGManager _bgManager;
         NoteLoader _noteLoader;
@@ -250,7 +257,12 @@ namespace MajdataPlay.Scenes.Game
             {
                 LaneMode.Disable();
             }
-            if (_gameSettings.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
+            if (LaneMode.IsEnabled)
+            {
+                // 下落式强制横屏，使用 16:9 游玩区
+                GameplayScreenLayout.RequestLandscape(isFallingPlayArea: true);
+            }
+            else if (_gameSettings.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
             {
                 GameplayScreenLayout.RequestLandscape();
             }
@@ -334,6 +346,22 @@ namespace MajdataPlay.Scenes.Game
             _timeDisplayer = Majdata<TimeDisplayer>.Instance!;
             _noteLoader = Majdata<NoteLoader>.Instance!;
             _recorderStateDisplayer = Majdata<RecorderStatusDisplayer>.Instance!;
+
+            if (LaneMode.IsEnabled && _mainDisplayer.parent is RectTransform canvasRoot)
+            {
+                // 下落式：Phigros 式 HUD 与暂停菜单
+                var level = _gameInfo.CurrentLevel;
+                LaneHud.Create(this,
+                               _noteManager,
+                               _bgManager,
+                               _objectCounter,
+                               canvasRoot,
+                               _skipBtn,
+                               _chartInfoDisplayer.title.font,
+                               _songDetail.Title,
+                               LaneHud.FormatDifficulty(level, _songDetail.Levels[(int)level]),
+                               RuntimeDatabase.DifficultyColors[(int)level]);
+            }
 
             _errText = GameObject.Find("ErrText").GetComponent<TextMeshProUGUI>();
             _chartRotation = _gameSettings.Game.Rotation.Clamp(-7, 7);
@@ -1151,6 +1179,7 @@ namespace MajdataPlay.Scenes.Game
             _audioSample.Play();
             _audioSample.Volume = 0;
             _audioSample.CurrentSec = startSec;
+            _isAudioStarted = true;
 
             _audioStartTime = _timer.ElapsedSecondsAsFloat - _audioTrackStartAt;
             MajDebug.LogInfo($"Chart playback speed: {PlaybackSpeed}x");
@@ -1223,6 +1252,10 @@ namespace MajdataPlay.Scenes.Game
         {
             using (UnityProfiler.Create("GamePlayManager.OnPreUpdate"))
             {
+                if (IsPaused)
+                {
+                    return;
+                }
                 AudioTimeUpdate();
                 ComponentPreUpdate();
             }
@@ -1231,6 +1264,10 @@ namespace MajdataPlay.Scenes.Game
         {
             using (UnityProfiler.Create("GamePlayManager.OnUpdate"))
             {
+                if (IsPaused)
+                {
+                    return;
+                }
                 NoteManagerUpdate();
                 FnKeyStateUpdate();
             }
@@ -1239,18 +1276,21 @@ namespace MajdataPlay.Scenes.Game
         {
             using (UnityProfiler.Create("GamePlayManager.OnLateUpdate"))
             {
-                switch (State)
+                if (!IsPaused)
                 {
-                    case GamePlayStatus.WaitForEnd:
-                    case GamePlayStatus.Blocking:
-                    case GamePlayStatus.Running:
-                        _noteAudioManager.OnLateUpdate();
-                        _noteManager.OnLateUpdate();
-                        _objectCounter.OnLateUpdate();
-                        EnforceGameFailureLateUpdate();
-                        break;
+                    switch (State)
+                    {
+                        case GamePlayStatus.WaitForEnd:
+                        case GamePlayStatus.Blocking:
+                        case GamePlayStatus.Running:
+                            _noteAudioManager.OnLateUpdate();
+                            _noteManager.OnLateUpdate();
+                            _objectCounter.OnLateUpdate();
+                            EnforceGameFailureLateUpdate();
+                            break;
+                    }
+                    GameControlLateUpdate();
                 }
-                GameControlLateUpdate();
                 _noteEffectPool.OnLateUpdate();
                 _recorderStateDisplayer.OnLateUpdate();
                 if (_bgManager.CurrentSec > _bgManager.MediaLength.TotalSeconds)
@@ -1510,20 +1550,117 @@ namespace MajdataPlay.Scenes.Game
                 }
                 else if (_1278PressTime >= 0.5f && _isFastPracticeAvailable)
                 {
-                    var startTime = Math.Max(ThisFrameSec - 5f, 0f);
-                    var endTime = Math.Min(ThisFrameSec + 10f, (float)_audioSample.Length.TotalSeconds);
-
-                    var info = new GameInfo(GameMode.Practice, _gameInfo.Charts, _gameInfo.Levels, 114514);
-                    info.TimeRange = new Range<double>(startTime, endTime);
-                    Majdata<GameInfo>.Instance = info;
-
-                    State = GamePlayStatus.Ended;
-                    _cts.Cancel();
-                    _audioSample?.Stop();
-                    ExitToScene("Practice", 0).Forget();
+                    EnterFastPractice();
                 }
             }
         }
+        /// <summary>
+        /// 以当前时刻前 5 秒到后 10 秒进入练习（1278 手势与下落式暂停菜单共用）
+        /// </summary>
+        void EnterFastPractice()
+        {
+            var startTime = Math.Max(ThisFrameSec - 5f, 0f);
+            var endTime = Math.Min(ThisFrameSec + 10f, (float)_audioSample.Length.TotalSeconds);
+
+            var info = new GameInfo(GameMode.Practice, _gameInfo.Charts, _gameInfo.Levels, 114514);
+            info.TimeRange = new Range<double>(startTime, endTime);
+            Majdata<GameInfo>.Instance = info;
+
+            State = GamePlayStatus.Ended;
+            _cts.Cancel();
+            _audioSample?.Stop();
+            ExitToScene("Practice", 0).Forget();
+        }
+        #region Pause
+        /// <summary>
+        /// 下落式暂停：冻结游戏时间，暂停音频与背景视频
+        /// </summary>
+        /// <returns>是否成功进入暂停</returns>
+        internal bool Pause()
+        {
+            if (!CanPause)
+            {
+                return false;
+            }
+            IsPaused = true;
+            _pausedSec = _thisFrameSec;
+            _audioSample?.Pause();
+            _bgManager.PauseVideo();
+            _noteAudioManager.StopLoopingSounds();
+            return true;
+        }
+        /// <summary>
+        /// 从暂停处继续：音频回到暂停时的位置，重新对齐游戏时钟
+        /// </summary>
+        internal void Resume()
+        {
+            if (!IsPaused)
+            {
+                return;
+            }
+            else if (State is not (GamePlayStatus.Running or GamePlayStatus.WaitForEnd))
+            {
+                // 暂停菜单中已选择退出、重开或练习
+                return;
+            }
+            // 与 PrepareToPlay 一致：音频位置 = (游戏时间 - 设备补偿) × 播放速度
+            var audioSec = (_pausedSec - _devicePlaybackOffset) * PlaybackSpeed;
+            if (_audioSample is not null)
+            {
+                if (_audioSample.CanSeek)
+                {
+                    _audioSample.CurrentSec = audioSec;
+                }
+                _audioSample.Play();
+            }
+            _audioStartTime = _timer.ElapsedSecondsAsFloat + _devicePlaybackOffset - _pausedSec;
+            var videoSec = audioSec + _videoOffsetSec * PlaybackSpeed;
+            if (videoSec >= 0 && videoSec < _bgManager.MediaLength.TotalSeconds)
+            {
+                _bgManager.PlayVideo(videoSec, PlaybackSpeed);
+            }
+            IsPaused = false;
+        }
+        /// <summary>
+        /// 暂停菜单“退出”：与原 2367 手势 / 副屏点击的跳过一致
+        /// </summary>
+        internal void PauseMenuExit()
+        {
+            if (State == GamePlayStatus.Ended)
+            {
+                return;
+            }
+            if (IsPracticeMode)
+            {
+                var info = new GameInfo(GameMode.Practice, _gameInfo.Charts, _gameInfo.Levels, 114514);
+                info.TimeRange = _gameInfo.TimeRange;
+                Majdata<GameInfo>.Instance = info;
+                ReturnTo("Practice").Forget();
+            }
+            else
+            {
+                TrackSkipTo().Forget();
+            }
+        }
+        /// <summary>
+        /// 暂停菜单“重开”：与原 3456 手势一致
+        /// </summary>
+        internal void PauseMenuRetry()
+        {
+            FastRetry().Forget();
+        }
+        /// <summary>
+        /// 暂停菜单“练习”：与原 1278 手势一致
+        /// </summary>
+        internal void PauseMenuPractice()
+        {
+            if (State == GamePlayStatus.Ended || _audioSample is null)
+            {
+                return;
+            }
+            EnterFastPractice();
+        }
+        #endregion
         void ResetFnKeyPressTimes()
         {
             _3456PressTime = 0;

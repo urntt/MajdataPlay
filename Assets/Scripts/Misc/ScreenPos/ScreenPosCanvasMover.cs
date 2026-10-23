@@ -130,6 +130,7 @@ namespace MajdataPlay
         int _lastLandscapeScreenWidth;
         int _lastLandscapeScreenHeight;
         float _lastLandscapeScale = float.NaN;
+        bool _lastFallingPlayArea;
         Vector2 _originalMainAnchorMin;
         Vector2 _originalMainAnchorMax;
         float _originalSubDisplayPosX;
@@ -357,6 +358,11 @@ namespace MajdataPlay
 
         float GetLandscapeScale()
         {
+            if (GameplayScreenLayout.IsFallingPlayArea)
+            {
+                // 下落式的 16:9 游玩区始终铺满屏幕
+                return 1f;
+            }
             var scale = _displayOptions!.MainScreenTransform ? _displayOptions.MainScreenScale : 1f;
             return scale > 0 ? scale : 1f;
         }
@@ -381,7 +387,12 @@ namespace MajdataPlay
             var scaleFactor = Mathf.Min(Screen.width / referenceResolution.x, Screen.height / referenceResolution.y);
             var canvasWidth = Screen.width / scaleFactor;
             var canvasHeight = Screen.height / scaleFactor;
-            if (_subDisplay != null)
+            if (_subDisplay != null && GameplayScreenLayout.IsFallingPlayArea)
+            {
+                // 下落式由 HUD 显示信息，不显示副屏；缩放为 0 后副屏点击区域也随之消失
+                _subDisplay.localScale = Vector3.zero;
+            }
+            else if (_subDisplay != null)
             {
                 var sideWidth = Mathf.Max(0f, (canvasWidth - MAIN_DISPLAY_HEIGHT) / 2f);
                 var subScale = Mathf.Clamp((sideWidth - LANDSCAPE_SIDE_MARGIN * 2f) / SCREEN_CANVAS_WIDTH, 0.05f, 1f);
@@ -412,12 +423,14 @@ namespace MajdataPlay
                 var width = Screen.width;
                 var height = Screen.height;
                 var scale = GetLandscapeScale();
-                if (!_isLandscape || width != _lastLandscapeScreenWidth || height != _lastLandscapeScreenHeight || scale != _lastLandscapeScale)
+                var isFallingPlayArea = GameplayScreenLayout.IsFallingPlayArea;
+                if (!_isLandscape || width != _lastLandscapeScreenWidth || height != _lastLandscapeScreenHeight || scale != _lastLandscapeScale || isFallingPlayArea != _lastFallingPlayArea)
                 {
                     _isLandscape = true;
                     _lastLandscapeScreenWidth = width;
                     _lastLandscapeScreenHeight = height;
                     _lastLandscapeScale = scale;
+                    _lastFallingPlayArea = isFallingPlayArea;
                     ApplyLandscape(scale);
                 }
                 return true;
