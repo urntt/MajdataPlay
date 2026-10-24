@@ -971,9 +971,11 @@ namespace MajdataPlay.Scenes.Game
         {
             await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
 
-            var tapSpeed = Math.Abs(_gameSettings.Game.TapSpeed);
+            // 下落式使用单独的下落速度，换算公式与 Tap 速度相同
+            var tapSpeedSetting = LaneMode.IsEnabled ? _gameSettings.Game.FallingSpeed : _gameSettings.Game.TapSpeed;
+            var tapSpeed = Math.Abs(tapSpeedSetting);
 
-            if(_gameSettings.Game.TapSpeed < 0)
+            if(tapSpeedSetting < 0)
             {
                 _noteLoader.NoteSpeed = -((float)(107.25 / (71.4184491 * Mathf.Pow(tapSpeed + 0.9975f, -0.985558604f))));
             }

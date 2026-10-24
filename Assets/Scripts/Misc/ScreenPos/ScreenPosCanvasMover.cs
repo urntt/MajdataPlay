@@ -135,6 +135,12 @@ namespace MajdataPlay
         Vector2 _originalMainAnchorMax;
         float _originalSubDisplayPosX;
 
+        // 常驻画布（GlobalCanvas）上才有：EdgeCanvas 遮住主屏两侧，Main_Display 上的 Image 是圆外全黑的遮罩
+        GameObject? _edgeCanvas;
+        bool _isEdgeCanvasActive;
+        Image? _circleMask;
+        bool _isCircleMaskEnabled;
+
 
         void Awake()
         {
@@ -207,6 +213,17 @@ namespace MajdataPlay
             {
                 _subDisplay = subDisplay.GetComponent<RectTransform>();
                 _originalSubDisplayPosX = _subDisplay.anchoredPosition.x;
+            }
+            var edgeCanvas = _transform.parent.Find("EdgeCanvas");
+            if (edgeCanvas is not null)
+            {
+                _edgeCanvas = edgeCanvas.gameObject;
+                _isEdgeCanvasActive = _edgeCanvas.activeSelf;
+            }
+            if (TryGetComponent<Image>(out var circleMask))
+            {
+                _circleMask = circleMask;
+                _isCircleMaskEnabled = circleMask.enabled;
             }
             _canvasScaleFactor = Mathf.Max(
                 Screen.width / _baseReferenceResolution.x,
@@ -401,14 +418,23 @@ namespace MajdataPlay
                 _subDisplay.anchoredPosition = new Vector2(x, y);
                 _subDisplay.localScale = new Vector3(subScale, subScale, 1f);
             }
-            // 遮罩只用于竖屏主副屏之间的区域，横屏下收起。
-            if (_subCoverRectTransform != null)
+            // 遮罩只用于竖屏主副屏之间的区域，横屏下连同其中的调试文字一起缩为 0。
+            if (_subCoverTransform != null)
             {
-                _subCoverRectTransform.sizeDelta = Vector2.zero;
+                _subCoverTransform.localScale = Vector3.zero;
             }
-            if (_subCoverBottomRectTransform != null)
+            if (_subCoverBottomTransform != null)
             {
-                _subCoverBottomRectTransform.sizeDelta = Vector2.zero;
+                _subCoverBottomTransform.localScale = Vector3.zero;
+            }
+            // 两侧黑边会挡住左侧栏的副屏；下落式的游玩区铺满 16:9，圆形遮罩也要关掉
+            if (_edgeCanvas != null)
+            {
+                _edgeCanvas.SetActive(false);
+            }
+            if (_circleMask != null)
+            {
+                _circleMask.enabled = _isCircleMaskEnabled && !GameplayScreenLayout.IsFallingPlayArea;
             }
             _isSubCoverPendingRefresh = false;
         }
@@ -444,6 +470,22 @@ namespace MajdataPlay
                 if (_subDisplay != null)
                 {
                     _subDisplay.anchoredPosition = new Vector2(_originalSubDisplayPosX, _subDisplay.anchoredPosition.y);
+                }
+                if (_subCoverTransform != null)
+                {
+                    _subCoverTransform.localScale = Vector3.one;
+                }
+                if (_subCoverBottomTransform != null)
+                {
+                    _subCoverBottomTransform.localScale = Vector3.one;
+                }
+                if (_edgeCanvas != null)
+                {
+                    _edgeCanvas.SetActive(_isEdgeCanvasActive);
+                }
+                if (_circleMask != null)
+                {
+                    _circleMask.enabled = _isCircleMaskEnabled;
                 }
                 _lastMainDisplayOffset = float.NaN;
                 _lastMainDisplayScale = float.NaN;

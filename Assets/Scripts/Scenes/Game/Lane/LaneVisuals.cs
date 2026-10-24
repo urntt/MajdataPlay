@@ -3,7 +3,7 @@ using UnityEngine;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式模式在运行时创建的简单图形（轨道线、判定线、Slide 路径）
+    /// 下落式模式在运行时创建的简单图形（轨道线、判定线、Slide 箭头）
     /// </summary>
     internal static class LaneVisuals
     {
@@ -36,15 +36,20 @@ namespace MajdataPlay.Scenes.Game.Lane
 
         public static SpriteRenderer CreateQuad(string name, Transform parent, Material material, int sortingLayerId, int sortingOrder, Color color)
         {
+            var renderer = CreateSprite(name, parent, WhiteSprite, material, sortingLayerId, sortingOrder);
+            renderer.color = color;
+            return renderer;
+        }
+        public static SpriteRenderer CreateSprite(string name, Transform parent, Sprite sprite, Material material, int sortingLayerId, int sortingOrder)
+        {
             var obj = new GameObject(name);
             obj.layer = MajEnv.DEFAULT_LAYER;
             obj.transform.SetParent(parent, false);
             var renderer = obj.AddComponent<SpriteRenderer>();
-            renderer.sprite = WhiteSprite;
+            renderer.sprite = sprite;
             renderer.sharedMaterial = material;
             renderer.sortingLayerID = sortingLayerId;
             renderer.sortingOrder = sortingOrder;
-            renderer.color = color;
             return renderer;
         }
         /// <summary>
@@ -92,7 +97,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 band.transform.position = new Vector3((left + right) / 2f, (bandBottom + bandTop) / 2f, 0);
                 band.transform.localScale = new Vector3(right - left, bandTop - bandBottom, 1f);
             }
-            for (var i = 0; i <= LaneLayout.LANE_COUNT; i++)
+            for (var i = 0; LaneMode.IsLaneDividerVisible && i <= LaneLayout.LANE_COUNT; i++)
             {
                 var x = left + i * LaneLayout.LANE_WIDTH;
                 var divider = CreateQuad($"LaneDivider_{i}", parent, material, layerId, -100, new Color(1f, 1f, 1f, 0.25f));

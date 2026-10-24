@@ -254,6 +254,8 @@ namespace MajdataPlay.Scenes.Game
         TextMeshProUGUI _topInfoFast;
         [SerializeField]
         TextMeshProUGUI _topInfoLate;
+        // 下落式不显示顶部信息：它的位置会压在移到顶部中间的连击数上
+        TopInfoDisplayOption _topInfoOption;
 
         [SerializeField]
         [FormerlySerializedAs("judgeTimingGaugeParent")]
@@ -300,6 +302,8 @@ namespace MajdataPlay.Scenes.Game
         void Awake()
         {
             Majdata<ObjectCounter>.Instance = this;
+            // 直接读设置：本组件与 GamePlayManager 的 Awake 先后不确定，此时 LaneMode 可能尚未启用
+            _topInfoOption = MajEnv.Settings.Mod.PlayStyle == PlayStyleOption.Falling ? TopInfoDisplayOption.None : MajEnv.Settings.Game.TopInfo;
             _rate = GameObject.Find("ObjectRate").GetComponent<TextMeshProUGUI>();
 
             _centerInfoDisplayerObject = _centerInfoDisplayerText.gameObject;
@@ -342,7 +346,7 @@ namespace MajdataPlay.Scenes.Game
             //clean up
             Clear();
 
-            switch (MajEnv.Settings.Game.TopInfo)
+            switch (_topInfoOption)
             {
                 case TopInfoDisplayOption.Judge:
                     _topInfoJudgeParent.SetActive(true);
@@ -1190,7 +1194,7 @@ namespace MajdataPlay.Scenes.Game
             _lateCountDisplayer.SetText(_sb);
             _sb.Clear();
 
-            switch (MajEnv.Settings.Game.TopInfo)
+            switch (_topInfoOption)
             {
                 case TopInfoDisplayOption.Judge:
                     {

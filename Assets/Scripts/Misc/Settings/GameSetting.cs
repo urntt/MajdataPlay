@@ -68,6 +68,13 @@ namespace MajdataPlay.Settings
         [Step("0.25")]
         [Range(HasMax = false, HasMin = false)]
         public float TouchSpeed { get; set; } = 7.5f;
+
+        /// <summary>
+        /// 下落式：代替 TapSpeed 决定音符下落快慢，数值含义与 TapSpeed 相同
+        /// </summary>
+        [Step("0.25")]
+        [Range("1", null, HasMax = false, HasMin = true)]
+        public float FallingSpeed { get; set; } = 7.5f;
         
         [OptionEnumerator(typeof(GameOffsetEnumerator))]
         public float SlideFadeInOffset { get; set; } = 0f;
@@ -379,6 +386,8 @@ namespace MajdataPlay.Settings
         public bool FallingVerticalJudge { get; set; } = true;
 
         public bool FallingBreakToFlick { get; set; } = false;
+
+        public bool FallingLaneDividers { get; set; } = true;
 
         public bool IsAnyModActive()
         {

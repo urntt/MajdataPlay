@@ -6,12 +6,19 @@ using UnityEngine;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式 Slide：把判定区序列画成一条随时间下落、在轨道间折线移动的路径线。
-    /// 路径线落到判定线时所在的轨道，就是手指此时应在的位置。
+    /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落。
+    /// 路径落到判定线时所在的轨道，就是手指此时应在的位置。
     /// </summary>
     internal sealed class LaneSlidePath
     {
-        const float LINE_WIDTH = 0.35f;
+        /// <summary>
+        /// 相邻箭头的间距（世界单位），与圆形模式的 Slide 箭头相近
+        /// </summary>
+        const float ARROW_SPACING = 0.5f;
+        /// <summary>
+        /// 箭头中心超出轨道顶端多少后才隐藏，避免箭头在顶端突然消失
+        /// </summary>
+        const float TOP_MARGIN = 0.5f;
         const string ROOT_NAME = "LaneSlidePaths";
 
         static Transform? _root;
@@ -27,45 +34,65 @@ namespace MajdataPlay.Scenes.Game.Lane
                 X = x;
             }
         }
+        readonly struct Arrow
+        {
+            public readonly float X;
+            /// <summary>
+            /// 相对高度：时刻 × 每秒下落的高度，加上当前帧的偏移即为世界坐标
+            /// </summary>
+            public readonly float Y;
+            public readonly Quaternion Rotation;
 
-        readonly Vertex[][] _paths;
-        readonly float _speed;
-        readonly Color _color;
+            public Arrow(float x, float y, Quaternion rotation)
+            {
+                X = x;
+                Y = y;
+                Rotation = rotation;
+            }
+        }
+
+        readonly Arrow[][] _paths;
+        readonly int[] _firstVisible;
+        readonly float _heightPerSec;
+        readonly Sprite _sprite;
         readonly Material _material;
         readonly int _sortingOrder;
-        // 只在 Slide 处于活动状态时创建线段，结束后销毁，避免加载时为每个 Slide 生成物体
-        SpriteRenderer[][]? _segments;
+        // 只为同屏可见的箭头创建渲染器，结束后销毁
+        readonly List<SpriteRenderer> _renderers = new();
+        int _enabledCount = 0;
         bool _isEnded = false;
 
         /// <param name="judgeQueues">Slide 的判定队列（Wifi 为左、中、右三条）</param>
         /// <param name="startTiming">星星开始移动的时刻</param>
         /// <param name="length">星星移动所需时间</param>
         /// <param name="speed">与音符相同的下落速度</param>
+        /// <param name="sprite">Slide 箭头，前进方向为本地 -X</param>
         public LaneSlidePath(ReadOnlySpan<Memory<SlideArea>> judgeQueues,
                              float startTiming,
                              float length,
                              float speed,
-                             Color color,
+                             Sprite? sprite,
                              Material material,
                              int sortingOrder)
         {
-            _speed = Mathf.Abs(speed);
-            _color = color;
+            _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
+            _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
             _sortingOrder = sortingOrder;
-            var paths = new List<Vertex[]>(judgeQueues.Length);
+            var paths = new List<Arrow[]>(judgeQueues.Length);
             foreach (var queue in judgeQueues)
             {
                 if (queue.IsEmpty)
                 {
                     continue;
                 }
-                paths.Add(BuildPath(queue.Span, startTiming, length));
+                paths.Add(BuildArrows(BuildPath(queue.Span, startTiming, length), _heightPerSec));
             }
             _paths = paths.ToArray();
+            _firstVisible = new int[_paths.Length];
         }
         /// <summary>
-        /// 按当前时刻更新路径线，只绘制判定线与轨道顶端之间的部分
+        /// 按当前时刻摆放箭头，只显示判定线与轨道顶端之间的部分
         /// </summary>
         public void Update(float thisFrameSec)
         {
@@ -73,30 +100,39 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 return;
             }
-            var allSegments = _segments ??= CreateSegments();
+            var offset = LaneLayout.JUDGE_LINE_Y - thisFrameSec * _heightPerSec;
+            var top = LaneLayout.TOP_Y + TOP_MARGIN;
+            var used = 0;
             for (var i = 0; i < _paths.Length; i++)
             {
-                var path = _paths[i];
-                var segments = allSegments[i];
-                for (var j = 0; j < segments.Length; j++)
+                var arrows = _paths[i];
+                var j = _firstVisible[i];
+                // 相对高度单调不减，越过判定线的箭头之后不会再出现
+                while (j < arrows.Length && arrows[j].Y + offset < LaneLayout.JUDGE_LINE_Y)
                 {
-                    var segment = segments[j];
-                    var from = path[j];
-                    var to = path[j + 1];
-                    var fromY = LaneLayout.GetYByTime(from.Timing - thisFrameSec, _speed);
-                    var toY = LaneLayout.GetYByTime(to.Timing - thisFrameSec, _speed);
-                    if (!TryClip(new Vector2(from.X, fromY), new Vector2(to.X, toY), out var a, out var b))
+                    j++;
+                }
+                _firstVisible[i] = j;
+                for (; j < arrows.Length; j++)
+                {
+                    ref readonly var arrow = ref arrows[j];
+                    var y = arrow.Y + offset;
+                    if (y > top)
                     {
-                        segment.enabled = false;
-                        continue;
+                        break;
                     }
-                    segment.enabled = true;
-                    LaneVisuals.SetSegment(segment, a, b, LINE_WIDTH);
+                    var renderer = GetRenderer(used++);
+                    renderer.transform.SetPositionAndRotation(new Vector3(arrow.X, y, 0), arrow.Rotation);
                 }
             }
+            for (var k = used; k < _enabledCount; k++)
+            {
+                _renderers[k].enabled = false;
+            }
+            _enabledCount = used;
         }
         /// <summary>
-        /// Slide 结束后销毁路径线
+        /// Slide 结束后销毁箭头
         /// </summary>
         public void End()
         {
@@ -105,40 +141,30 @@ namespace MajdataPlay.Scenes.Game.Lane
                 return;
             }
             _isEnded = true;
-            if (_segments is null)
+            foreach (var renderer in _renderers)
             {
-                return;
-            }
-            foreach (var segments in _segments)
-            {
-                foreach (var segment in segments)
+                if (renderer != null)
                 {
-                    if (segment != null)
-                    {
-                        UnityEngine.Object.Destroy(segment.gameObject);
-                    }
+                    UnityEngine.Object.Destroy(renderer.gameObject);
                 }
             }
-            _segments = null;
+            _renderers.Clear();
+            _enabledCount = 0;
         }
-        SpriteRenderer[][] CreateSegments()
+        SpriteRenderer GetRenderer(int index)
         {
-            var parent = GetRoot();
-            var sortingLayerId = LaneVisuals.SlidePathSortingLayerId;
-            var allSegments = new SpriteRenderer[_paths.Length][];
-            for (var i = 0; i < _paths.Length; i++)
+            if (index < _renderers.Count)
             {
-                var path = _paths[i];
-                var segments = new SpriteRenderer[Math.Max(path.Length - 1, 0)];
-                for (var j = 0; j < segments.Length; j++)
+                var renderer = _renderers[index];
+                if (index >= _enabledCount)
                 {
-                    var segment = LaneVisuals.CreateQuad("LaneSlideSegment", parent, _material, sortingLayerId, _sortingOrder, _color);
-                    segment.enabled = false;
-                    segments[j] = segment;
+                    renderer.enabled = true;
                 }
-                allSegments[i] = segments;
+                return renderer;
             }
-            return allSegments;
+            var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, LaneVisuals.SlidePathSortingLayerId, _sortingOrder);
+            _renderers.Add(created);
+            return created;
         }
         static Vertex[] BuildPath(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
         {
@@ -161,6 +187,34 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             return vertices.ToArray();
         }
+        /// <summary>
+        /// 沿折线按弧长等距取点，箭头指向路径终点（时间更晚、位置更高的一端）
+        /// </summary>
+        static Arrow[] BuildArrows(Vertex[] vertices, float heightPerSec)
+        {
+            var arrows = new List<Arrow>();
+            // 下一个箭头距当前线段起点的弧长
+            var next = ARROW_SPACING / 2f;
+            for (var i = 0; i < vertices.Length - 1; i++)
+            {
+                var from = new Vector2(vertices[i].X, vertices[i].Timing * heightPerSec);
+                var to = new Vector2(vertices[i + 1].X, vertices[i + 1].Timing * heightPerSec);
+                var delta = to - from;
+                var length = delta.magnitude;
+                if (length <= 1e-4f)
+                {
+                    continue;
+                }
+                var rotation = Quaternion.Euler(0, 0, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg - 180f);
+                for (; next <= length; next += ARROW_SPACING)
+                {
+                    var point = from + delta * (next / length);
+                    arrows.Add(new Arrow(point.x, point.y, rotation));
+                }
+                next -= length;
+            }
+            return arrows.ToArray();
+        }
         static float GetAreaX(in SlideArea area)
         {
             var sensors = area.IncludedAreas;
@@ -174,39 +228,6 @@ namespace MajdataPlay.Scenes.Game.Lane
                 sum += LaneLayout.GetSensorX(sensor);
             }
             return sum / sensors.Length;
-        }
-        static bool TryClip(Vector2 from, Vector2 to, out Vector2 a, out Vector2 b)
-        {
-            const float BOTTOM = LaneLayout.JUDGE_LINE_Y;
-            const float TOP = LaneLayout.TOP_Y;
-            a = from;
-            b = to;
-            var minY = Mathf.Min(from.y, to.y);
-            var maxY = Mathf.Max(from.y, to.y);
-            if (maxY < BOTTOM || minY > TOP)
-            {
-                return false;
-            }
-            if (Mathf.Approximately(from.y, to.y))
-            {
-                return true;
-            }
-            a = ClipPoint(from, to, BOTTOM, TOP);
-            b = ClipPoint(to, from, BOTTOM, TOP);
-            return true;
-        }
-        /// <summary>
-        /// 把 <paramref name="point"/> 沿线段方向收回到 [bottom, top] 之内
-        /// </summary>
-        static Vector2 ClipPoint(Vector2 point, Vector2 other, float bottom, float top)
-        {
-            var targetY = point.y < bottom ? bottom : point.y > top ? top : point.y;
-            if (targetY == point.y)
-            {
-                return point;
-            }
-            var t = (targetY - point.y) / (other.y - point.y);
-            return Vector2.LerpUnclamped(point, other, t);
         }
         static Transform GetRoot()
         {

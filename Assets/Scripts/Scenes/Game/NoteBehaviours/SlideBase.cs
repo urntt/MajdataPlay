@@ -213,11 +213,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         private SlideArea?[] _lastTriggerAreas = new SlideArea?[3];
 
-        // 下落式：路径线
+        // 下落式：沿路径排布的箭头
         private LaneSlidePath? _lanePath;
-        static readonly Color LANE_PATH_COLOR = new Color(0.35f, 0.8f, 1f, 0.85f);
-        static readonly Color LANE_PATH_EACH_COLOR = new Color(1f, 0.85f, 0.2f, 0.85f);
-        static readonly Color LANE_PATH_BREAK_COLOR = new Color(1f, 0.5f, 0.15f, 0.85f);
 
         public abstract void Init();
         protected void MineCheck()
@@ -369,7 +366,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                                       : NoteManager.GetSensorStatusInThisFrame(area);
         }
         /// <summary>
-        /// 下落式：根据判定队列生成路径线。需要在 StartTiming、Length 与判定队列确定后调用
+        /// 下落式：根据判定队列生成路径箭头。需要在 StartTiming、Length 与判定队列确定后调用
         /// </summary>
         protected void InitLanePath()
         {
@@ -378,8 +375,20 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             _lanePath?.End();
-            var color = IsBreak ? LANE_PATH_BREAK_COLOR : IsEach ? LANE_PATH_EACH_COLOR : LANE_PATH_COLOR;
-            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, color, DefaultMaterial, 0);
+            // 与 SingleSlideBase.LoadSkin 选择箭头的规则一致；Wifi 也使用 Slide 箭头
+            var skin = MajInstances.SkinManager.GetSlideSkin();
+            Sprite? arrowSprite;
+            if (IsMine)
+            {
+                arrowSprite = IsBreak ? skin.BreakMine : skin.Mine;
+            }
+            else
+            {
+                arrowSprite = IsBreak ? skin.Break : IsEach ? skin.Each : skin.Normal;
+            }
+            var breakMaterial = BreakMaterial;
+            var material = IsBreak && breakMaterial is not null ? breakMaterial : DefaultMaterial;
+            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, material, 0);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected void UpdateLanePath()
