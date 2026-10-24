@@ -17,23 +17,30 @@ namespace MajdataPlay
         /// 判定圆外沿半径（与 InputManager.TouchButtonRingEdge 一致）
         /// </summary>
         public const float LANDSCAPE_HALF_HEIGHT = 5.4f;
+        /// <summary>
+        /// 下落式轨道区的宽度（世界单位）：16:9 时占屏宽 70%，两侧各留 15%
+        /// </summary>
+        public const float FALLING_LANE_AREA_WIDTH = LANDSCAPE_REFERENCE_WIDTH / 100f * 0.7f;
+        /// <summary>
+        /// 下落式最少可见的宽度：屏幕比 16:9 更窄时相机拉远，让轨道区最多占屏宽 85%
+        /// </summary>
+        public const float FALLING_MIN_VISIBLE_WIDTH = FALLING_LANE_AREA_WIDTH / 0.85f;
 
         static bool _isLandscapeRequested = false;
         static bool _isFallingPlayArea = false;
 
         public static bool IsLandscapeRequested => _isLandscapeRequested;
         /// <summary>
-        /// 下落式：游玩区固定为 1920×1080（16:9），更宽的屏幕两侧、更窄的屏幕上下留黑边；
-        /// 不显示副屏，忽略主屏缩放设置。
+        /// 下落式：画面铺满屏幕，音符只在中间的轨道区下落；不显示副屏，忽略主屏缩放设置。
         /// </summary>
         public static bool IsFallingPlayArea => _isLandscapeRequested && _isFallingPlayArea;
         /// <summary>
         /// 已请求横屏，并且屏幕（或窗口）实际为横向。手机旋转完成前、或 PC 竖向窗口时为 false，回退到竖屏布局。
-        /// 下落式始终使用横屏布局（竖向窗口时上下留黑边）。
+        /// 下落式始终使用横屏布局（竖向窗口时相机拉远，画面仍铺满）。
         /// </summary>
         public static bool IsLandscape => _isLandscapeRequested && (_isFallingPlayArea || Screen.width > Screen.height);
 
-        /// <param name="isFallingPlayArea">下落式的 16:9 游玩区</param>
+        /// <param name="isFallingPlayArea">下落式布局：画面铺满屏幕，轨道居中</param>
         public static void RequestLandscape(bool isFallingPlayArea = false)
         {
             _isFallingPlayArea = isFallingPlayArea;

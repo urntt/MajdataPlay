@@ -10,7 +10,14 @@ namespace MajdataPlay.Scenes.Game.Lane
         const string BACKGROUND_SORTING_LAYER = "Outline";
         const string SLIDE_PATH_SORTING_LAYER = "Slides";
 
+        /// <summary>
+        /// 横贯整个屏幕的线条与底色使用的长度，任何宽高比都能盖满
+        /// </summary>
+        const float FAR = 50f;
+        const int FADE_TEXTURE_WIDTH = 128;
+
         static Sprite? _whiteSprite;
+        static Sprite? _laneShadeSprite;
 
         /// <summary>
         /// 1×1 世界单位的白色方块，用缩放和颜色绘制线条
@@ -31,6 +38,44 @@ namespace MajdataPlay.Scenes.Game.Lane
                 return _whiteSprite;
             }
         }
+        /// <summary>
+        /// 轨道底色：横向宽 1 世界单位，中间为轨道区，两端各向外渐隐一条轨道宽
+        /// </summary>
+        static Sprite LaneShadeSprite
+        {
+            get
+            {
+                if (_laneShadeSprite == null)
+                {
+                    var featherRatio = LaneLayout.LANE_WIDTH / LaneShadeWidth;
+                    var texture = new Texture2D(FADE_TEXTURE_WIDTH, 1, TextureFormat.RGBA32, false)
+                    {
+                        name = "LaneShade",
+                        wrapMode = TextureWrapMode.Clamp,
+                        filterMode = FilterMode.Bilinear
+                    };
+                    var pixels = new Color32[FADE_TEXTURE_WIDTH];
+                    for (var i = 0; i < pixels.Length; i++)
+                    {
+                        var u = (i + 0.5f) / FADE_TEXTURE_WIDTH;
+                        var alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Min(u, 1f - u) / featherRatio));
+                        pixels[i] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
+                    }
+                    texture.SetPixels32(pixels);
+                    texture.Apply(false, true);
+                    // FullRect：避免两端透明的像素被裁掉
+                    _laneShadeSprite = Sprite.Create(texture,
+                                                     new Rect(0, 0, FADE_TEXTURE_WIDTH, 1),
+                                                     new Vector2(0.5f, 0.5f),
+                                                     FADE_TEXTURE_WIDTH,
+                                                     0,
+                                                     SpriteMeshType.FullRect);
+                    _laneShadeSprite.name = "LaneShade";
+                }
+                return _laneShadeSprite;
+            }
+        }
+        static float LaneShadeWidth => LaneLayout.LANE_AREA_WIDTH + LaneLayout.LANE_WIDTH * 2f;
         public static int BackgroundSortingLayerId => SortingLayer.NameToID(BACKGROUND_SORTING_LAYER);
         public static int SlidePathSortingLayerId => SortingLayer.NameToID(SLIDE_PATH_SORTING_LAYER);
 
@@ -73,7 +118,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         /// <summary>
-        /// 创建轨道分隔线与判定线；垂直判定关闭时标出判定线附近的可按区域
+        /// 创建轨道底色、分隔线与横贯屏幕的判定线；垂直判定关闭时标出判定线附近的可按区域
         /// </summary>
         public static GameObject CreateBackground(Material material)
         {
@@ -81,13 +126,15 @@ namespace MajdataPlay.Scenes.Game.Lane
             var parent = root.transform;
             var layerId = BackgroundSortingLayerId;
             var left = LaneLayout.LEFT;
-            var right = LaneLayout.LEFT + LaneLayout.LANE_WIDTH * LaneLayout.LANE_COUNT;
+            var right = LaneLayout.RIGHT;
             var bottom = LaneLayout.BOTTOM_Y;
-            var top = LaneLayout.TOP_Y;
 
-            var shade = CreateQuad("LaneShade", parent, material, layerId, -110, new Color(0f, 0f, 0f, 0.35f));
-            shade.transform.position = new Vector3((left + right) / 2f, (bottom + top) / 2f, 0);
-            shade.transform.localScale = new Vector3(right - left, top - bottom, 1f);
+            // 底色与分隔线上下贯穿屏幕，屏幕较窄、相机拉远时也不会露出边缘
+            var shade = CreateSprite("LaneShade", parent, LaneShadeSprite, material, layerId, -110);
+            shade.color = new Color(0f, 0f, 0f, 0.35f);
+            shade.transform.position = new Vector3((left + right) / 2f, 0, 0);
+            // 贴图高 1 像素，即 1 / FADE_TEXTURE_WIDTH 世界单位
+            shade.transform.localScale = new Vector3(LaneShadeWidth, FAR * 2f * FADE_TEXTURE_WIDTH, 1f);
 
             if (!LaneMode.IsVerticalJudge)
             {
@@ -101,10 +148,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 var x = left + i * LaneLayout.LANE_WIDTH;
                 var divider = CreateQuad($"LaneDivider_{i}", parent, material, layerId, -100, new Color(1f, 1f, 1f, 0.25f));
-                SetSegment(divider, new Vector2(x, bottom), new Vector2(x, top), 0.03f);
+                SetSegment(divider, new Vector2(x, -FAR), new Vector2(x, FAR), 0.03f);
             }
             var judgeLine = CreateQuad("JudgeLine", parent, material, layerId, -90, new Color(1f, 1f, 1f, 0.9f));
-            SetSegment(judgeLine, new Vector2(left, LaneLayout.JUDGE_LINE_Y), new Vector2(right, LaneLayout.JUDGE_LINE_Y), 0.06f);
+            SetSegment(judgeLine, new Vector2(-FAR, LaneLayout.JUDGE_LINE_Y), new Vector2(FAR, LaneLayout.JUDGE_LINE_Y), 0.06f);
             return root;
         }
     }

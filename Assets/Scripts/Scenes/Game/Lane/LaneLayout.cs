@@ -34,16 +34,20 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
     }
     /// <summary>
-    /// 下落式模式的轨道几何。游玩区固定为 19.2×10.8 世界单位（16:9，对应画布 1920×1080），
-    /// 8 条轨道铺满游玩区宽度；相机与画布按横屏布局适配屏幕，多余部分留黑边。
+    /// 下落式模式的轨道几何。可见高度为 10.8 世界单位，画面铺满屏幕；
+    /// 8 条轨道居中，16:9 时占屏宽 70%，两侧各留 15%，判定线横贯整个屏幕。
     /// </summary>
     internal static class LaneLayout
     {
         public const int LANE_COUNT = 8;
-        public const float PLAY_AREA_WIDTH = 19.2f;
-        public const float PLAY_AREA_HEIGHT = 10.8f;
-        public const float LEFT = -PLAY_AREA_WIDTH / 2f;
-        public const float LANE_WIDTH = PLAY_AREA_WIDTH / LANE_COUNT;
+        public const float LANE_AREA_WIDTH = GameplayScreenLayout.FALLING_LANE_AREA_WIDTH;
+        public const float LEFT = -LANE_AREA_WIDTH / 2f;
+        public const float RIGHT = LANE_AREA_WIDTH / 2f;
+        public const float LANE_WIDTH = LANE_AREA_WIDTH / LANE_COUNT;
+        /// <summary>
+        /// 最外两列的判定范围向轨道区外延伸的宽度
+        /// </summary>
+        public const float EDGE_LANE_TOLERANCE = LANE_WIDTH / 2f;
         public const float JUDGE_LINE_Y = -4.2f;
         public const float TOP_Y = 5.4f;
         public const float BOTTOM_Y = -5.4f;
@@ -81,12 +85,16 @@ namespace MajdataPlay.Scenes.Game.Lane
         {
             return LEFT + (lane - 0.5f) * LANE_WIDTH;
         }
-        /// <returns>1~8；不在任何轨道上时返回 0</returns>
+        /// <returns>1~8；不在任何轨道上时返回 0。稍微按出轨道区也算最外侧的轨道</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetLaneAt(float worldX)
         {
+            if (worldX < LEFT - EDGE_LANE_TOLERANCE || worldX > RIGHT + EDGE_LANE_TOLERANCE)
+            {
+                return 0;
+            }
             var lane = Mathf.FloorToInt((worldX - LEFT) / LANE_WIDTH) + 1;
-            return lane is >= 1 and <= LANE_COUNT ? lane : 0;
+            return Mathf.Clamp(lane, 1, LANE_COUNT);
         }
         /// <summary>
         /// 把圆形模式中的径向距离投影为轨道上的高度

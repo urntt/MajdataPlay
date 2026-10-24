@@ -427,7 +427,7 @@ namespace MajdataPlay
             {
                 _subCoverBottomTransform.localScale = Vector3.zero;
             }
-            // 两侧黑边会挡住左侧栏的副屏；下落式的游玩区铺满 16:9，圆形遮罩也要关掉
+            // EdgeCanvas 的两侧黑块会挡住左侧栏的副屏；下落式画面铺满屏幕，圆形遮罩也要关掉
             if (_edgeCanvas != null)
             {
                 _edgeCanvas.SetActive(false);

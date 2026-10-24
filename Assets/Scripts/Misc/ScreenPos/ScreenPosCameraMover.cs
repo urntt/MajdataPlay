@@ -81,6 +81,16 @@ namespace MajdataPlay
             _screenHeight = height;
             _isLandscape = isLandscape;
             _isFallingPlayArea = isFallingPlayArea;
+            if (isFallingPlayArea)
+            {
+                // 下落式：可见高度固定为 10.8（判定线与顶端位置不变），更宽的屏幕两侧露出更多画面；
+                // 屏幕较窄时相机拉远，保证轨道区不贴边。
+                float aspect = (float)width / height;
+                _screenOrthographicSize = Mathf.Max(GameplayScreenLayout.LANDSCAPE_HALF_HEIGHT,
+                                                    GameplayScreenLayout.FALLING_MIN_VISIBLE_WIDTH / 2f / aspect);
+                _screenYAdjustment = 0f;
+                return true;
+            }
             if (isLandscape)
             {
                 // 横屏：与 ScreenPosCanvasMover 的 1920×1080 / Expand 对齐，判定圆居中并占满屏高。

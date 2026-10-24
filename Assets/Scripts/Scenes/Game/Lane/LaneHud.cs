@@ -22,6 +22,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         const float EDGE_MARGIN = 40f;
         const float PROGRESS_BAR_HEIGHT = 6f;
         const float BUTTON_SIZE = 90f;
+        /// <summary>
+        /// 暂停键的点击区比图形大一些，手指更容易点中
+        /// </summary>
+        const float PAUSE_HIT_SIZE = 120f;
         const float DOUBLE_TAP_INTERVAL_SEC = 0.5f;
         const float RESUME_COUNTDOWN_SEC = 3f;
 
@@ -33,7 +37,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         GamePlayManager _gpManager = null!;
         NoteManager _noteManager = null!;
         BGManager _bgManager = null!;
-        Camera? _canvasCamera;
+        Canvas? _canvas;
 
         RectTransform _root = null!;
         RectTransform? _background;
@@ -108,15 +112,20 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 return true;
             }
-            else if (RectTransformUtility.RectangleContainsScreenPoint(hud._pauseButton, screenPosition, hud._canvasCamera))
+            var camera = hud.CanvasCamera;
+            if (RectTransformUtility.RectangleContainsScreenPoint(hud._pauseButton, screenPosition, camera))
             {
                 return true;
             }
             return hud.IsSkipButtonAvailable &&
-                   RectTransformUtility.RectangleContainsScreenPoint(hud._skipButton!, screenPosition, hud._canvasCamera);
+                   RectTransformUtility.RectangleContainsScreenPoint(hud._skipButton!, screenPosition, camera);
         }
 
         bool IsSkipButtonAvailable => _skipButton != null && _skipButton.gameObject.activeInHierarchy && !_isSkipTriggered;
+        /// <summary>
+        /// 游戏画布当前用于渲染的相机。CanvasConfigurator 会在之后的 Start 中替换画布相机，因此每次判定时实时读取
+        /// </summary>
+        Camera? CanvasCamera => _canvas == null || _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
 
         void Build(GamePlayManager gpManager,
                    NoteManager noteManager,
@@ -133,22 +142,21 @@ namespace MajdataPlay.Scenes.Game.Lane
             _noteManager = noteManager;
             _bgManager = bgManager;
             var canvas = canvasRoot.GetComponentInParent<Canvas>();
-            _canvasCamera = canvas != null && canvas.rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? (canvas.rootCanvas.worldCamera != null ? canvas.rootCanvas.worldCamera : SceneSwitcher.MainCamera)
-                : null;
+            _canvas = canvas != null ? canvas.rootCanvas : null;
             var layer = canvasRoot.gameObject.layer;
 
-            // 与游玩区（1920×1080，画布中心即世界原点）对齐的根节点
+            // 铺满整个画布（即整个屏幕），HUD 元素贴在屏幕四角和边上
             _root = (RectTransform)transform;
             gameObject.layer = layer;
             _root.SetParent(canvasRoot, false);
-            SetRect(_root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(REFERENCE_WIDTH, REFERENCE_HEIGHT));
+            _root.anchorMin = Vector2.zero;
+            _root.anchorMax = Vector2.one;
+            _root.pivot = new Vector2(0.5f, 0.5f);
+            _root.sizeDelta = Vector2.zero;
+            _root.anchoredPosition = Vector2.zero;
             _root.SetAsLastSibling();
 
-            // 游玩区外的黑边，盖住放大后溢出的背景
-            BuildLetterbox(layer);
-
-            // 背景铺满游玩区：在 LateUpdate 中按显示中的封面或视频尺寸缩放
+            // 背景铺满屏幕：在 LateUpdate 中按显示中的封面或视频尺寸缩放
             _background = bgManager.CoverRenderer.rectTransform.parent as RectTransform;
 
             // 进度条
@@ -170,7 +178,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _pauseButton = CreateRect("PauseButton", _root, layer);
             SetRect(_pauseButton, new Vector2(0, 1), new Vector2(0.5f, 0.5f),
                     new Vector2(EDGE_MARGIN + BUTTON_SIZE / 2f, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
-                    new Vector2(BUTTON_SIZE, BUTTON_SIZE));
+                    new Vector2(PAUSE_HIT_SIZE, PAUSE_HIT_SIZE));
             _pauseButtonBars = new Image[2];
             for (var i = 0; i < _pauseButtonBars.Length; i++)
             {
@@ -220,18 +228,6 @@ namespace MajdataPlay.Scenes.Game.Lane
             BuildPauseOverlay(font);
 
             GameManager.OnAppPause += OnAppPause;
-        }
-        void BuildLetterbox(int layer)
-        {
-            const float SIZE = 10000f;
-            var left = CreateImage("LetterboxLeft", _root, layer, Color.black);
-            SetRect(left.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 0.5f), Vector2.zero, new Vector2(SIZE, SIZE));
-            var right = CreateImage("LetterboxRight", _root, layer, Color.black);
-            SetRect(right.rectTransform, new Vector2(1, 0.5f), new Vector2(0, 0.5f), Vector2.zero, new Vector2(SIZE, SIZE));
-            var top = CreateImage("LetterboxTop", _root, layer, Color.black);
-            SetRect(top.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 0), Vector2.zero, new Vector2(SIZE, SIZE));
-            var bottom = CreateImage("LetterboxBottom", _root, layer, Color.black);
-            SetRect(bottom.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 1), Vector2.zero, new Vector2(SIZE, SIZE));
         }
         void BuildPauseOverlay(TMP_FontAsset? font)
         {
@@ -371,7 +367,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 }
                 return;
             }
-            if (RectTransformUtility.RectangleContainsScreenPoint(_pauseButton, screenPosition, _canvasCamera))
+            var camera = CanvasCamera;
+            if (RectTransformUtility.RectangleContainsScreenPoint(_pauseButton, screenPosition, camera))
             {
                 // 像 Phigros 一样双击暂停：第一次点击高亮，短时间内再点一次才暂停
                 if (_pauseArmedUntil >= 0 && Time.unscaledTime <= _pauseArmedUntil)
@@ -386,7 +383,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 }
                 return;
             }
-            if (IsSkipButtonAvailable && RectTransformUtility.RectangleContainsScreenPoint(_skipButton!, screenPosition, _canvasCamera))
+            if (IsSkipButtonAvailable && RectTransformUtility.RectangleContainsScreenPoint(_skipButton!, screenPosition, camera))
             {
                 // 与 SkipButton.OnAreaDown 一致
                 _isSkipTriggered = true;
@@ -469,7 +466,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         /// <summary>
-        /// 背景（封面或视频）宽度按现有逻辑为 1080，等比放大到盖住 1920×1080 的游玩区，溢出部分由黑边遮住
+        /// 背景（封面或视频）宽度按现有逻辑为 1080，等比放大到盖满整个屏幕（HUD 根节点即整个画布）
         /// </summary>
         void FitBackground()
         {
@@ -500,7 +497,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 return;
             }
-            var fit = Mathf.Max(REFERENCE_WIDTH / width, REFERENCE_HEIGHT / height);
+            var screenSize = _root.rect.size;
+            var fit = Mathf.Max(screenSize.x / width, screenSize.y / height);
             _background.localScale = new Vector3(fit, fit, 1f);
         }
 
