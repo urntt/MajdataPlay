@@ -18,12 +18,12 @@ namespace MajdataPlay.Scenes.Game.Lane
         public static bool IsBreakToFlick { get; private set; } = false;
         public static bool IsLaneDividerVisible { get; private set; } = true;
 
-        public static void Enable(ModOptions options)
+        public static void Enable(GameSetting settings)
         {
             IsEnabled = true;
-            IsVerticalJudge = options.FallingVerticalJudge;
-            IsBreakToFlick = options.FallingBreakToFlick;
-            IsLaneDividerVisible = options.FallingLaneDividers;
+            IsVerticalJudge = settings.Mod.FallingVerticalJudge;
+            IsBreakToFlick = settings.Mod.FallingBreakToFlick;
+            IsLaneDividerVisible = settings.Game.FallingLaneDividers;
         }
         public static void Disable()
         {

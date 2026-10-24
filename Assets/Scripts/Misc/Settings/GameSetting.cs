@@ -75,6 +75,8 @@ namespace MajdataPlay.Settings
         [Step("0.25")]
         [Range("1", null, HasMax = false, HasMin = true)]
         public float FallingSpeed { get; set; } = 7.5f;
+
+        public bool FallingLaneDividers { get; set; } = true;
         
         [OptionEnumerator(typeof(GameOffsetEnumerator))]
         public float SlideFadeInOffset { get; set; } = 0f;
@@ -386,8 +388,6 @@ namespace MajdataPlay.Settings
         public bool FallingVerticalJudge { get; set; } = true;
 
         public bool FallingBreakToFlick { get; set; } = false;
-
-        public bool FallingLaneDividers { get; set; } = true;
 
         public bool IsAnyModActive()
         {
