@@ -269,7 +269,7 @@ namespace MajdataPlay.Scenes.Result
                 totalJudgeRecord.IsAllPerfect, 
                 totalJudgeRecord.IsFullCombo, 
                 gameObject.GetCancellationTokenOnDestroy()).Forget();
-            if (!MajInstances.GameManager.Settings.IsAnyModActive())
+            if (!MajInstances.GameManager.Settings.Mod.IsAnyModActive())
             {
                 var localScoreSaveTask = ScoreManager.SaveScore(result, result.Level);
                 if (song is OnlineSongDetail onlineSong && onlineSong.ServerInfo.RuntimeConfig.AuthMethod != NetAuthMethodOption.None)

@@ -17,7 +17,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         public static bool IsVerticalJudge { get; private set; } = true;
         public static bool IsBreakToFlick { get; private set; } = false;
 
-        public static void Enable(GameOptions options)
+        public static void Enable(ModOptions options)
         {
             IsEnabled = true;
             IsVerticalJudge = options.FallingVerticalJudge;

@@ -247,9 +247,9 @@ namespace MajdataPlay.Scenes.Game
             }
             //print(MajInstances.GameManager.SelectedIndex);
             _screenRotationAngle = _gameSettings.Display.GameplayScreenRotationAngle;
-            if (_gameSettings.Game.PlayStyle == PlayStyleOption.Falling)
+            if (_gameSettings.Mod.PlayStyle == PlayStyleOption.Falling)
             {
-                LaneMode.Enable(_gameSettings.Game);
+                LaneMode.Enable(_gameSettings.Mod);
                 // 下落式的轨道不随画面旋转
                 _screenRotationAngle = GameplayScreenRotationAngleOption.Zero;
             }

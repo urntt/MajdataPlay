@@ -43,14 +43,6 @@ namespace MajdataPlay.Settings
         [HideInSettingUI]
         public IOOptions IO { get; init; } = new();
 
-        /// <summary>
-        /// 是否启用了会改变成绩含义的玩法（Mod 或下落式）。启用时成绩不保存、不上传。
-        /// </summary>
-        public bool IsAnyModActive()
-        {
-            return Mod.IsAnyModActive() || Game.PlayStyle != PlayStyleOption.Standard;
-        }
-
         [OnDeserialized]
         private void MigrateRenderingSettings(StreamingContext context)
         {
@@ -111,15 +103,6 @@ namespace MajdataPlay.Settings
         public bool SlideSkipping { get; set; } = true;
 
         public RandomModeOption Random { get; set; } = RandomModeOption.Disabled;
-
-        public PlayStyleOption PlayStyle { get; set; } = PlayStyleOption.Standard;
-        /// <summary>
-        /// 下落式：开启时 Tap/Hold/Break/Flick/Slide 在正确的列上任意高度都算，关闭时需按在判定线附近。
-        /// 悬空 Touch 无论开关都要按在其所在高度。
-        /// </summary>
-        public bool FallingVerticalJudge { get; set; } = true;
-
-        public bool FallingBreakToFlick { get; set; } = false;
 #if UNITY_ANDROID || UNITY_IOS
         
         public bool ButtonRingForTouch { get; set; } = true;
@@ -388,10 +371,21 @@ namespace MajdataPlay.Settings
         [OptionEnumerator(typeof(NoteMaskEnumerator))]
         public string NoteMask { get; set; } = "Disable";
 
+        public PlayStyleOption PlayStyle { get; set; } = PlayStyleOption.Standard;
+        /// <summary>
+        /// 下落式：开启时 Tap/Hold/Break/Flick/Slide 在正确的列上任意高度都算，关闭时需按在判定线附近。
+        /// 悬空 Touch 无论开关都要按在其所在高度。
+        /// </summary>
+        public bool FallingVerticalJudge { get; set; } = true;
+
+        public bool FallingBreakToFlick { get; set; } = false;
+
         public bool IsAnyModActive()
         {
+            // 下落式也视为 Mod：成绩不保存、不上传
             return !(PlaybackSpeed == 1f &&
-                !AllBreak && !AllEx && !AllTouch && AutoPlay == AutoplayModeOption.Disable && JudgeStyle == JudgeStyleOption.DEFAULT);
+                !AllBreak && !AllEx && !AllTouch && AutoPlay == AutoplayModeOption.Disable && JudgeStyle == JudgeStyleOption.DEFAULT &&
+                PlayStyle == PlayStyleOption.Standard);
         }
 
     }
