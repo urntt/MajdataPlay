@@ -34,8 +34,25 @@ namespace MajdataPlay.Settings
         }
         
         public SoundOptions Audio { get; init; } = new();
+
+        private ModOptions _mod = new();
+        private ModOptions? _savedMod;
         [JsonIgnore]
-        public ModOptions Mod { get; init; } = new();
+        public ModOptions Mod
+        {
+            get => _mod;
+            init => _mod = value;
+        }
+        /// <summary>
+        /// 调试设置“保存 Mod 设置”开启时，Mod 设置随设置文件保存，读取后恢复；关闭时不写入，每次启动都是默认值
+        /// </summary>
+        [Preserve]
+        [JsonProperty(nameof(Mod), NullValueHandling = NullValueHandling.Ignore, ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        private ModOptions? SavedMod
+        {
+            get => Debug.SaveModSettings ? _mod : null;
+            set => _savedMod = value;
+        }
         
         public DebugOptions Debug { get; init; } = new();
         [HideInSettingUI]
@@ -50,6 +67,10 @@ namespace MajdataPlay.Settings
             if (!_hasRenderingSettings)
                 _rendering = Display.ReadLegacyRenderingSettings();
             _rendering.MigrateFramePacing(Display.LegacyFPSLimit, Display.LegacyVSync);
+            // 读取时 Debug 可能晚于 Mod 出现，所以先暂存，全部读完再按开关决定是否恢复
+            if (Debug.SaveModSettings && _savedMod is not null)
+                _mod = _savedMod;
+            _savedMod = null;
         }
     }
     
@@ -406,6 +427,10 @@ namespace MajdataPlay.Settings
         public bool FallingBreakToFlick { get; set; } = false;
 
         public bool FallingTouchToTap { get; set; } = false;
+        /// <summary>
+        /// 下落式：星星（Slide）保持标准游玩的样式与判定，悬空显示在画面中央；星星头仍是下落的 Tap
+        /// </summary>
+        public bool FallingSlideOriginal { get; set; } = false;
 
         public bool IsAnyModActive()
         {
@@ -551,6 +576,11 @@ namespace MajdataPlay.Settings
         public bool NoteFolding { get; set; } = true;
         
         public DJAutoPolicyOption DJAutoPolicy { get; set; } = DJAutoPolicyOption.Strict;
+
+        /// <summary>
+        /// 开启后 Mod 设置随设置文件保存，重启游戏不会重置
+        /// </summary>
+        public bool SaveModSettings { get; set; } = false;
         [HideInSettingUI]
         public int MaxQueuedFrames { get; set; } = 2;
 #if UNITY_IOS || UNITY_ANDROID

@@ -39,6 +39,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
         public ReadOnlySpan<int> FloatSensorClickedCount => _floatSensorClickedCount;
         /// <summary>
+        /// Slide 保持原样时：按标准圆形传感器划分被按住的传感器
+        /// </summary>
+        public ReadOnlySpan<bool> CircleSensorHeld => _circleSensorHeld;
+        /// <summary>
         /// 本帧的按下数量，配合 <see cref="GetClick"/>、<see cref="UseClick"/> 由 NoteManager 分配给音符
         /// </summary>
         public int ClickCount => _clicks.Count;
@@ -57,6 +61,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         int _nextFlickId = 0;
         readonly bool[] _floatSensorHeld = new bool[33];
         readonly int[] _floatSensorClickedCount = new int[33];
+        readonly bool[] _circleSensorHeld = new bool[33];
 
         readonly Dictionary<int, TouchRecord> _records = new(16);
         readonly List<int> _staleTouchIds = new(16);
@@ -103,6 +108,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _dragCount = 0;
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+            Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
             for (var i = 0; i < _flickLatch.Length; i++)
             {
                 if (_flickLatch[i] > 0)
@@ -128,13 +134,13 @@ namespace MajdataPlay.Scenes.Game.Lane
                         continue;
                     }
                     var isBegan = touch.phase == TouchPhase.Began;
-                    HandlePointer(touch.touchId, touch.screenPosition, isBegan, camera, subScreenEdge, deltaTime, slideXs);
+                    HandlePointer(touch.touchId, touch.screenPosition, touch.radius.magnitude, isBegan, camera, subScreenEdge, deltaTime, slideXs);
                 }
             }
 #if UNITY_STANDALONE || UNITY_EDITOR
             else if (Mouse.current is Mouse mouse && mouse.leftButton.isPressed)
             {
-                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime, slideXs);
+                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, 0f, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime, slideXs);
             }
 #endif
             _staleTouchIds.Clear();
@@ -227,6 +233,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+            Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
         }
         void AddDragX(float x)
         {
@@ -285,7 +292,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 });
             }
         }
-        void HandlePointer(int id, Vector2 screenPosition, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime, ReadOnlySpan<float> slideXs)
+        /// <param name="touchRadius">Touch.radius 的长度，鼠标为 0</param>
+        void HandlePointer(int id, Vector2 screenPosition, float touchRadius, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime, ReadOnlySpan<float> slideXs)
         {
             _activeTouchIds.Add(id);
             var world = camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, -camera.transform.position.z));
@@ -312,6 +320,11 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 副屏区域用于跳过乐曲等操作，不参与轨道判定
             var isInSubScreen = position.x > subScreenEdge.x && position.x < subScreenEdge.z &&
                                 position.y > subScreenEdge.w && position.y < subScreenEdge.y;
+            // Slide 保持原样：另按标准圆形传感器换算，只给 Slide 用
+            if (LaneMode.IsSlideOriginal && !isInSubScreen)
+            {
+                InputManager.GetTouchPanelSensorStates(camera, screenPosition, touchRadius, _circleSensorHeld);
+            }
             var lane = isInSubScreen ? 0 : LaneLayout.GetLaneAt(position.x);
             var neighborLane = LaneLayout.GetNeighborLane(position.x, lane);
             var isInLineArea = lane != 0 &&

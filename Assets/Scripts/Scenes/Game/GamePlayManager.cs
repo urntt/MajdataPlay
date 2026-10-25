@@ -1030,8 +1030,12 @@ namespace MajdataPlay.Scenes.Game
         {
             var notes = _noteManager.transform;
             // 2: SlideArrowPool 3: SlidePool 6: EachLines 7: TapLines（Notes 的子节点顺序）
-            LaneVisuals.SetLayerRecursively(notes.GetChild(2), MajEnv.HIDDEN_LAYER);
-            LaneVisuals.SetLayerRecursively(notes.GetChild(3), MajEnv.HIDDEN_LAYER);
+            // Slide 保持原样时照常显示圆形模式的 Slide，悬空在画面中央
+            if (!LaneMode.IsSlideOriginal)
+            {
+                LaneVisuals.SetLayerRecursively(notes.GetChild(2), MajEnv.HIDDEN_LAYER);
+                LaneVisuals.SetLayerRecursively(notes.GetChild(3), MajEnv.HIDDEN_LAYER);
+            }
             LaneVisuals.SetLayerRecursively(notes.GetChild(6), MajEnv.HIDDEN_LAYER);
             LaneVisuals.SetLayerRecursively(notes.GetChild(7), MajEnv.HIDDEN_LAYER);
             var outline = Majdata<OutlineLoader>.Instance;

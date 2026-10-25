@@ -216,6 +216,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         // 下落式：沿路径排布的箭头与 Drag 式判定
         private LaneSlidePath? _lanePath;
         private LaneSlideJudge? _laneJudge;
+        /// <summary>
+        /// 下落式 Slide 保持原样时，星星开始移动前多久开始报告位置（与下落式 Slide 的判定提前量相同）
+        /// </summary>
+        const float FALLING_STAR_REPORT_EARLY_SEC = 0.15f;
 
         public abstract void Init();
         protected void MineCheck()
@@ -274,7 +278,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 LaneCheckpointCheck();
                 return default;
             }
-            else if (!IsCheckable)
+            ReportFallingOriginalStars();
+            if (!IsCheckable)
             {
                 return default;
             }
@@ -368,13 +373,44 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         }
 
         /// <summary>
-        /// 下落式（仅地雷 Slide 走判定队列）：判定区对应的轨道被按住即可，不需要点击，也不读取悬空 Touch 的传感器
+        /// 下落式（地雷 Slide 走判定队列）：判定区对应的轨道被按住即可，不需要点击，也不读取悬空 Touch 的传感器。
+        /// Slide 保持原样时按标准圆形传感器判定，与标准游玩相同
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         SwitchStatus GetAreaStatus(SensorArea area)
         {
-            return LaneMode.IsEnabled ? NoteManager.GetLaneDragStatusInThisFrame(area)
-                                      : NoteManager.GetSensorStatusInThisFrame(area);
+            if (!LaneMode.IsEnabled)
+            {
+                return NoteManager.GetSensorStatusInThisFrame(area);
+            }
+            return LaneMode.IsSlideOriginal ? NoteManager.GetLaneCircleSensorStatusInThisFrame(area)
+                                            : NoteManager.GetLaneDragStatusInThisFrame(area);
+        }
+        /// <summary>
+        /// 下落式 Slide 保持原样、开启扫键时：报告星星当前的横坐标，跟着星星的手指不扫键
+        /// </summary>
+        void ReportFallingOriginalStars()
+        {
+            if (!LaneMode.IsEnabled || !LaneMode.IsSlideOriginal || !LaneMode.IsSweepEnabled)
+            {
+                return;
+            }
+            else if (IsMine || IsEnded || !IsInited || IsFinished || ThisFrameSec < StartTiming - FALLING_STAR_REPORT_EARLY_SEC)
+            {
+                return;
+            }
+            var stars = Stars.Span;
+            var starTransforms = StarTransforms.Span;
+            for (var i = 0; i < stars.Length; i++)
+            {
+                var star = stars[i];
+                var starTransform = starTransforms[i];
+                if (star == null || starTransform == null || !star.activeInHierarchy)
+                {
+                    continue;
+                }
+                NoteManager.AddLaneSlideX(starTransform.position.x);
+            }
         }
         /// <summary>
         /// 下落式：根据判定队列生成路径箭头与 Drag 式判定。需要在 StartTiming、Length 与判定队列确定后调用
@@ -384,7 +420,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _lanePath?.End();
             _lanePath = null;
             _laneJudge = null;
-            if (!LaneMode.IsEnabled)
+            if (!LaneMode.IsEnabled || LaneMode.IsSlideOriginal)
             {
                 return;
             }
@@ -829,7 +865,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 ObjectCounter.ReportResult(this, result, Multiple);
                 if (PlaySlideOK(result))
                 {
-                    if (LaneMode.IsEnabled)
+                    if (LaneMode.IsEnabled && !LaneMode.IsSlideOriginal)
                     {
                         PlaceSlideOKInLane(SlideOK);
                     }

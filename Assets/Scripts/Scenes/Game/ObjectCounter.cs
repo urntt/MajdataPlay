@@ -749,8 +749,8 @@ namespace MajdataPlay.Scenes.Game
             UpdateComboCount(grade, multiple);
             UpdateJudgeCount(note, judgeResult, multiple);
             UpdateNoteScoreCount(note, judgeResult, multiple);
-            // 下落式的星星按检查点评级，没有快慢，不计入 Fast/Late
-            if (!(isSlide && LaneMode.IsEnabled))
+            // 下落式的星星按检查点评级，没有快慢，不计入 Fast/Late；保持原样时与标准游玩相同
+            if (!(isSlide && LaneMode.IsEnabled && !LaneMode.IsSlideOriginal))
             {
                 UpdateFastLateCount(judgeResult, multiple);
             }

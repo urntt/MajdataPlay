@@ -1,0 +1,237 @@
+name: Build Android APK
+run-name: Android APK (${{ github.ref_name }})
+
+# 打包可直接安装的 Android APK。包名为 com.<仓库所有者>.majdataplay，可与官方版同时安装。
+# 触发方式：
+#   1. 网页 Actions → Build Android APK → Run workflow（本文件需要在默认分支上才会出现按钮）
+#   2. 推送到任意分支时，提交信息里带 [apk]（普通提交信息里不要写到这个词）
+#   3. 由 release.yml 调用
+# 需要仓库 Secrets：UNITY_EMAIL、UNITY_PASSWORD、UNITY_LICENSE（与 iOS 打包相同）。
+# 可选 Secrets：ANDROID_KEYSTORE_BASE64、ANDROID_KEYSTORE_PASS、ANDROID_KEYALIAS_NAME、ANDROID_KEYALIAS_PASS，
+# 配置后每次用同一个签名，可以直接覆盖安装更新；不配置时每次临时生成签名，更新前需要先卸载旧版。
+on:
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: "APK 保留天数"
+        required: false
+        default: "7"
+  workflow_call:
+    inputs:
+      from_release:
+        description: "由 release.yml 调用"
+        type: boolean
+        default: false
+      retention_days:
+        type: string
+        default: "7"
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+  UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+  UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+  UNITY_VERSION: 6000.3.17f1
+  CONFIGURATION: Release
+  PROJECT_ROOT: ${{ github.workspace }}
+  UNITY_PROJECT_EXPORT_PATH: Release/Android/MajdataPlay
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    if: ${{ inputs.from_release || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[apk]') }}
+    timeout-minutes: 240
+
+    steps:
+      - name: Check Unity license secrets
+        run: |
+          missing=""
+          [ -n "$UNITY_LICENSE" ] || missing="$missing UNITY_LICENSE"
+          [ -n "$UNITY_EMAIL" ] || missing="$missing UNITY_EMAIL"
+          [ -n "$UNITY_PASSWORD" ] || missing="$missing UNITY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少仓库 Secrets:$missing。请在 Settings → Secrets and variables → Actions 中添加，详见 Tools/iOS/README.md"
+            exit 1
+          fi
+
+      - name: Free disk space
+        run: |
+          # Unity 的 Android 镜像很大，删掉用不到的预装工具；Android SDK 后面还要用，保留
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Extract version from unity project
+        run: |
+          VERSION=$(grep -m1 'bundleVersion:' ProjectSettings/ProjectSettings.asset | awk '{print $2}')
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_')
+          echo "BUNDLE_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUNDLE_VERSION_WITH_HASH=${VERSION}-${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "BUNDLE_VERSION_CODE=$(git rev-list HEAD --count)" >> $GITHUB_ENV
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "ANDROID_APP_ID=com.${OWNER:-user}.majdataplay" >> $GITHUB_ENV
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-Android-${{ hashFiles('ProjectSettings/ProjectVersion.txt', 'ProjectSettings/**', 'Packages/manifest.json', 'Packages/packages-lock.json') }}
+          restore-keys: |
+            Library-${{ runner.os }}-Android-
+
+      - name: Export Android project with Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: ${{ env.UNITY_VERSION }}
+          targetPlatform: Android
+          versioning: Custom
+          version: ${{ env.BUNDLE_VERSION_WITH_HASH }}
+          androidVersionCode: ${{ env.BUNDLE_VERSION_CODE }}
+          buildName: MajdataPlay
+          buildsPath: ${{ env.CONFIGURATION }}
+          androidExportType: androidStudioProject
+          androidSymbolType: none
+
+      - name: Fix directory permissions
+        run: sudo chown -R $USER:$USER ${{ env.CONFIGURATION }}/Android
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
+
+      - name: Install Android NDK
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;23.1.7779620"
+
+      - name: Fix Android SDK and NDK paths
+        run: |
+          cd ${{ env.UNITY_PROJECT_EXPORT_PATH }}
+          BAD_NDK="/opt/unity/Editor/Data/PlaybackEngines/AndroidPlayer/NDK"
+          BAD_SDK="/opt/unity/Editor/Data/PlaybackEngines/AndroidPlayer/SDK"
+          GOOD_NDK="$ANDROID_HOME/ndk/23.1.7779620"
+          GOOD_SDK="$ANDROID_HOME"
+          find . -type f \( -name "*.gradle" -o -name "*.properties" \) -exec sed -i "s|$BAD_NDK|$GOOD_NDK|g" {} +
+          find . -type f \( -name "*.gradle" -o -name "*.properties" \) -exec sed -i "s|$BAD_SDK|$GOOD_SDK|g" {} +
+          echo "sdk.dir=$GOOD_SDK" > local.properties
+          echo "ndk.dir=$GOOD_NDK" >> local.properties
+
+      - name: Generate Gradle wrapper
+        run: |
+          cd ${{ env.UNITY_PROJECT_EXPORT_PATH }}
+          gradle wrapper
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KEYALIAS_NAME: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          KEYALIAS_PASS: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/android-release.keystore"
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASS" ] && [ -n "$KEYALIAS_NAME" ] && [ -n "$KEYALIAS_PASS" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            STORE_PASS="$KEYSTORE_PASS"; ALIAS="$KEYALIAS_NAME"; KEY_PASS="$KEYALIAS_PASS"
+          else
+            echo "::warning::没有配置 Android 签名 Secrets，本次使用临时签名。之后的 APK 签名不同，更新前需要先卸载旧版。"
+            STORE_PASS=$(openssl rand -hex 16); ALIAS="majdataplay"; KEY_PASS="$STORE_PASS"
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+              -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=MajdataPlay"
+          fi
+          echo "::add-mask::$STORE_PASS"
+          echo "::add-mask::$KEY_PASS"
+          {
+            echo "KEYSTORE_PATH=$KEYSTORE_PATH"
+            echo "SIGN_STORE_PASS=$STORE_PASS"
+            echo "SIGN_KEY_ALIAS=$ALIAS"
+            echo "SIGN_KEY_PASS=$KEY_PASS"
+          } >> $GITHUB_ENV
+
+      - name: Configure Gradle project
+        run: |
+          set -euo pipefail
+          ROOT="${{ env.UNITY_PROJECT_EXPORT_PATH }}"
+          LAUNCHER="$ROOT/launcher/build.gradle"
+
+          # 改包名，可与官方版同时安装；Java 类的包名不变
+          sed -i -E "s/(applicationId[[:space:]]*=?[[:space:]]*)['\"][^'\"]*['\"]/\1'${ANDROID_APP_ID}'/" "$LAUNCHER"
+          grep -q "applicationId.*${ANDROID_APP_ID}" "$LAUNCHER" || { echo "::error::没有在 $LAUNCHER 中找到 applicationId"; exit 1; }
+
+          # 与上游相同：targetSdk 29，才能读写 /sdcard/Documents/MajdataPlay 里的谱面
+          find "$ROOT" -type f -name "gradle.properties" -exec sed -i 's/^unity\.targetSdkVersion=.*/unity.targetSdkVersion=29/' {} +
+          find "$ROOT" -type f -name "*.gradle" -exec sed -i -E 's/(targetSdk[[:space:]]+)[0-9]+/\129/g' {} +
+          find "$ROOT" -type f -name "*.gradle" -exec sed -i -E 's/(targetSdkVersion[[:space:]]+)[0-9]+/\129/g' {} +
+
+          cat >> "$LAUNCHER" <<GRADLE
+
+          // --- Injected by build-android-apk.yml ---
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file("${KEYSTORE_PATH}")
+                      storePassword "${SIGN_STORE_PASS}"
+                      keyAlias "${SIGN_KEY_ALIAS}"
+                      keyPassword "${SIGN_KEY_PASS}"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          GRADLE
+
+          echo "=== applicationId / targetSdk ==="
+          grep -RIn --include='*.gradle' --include='*.properties' -E 'applicationId|targetSdk|targetSdkVersion' "$ROOT"
+
+      - name: Build APK
+        run: |
+          cd ${{ env.UNITY_PROJECT_EXPORT_PATH }}
+          ./gradlew assembleRelease --no-daemon --build-cache
+
+      - name: Collect APKs
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          OUTPUT_DIR="${{ env.UNITY_PROJECT_EXPORT_PATH }}/launcher/build/outputs/apk/release"
+          ls -la "$OUTPUT_DIR"
+          for file in "$OUTPUT_DIR"/*.apk; do
+            if [[ "$file" == *"v7a"* ]]; then
+              cp "$file" "out/MajdataPlay-${SHORT_SHA}-armeabi-v7a.apk"
+            elif [[ "$file" == *"v8a"* ]]; then
+              cp "$file" "out/MajdataPlay-${SHORT_SHA}-arm64-v8a.apk"
+            else
+              cp "$file" "out/MajdataPlay-${SHORT_SHA}.apk"
+            fi
+          done
+          ls -la out
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MajdataPlay-Android-${{ env.SHORT_SHA }}
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days || 7 }}

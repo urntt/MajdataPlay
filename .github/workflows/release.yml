@@ -1,0 +1,71 @@
+name: Release
+run-name: Release (${{ github.ref_name }})
+
+# 同时打包 iOS（未签名 ipa）和 Android（APK），并发布 GitHub Release。
+# 触发方式：
+#   1. 推送到任意分支时，提交信息里带 [release]（普通提交信息里不要写到这个词）
+#   2. 网页 Actions → Release → Run workflow（本文件需要在默认分支上才会出现按钮）
+# Release 说明取自 .github/release-notes.md；标签为 v<版本号>-falling.<第几次发布>。
+on:
+  workflow_dispatch:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: iOS
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]') }}
+    uses: ./.github/workflows/build-ios-unsigned.yml
+    with:
+      from_release: true
+      retention_days: "7"
+    secrets: inherit
+
+  android:
+    name: Android
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]') }}
+    uses: ./.github/workflows/build-android-apk.yml
+    with:
+      from_release: true
+      retention_days: "7"
+    secrets: inherit
+
+  publish:
+    name: Publish release
+    needs: [ios, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Prepare release info
+        run: |
+          VERSION=$(grep -m1 'bundleVersion:' ProjectSettings/ProjectSettings.asset | awk '{print $2}')
+          echo "RELEASE_TAG=v${VERSION}-falling.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "RELEASE_NAME=MajdataPlay ${VERSION} 下落式 #${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" >> $GITHUB_ENV
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MajdataPlay-*
+          path: dist
+          merge-multiple: true
+
+      - name: List files
+        run: ls -la dist
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          target_commitish: ${{ github.sha }}
+          body_path: .github/release-notes.md
+          files: dist/*
+          fail_on_unmatched_files: true
+          make_latest: true

@@ -144,6 +144,55 @@ namespace MajdataPlay.IO
             }
             Profiler.EndSample();
         }
+        /// <summary>
+        /// 下落式“Slide 保持原样”用：屏幕上一点按标准圆形传感器划分后被按到的传感器，写入 <paramref name="sensorStates"/>（33 个，C1、C2 合并为 C）。
+        /// 与标准游玩时触摸屏的换算相同，包括手指半径和各区的额外半径
+        /// </summary>
+        /// <param name="rawTouchRadius">Touch.radius 的长度，鼠标为 0</param>
+        internal static void GetTouchPanelSensorStates(Camera camera, Vector2 screenPosition, float rawTouchRadius, Span<bool> sensorStates)
+        {
+#if UNITY_IOS
+            const float TOUCH_RADIUS_PLATFORM_ADJUST = 78f * 4f;
+#else
+            const float TOUCH_RADIUS_PLATFORM_ADJUST = 1f;
+#endif
+            if (_posData == null || screenPosition.x < 0 || screenPosition.y < 0)
+            {
+                return;
+            }
+            var cubeRay = camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, 0));
+            var newP = 0UL;
+            var circleSamples = _unitCircle.Span;
+            var userRad = _lastFingerRadius * (1 + (rawTouchRadius / TOUCH_RADIUS_PLATFORM_ADJUST * _lastTouchRadiusAdjust));
+            fixed (Vector4* circleSamplesPtr = &circleSamples.GetPinnableReference())
+            {
+                MobileTouchPanelHelper.PositionHandle(cubeRay,
+                    userRad,
+                    _lastAAreaExtraRadius,
+                    _lastBAreaExtraRadius,
+                    _lastCAreaExtraRadius,
+                    _lastDAreaExtraRadius,
+                    _lastEAreaExtraRadius,
+                    FINGER_RADIUS_SEGMENT_LENGTH,
+                    TOUCH_ANGLE_SMAPLE_COUNT,
+                    _posData,
+                    circleSamplesPtr,
+                    ref newP);
+            }
+            // 传感器位按 A1~A8、B1~B8、C1、C2、D1~D8、E1~E8 排列，C1、C2 都算作 C
+            for (var bit = 0; bit < 34; bit++)
+            {
+                if ((newP & (1UL << (bit + 12))) == 0)
+                {
+                    continue;
+                }
+                var index = bit <= (int)SensorArea.C ? bit : bit - 1;
+                if (index < sensorStates.Length)
+                {
+                    sensorStates[index] = true;
+                }
+            }
+        }
         static void FromTouchPanel(in ReadOnlyArray<Touch> touches,
                                    Span<int> buttonClickedCount,
                                    Span<int> sensorClickedCount,

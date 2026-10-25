@@ -81,6 +81,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly LaneInputProvider _laneInput = new();
         readonly bool[] _isPhysicalBtnOnInThisFrame = new bool[8];
         readonly bool[] _isPhysicalBtnClickedInThisFrame = new bool[8];
+        readonly bool[] _isPhysicalSensorOnInThisFrame = new bool[33];
         // 每列音符的判定时刻（按队列序号），用于把轨道点击分给离判定时刻最近的音符
         readonly Dictionary<long, float>[] _laneNoteTimings = CreateLaneNoteTimings();
         // 本帧拖动 Slide 用的手指横坐标：轨道触摸加上实体按键按住列的中心
@@ -448,6 +449,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 var clickedCount = physicalClickedCount + floatSensorClickedCount[i];
 
                 _sensorStatusInPreviousFrame[i] = _sensorStatusInThisFrame[i];
+                _isPhysicalSensorOnInThisFrame[i] = isPhysicalOn;
                 _sensorStatusInThisFrame[i] = isPhysicalOn || floatSensorHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
                 _isSensorClickedInThisFrame[i] = clickedCount != 0;
 #if UNITY_ANDROID || UNITY_IOS
@@ -603,6 +605,19 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             }
             _laneInput.UseClick(bestIndex);
             return true;
+        }
+        /// <summary>
+        /// 下落式 Slide 保持原样：按标准圆形传感器划分的按住状态（实体传感器也算），与标准游玩的判定相同
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public SwitchStatus GetLaneCircleSensorStatusInThisFrame(SensorArea area)
+        {
+            var index = (int)area;
+            if (index is < 0 or >= 33)
+            {
+                return SwitchStatus.Off;
+            }
+            return _isPhysicalSensorOnInThisFrame[index] || _laneInput.CircleSensorHeld[index] ? SwitchStatus.On : SwitchStatus.Off;
         }
         /// <summary>
         /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。

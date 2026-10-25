@@ -21,6 +21,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 扫键：按住的手指划进某一列也算点击这一列
         /// </summary>
         public static bool IsSweepEnabled { get; private set; } = false;
+        /// <summary>
+        /// Slide 保持标准游玩的样式与判定：不转成下落的箭头，按标准圆形传感器判定
+        /// </summary>
+        public static bool IsSlideOriginal { get; private set; } = false;
 
         public static void Enable(GameSetting settings)
         {
@@ -29,6 +33,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsBreakToFlick = settings.Mod.FallingBreakToFlick;
             IsLaneDividerVisible = settings.Game.FallingLaneDividers;
             IsSweepEnabled = settings.Game.FallingSweep;
+            IsSlideOriginal = settings.Mod.FallingSlideOriginal;
         }
         public static void Disable()
         {
@@ -37,6 +42,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsBreakToFlick = false;
             IsLaneDividerVisible = true;
             IsSweepEnabled = false;
+            IsSlideOriginal = false;
         }
     }
     /// <summary>
