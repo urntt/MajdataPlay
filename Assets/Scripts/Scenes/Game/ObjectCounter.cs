@@ -256,6 +256,10 @@ namespace MajdataPlay.Scenes.Game
         TextMeshProUGUI _topInfoLate;
         // 下落式不显示顶部信息：它的位置会压在移到顶部中间的连击数上
         TopInfoDisplayOption _topInfoOption;
+        // 下落式：右上分数与其下方达成率是否按评级上色
+        bool _isScoreColorEnabled = true;
+        // 下落式不跟随显示设置时，分数下方显示 101% 往下掉的达成率
+        TextMeshProUGUI? _fallingAchievementText;
 
         [SerializeField]
         [FormerlySerializedAs("judgeTimingGaugeParent")]
@@ -333,6 +337,18 @@ namespace MajdataPlay.Scenes.Game
             _secondaryInfoDisplayOption = MajEnv.Settings.Game.SecondaryBGInfo;
             _subScreenInfoDisplayOption = MajEnv.Settings.Game.SubScreenBGInfo;
             _isJudgeTimingGaugeEnabled = MajEnv.Settings.Game.EnableJudgeTimingGauge;
+            if (MajEnv.Settings.Mod.PlayStyle == PlayStyleOption.Falling)
+            {
+                if (!MajEnv.Settings.Game.FallingInfoFollowDisplay)
+                {
+                    // 下落式默认布局：顶部中间连击，右上分数（达成率从 0% 往上涨）
+                    _centerInfoDisplayOption = BGInfoOption.Combo;
+                    _secondaryInfoDisplayOption = BGInfoOption.None;
+                    _subScreenInfoDisplayOption = BGInfoOption.Achievement;
+                    _isJudgeTimingGaugeEnabled = false;
+                }
+                _isScoreColorEnabled = MajEnv.Settings.Game.FallingScoreColor;
+            }
 
             if (_isJudgeTimingGaugeEnabled)
             {
@@ -780,7 +796,48 @@ namespace MajdataPlay.Scenes.Game
                 null,
                 _subScreenInfoDisplayerColorPalette,
                 _subScreenInfoDisplayOption);
+            if (!_isScoreColorEnabled && _subScreenInfoDisplayerText.color != Color.white)
+            {
+                _subScreenInfoDisplayerText.color = Color.white;
+            }
+            UpdateFallingAchievementOutput();
         }
+        /// <summary>
+        /// 下落式：分数下方 101% 往下掉的达成率
+        /// </summary>
+        void UpdateFallingAchievementOutput()
+        {
+            var text = _fallingAchievementText;
+            if (text == null)
+            {
+                return;
+            }
+            var accRate = Math.Floor(_accRate[2] * 10000) / 10000;
+            _sb.Clear();
+            DX_ACC_RATE_FORMAT.FormatTo(ref _sb, accRate);
+            var a = _sb.AsArraySegment();
+            text.SetCharArray(a.Array, a.Offset, a.Count);
+            if (_isScoreColorEnabled)
+            {
+                UpdateAchievementColor(_accRate[2], text, _subScreenInfoDisplayerColorPalette);
+            }
+            else if (text.color != Color.white)
+            {
+                text.color = Color.white;
+            }
+        }
+        /// <summary>
+        /// 下落式：登记分数下方的达成率文字，之后随分数一起刷新
+        /// </summary>
+        internal void SetFallingAchievementText(TextMeshProUGUI text)
+        {
+            _fallingAchievementText = text;
+            UpdateFallingAchievementOutput();
+        }
+        /// <summary>
+        /// 101% 往下掉的达成率
+        /// </summary>
+        internal double Achievement101 => _accRate[2];
         void UpdateInfoDisplayerOutput(TextMeshProUGUI text,
             GameObject textObject,
             TextMeshProUGUI? header,

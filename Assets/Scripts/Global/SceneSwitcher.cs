@@ -220,8 +220,9 @@ namespace MajdataPlay
         {
             if (sceneName != nameof(MajScenes.Game))
             {
-                // 横屏只用于游戏场景；在这里而不是 Game 场景销毁时恢复竖屏，快速重开时不会来回旋转。
-                GameplayScreenLayout.Reset();
+                // 按“画面方向”设置切换（同时退出下落式布局）；在这里而不是 Game 场景销毁时处理，快速重开时不会来回旋转。
+                // 设置里改了方向也在离开设置页面时生效。
+                GameplayScreenLayout.ApplyOrientationSetting();
             }
             if (sceneName == nameof(MajScenes.Game))
             {

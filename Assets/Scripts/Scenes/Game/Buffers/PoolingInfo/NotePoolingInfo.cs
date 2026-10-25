@@ -18,6 +18,10 @@ namespace MajdataPlay.Scenes.Game.Buffers
         public bool IsMine { get; init; }
         public bool IsEX { get; init; }
         /// <summary>
+        /// 下落式：由中心 C 区 Touch 转成的 Tap/Hold，落在第 4、5 列之间，按其中任一列都算
+        /// </summary>
+        public bool IsLaneCenter { get; init; }
+        /// <summary>
         /// 该Info绑定的实例
         /// </summary>
         public NoteDrop? Instance { get; set; }

@@ -225,16 +225,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             // 悬空 Touch：进入某个悬空区即视为点击
             var floatSensors = 0UL;
-            if (lane != 0)
+            if (!isInSubScreen)
             {
                 for (var i = 0; i < _floatSensorHeld.Length; i++)
                 {
                     var area = (SensorArea)i;
-                    if (!LaneLayout.IsSensorInLane(area, lane))
-                    {
-                        continue;
-                    }
-                    if (Mathf.Abs(position.y - LaneLayout.GetSensorFloatY(area)) > LaneLayout.FLOAT_BAND_HALF_HEIGHT)
+                    if (!LaneLayout.IsInFloatHitArea(area, position))
                     {
                         continue;
                     }

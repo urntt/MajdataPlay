@@ -4,6 +4,7 @@ using MajdataPlay.Diagnostics;
 using MajdataPlay.Json;
 using MajdataPlay.Scenes.Game;
 using MajdataPlay.Scenes.Game.Notes;
+using MajdataPlay.Settings;
 using MajdataPlay.Utils;
 using Newtonsoft.Json;
 using SQLite;
@@ -19,6 +20,11 @@ namespace MajdataPlay
 #nullable enable
     internal static class ScoreManager
     {
+        /// <summary>
+        /// 下落式成绩与普通成绩分开存放：谱面 Hash 加上该前缀作为独立的分区，也不读取在线成绩
+        /// </summary>
+        const string FALLING_HASH_PREFIX = "falling:";
+
         static bool _isInited = false;
 
         static SpinLock _lock = new();
@@ -118,10 +124,18 @@ namespace MajdataPlay
 
         
 
+        static bool IsFallingStore => MajEnv.Settings?.Mod.PlayStyle == PlayStyleOption.Falling;
+        /// <summary>
+        /// 当前游玩模式对应的分区 Hash：Mod 里开启下落式时读写下落式的成绩
+        /// </summary>
+        static string GetStoreHash(string hash)
+        {
+            return IsFallingStore ? FALLING_HASH_PREFIX + hash : hash;
+        }
         public static MaiScore GetScore(ISongDetail song, ChartLevel level)
         {
-            var hash = song.Hash;
-            var records = CheckAndGetSongScores(hash, song.IsOnline);
+            var hash = GetStoreHash(song.Hash);
+            var records = CheckAndGetSongScores(hash, song.IsOnline && !IsFallingStore);
             return level switch
             {
                 ChartLevel.Easy => records.Easy,
@@ -136,17 +150,17 @@ namespace MajdataPlay
         }
         public static SongScores GetSongScores(ISongDetail song)
         {
-            var hash = song.Hash;
+            var hash = GetStoreHash(song.Hash);
 
-            return CheckAndGetSongScores(hash, song.IsOnline);
+            return CheckAndGetSongScores(hash, song.IsOnline && !IsFallingStore);
         }
         public static async Task<bool> SaveScore(GameResult result, ChartLevel level)
         {
             try
             {
                 var songInfo = result.SongDetail;
-                var hash = songInfo.Hash;
-                var records = CheckAndGetSongScores(hash, result.SongDetail.IsOnline);
+                var hash = GetStoreHash(songInfo.Hash);
+                var records = CheckAndGetSongScores(hash, result.SongDetail.IsOnline && !IsFallingStore);
                 var record = level switch
                 {
                     ChartLevel.Easy => records.Easy,

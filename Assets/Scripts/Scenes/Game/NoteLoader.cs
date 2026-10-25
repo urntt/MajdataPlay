@@ -9,6 +9,7 @@ using MajdataPlay.Game.Notes;
 using MajdataPlay.IO;
 using MajdataPlay.Numerics;
 using MajdataPlay.Scenes.Game.Buffers;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes;
 using MajdataPlay.Scenes.Game.Notes.Behaviours;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
@@ -561,8 +562,13 @@ namespace MajdataPlay.Scenes.Game
                     _gpManager.FirstNoteAppearTiming = Mathf.Min(_gpManager.FirstNoteAppearTiming, appearTiming);
                 }
                 _noteSortOrder -= NOTE_LAYER_COUNT[note.Type];
-                startPos = NoteCreateHelper.Rotation(startPos, ChartRotation);
-                NoteCreateHelper.SetNewPositionIfRequested(ref startPos, _buttonRingMappingTable);
+                // 下落式 Touch 转 Tap 的中心音符固定在中间两列之间，不随谱面旋转或随机映射
+                var isLaneCenter = LaneMode.IsEnabled && note.TouchArea == LaneLayout.CENTER_TOUCH_AREA;
+                if (!isLaneCenter)
+                {
+                    startPos = NoteCreateHelper.Rotation(startPos, ChartRotation);
+                    NoteCreateHelper.SetNewPositionIfRequested(ref startPos, _buttonRingMappingTable);
+                }
                 _isHasTap[startPos - 1] = true;
                 return new()
                 {
@@ -574,6 +580,7 @@ namespace MajdataPlay.Scenes.Game
                     IsEach = isEach,
                     IsBreak = note.IsBreak,
                     IsEX = note.IsEx,
+                    IsLaneCenter = isLaneCenter,
                     IsMine = isMine,
                     IsStar = note.IsForceStar,
                     RotateSpeed = note.IsFakeRotate ? -440f : 0,
@@ -613,8 +620,13 @@ namespace MajdataPlay.Scenes.Game
                     _gpManager.FirstNoteAppearTiming = Mathf.Min(_gpManager.FirstNoteAppearTiming, appearTiming);
                 }
                 _noteSortOrder -= NOTE_LAYER_COUNT[note.Type];
-                startPos = NoteCreateHelper.Rotation(startPos, ChartRotation);
-                NoteCreateHelper.SetNewPositionIfRequested(ref startPos, _buttonRingMappingTable);
+                // 下落式 Touch 转 Tap 的中心音符固定在中间两列之间，不随谱面旋转或随机映射
+                var isLaneCenter = LaneMode.IsEnabled && note.TouchArea == LaneLayout.CENTER_TOUCH_AREA;
+                if (!isLaneCenter)
+                {
+                    startPos = NoteCreateHelper.Rotation(startPos, ChartRotation);
+                    NoteCreateHelper.SetNewPositionIfRequested(ref startPos, _buttonRingMappingTable);
+                }
                 _isHasHold[startPos - 1] = true;
                 _isHasTap[startPos - 1] = true;
                 return new()
@@ -629,6 +641,7 @@ namespace MajdataPlay.Scenes.Game
                     IsBreak = note.IsBreak,
                     IsMine = isMine,
                     IsEX = note.IsEx,
+                    IsLaneCenter = isLaneCenter,
                     QueueInfo = new TapQueueInfo()
                     {
                         Index = _noteIndex[startPos]++,

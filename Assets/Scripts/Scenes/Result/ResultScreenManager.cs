@@ -269,7 +269,8 @@ namespace MajdataPlay.Scenes.Result
                 totalJudgeRecord.IsAllPerfect, 
                 totalJudgeRecord.IsFullCombo, 
                 gameObject.GetCancellationTokenOnDestroy()).Forget();
-            if (!MajInstances.GameManager.Settings.Mod.IsAnyModActive())
+            var modOptions = MajInstances.GameManager.Settings.Mod;
+            if (!modOptions.IsAnyModActive())
             {
                 var localScoreSaveTask = ScoreManager.SaveScore(result, result.Level);
                 if (song is OnlineSongDetail onlineSong && onlineSong.ServerInfo.RuntimeConfig.AuthMethod != NetAuthMethodOption.None)
@@ -281,6 +282,11 @@ namespace MajdataPlay.Scenes.Result
                 {
                     _scoreSaveTask = localScoreSaveTask;
                 }
+            }
+            else if (!modOptions.IsAnyModActiveExceptPlayStyle())
+            {
+                // 只开了下落式：保存到本地的下落式分区，不上传
+                _scoreSaveTask = ScoreManager.SaveScore(result, result.Level);
             }
             WaitForTaskAsync().Forget();
         }

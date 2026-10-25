@@ -76,6 +76,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         static float LaneShadeWidth => LaneLayout.LANE_AREA_WIDTH + LaneLayout.LANE_WIDTH * 2f;
+        /// <summary>
+        /// 当前游戏的判定线，颜色由 LaneHud 按设置更新；离开游戏场景后随场景销毁
+        /// </summary>
+        public static SpriteRenderer? JudgeLine { get; private set; }
         public static int BackgroundSortingLayerId => SortingLayer.NameToID(BACKGROUND_SORTING_LAYER);
         public static int SlidePathSortingLayerId => SortingLayer.NameToID(SLIDE_PATH_SORTING_LAYER);
 
@@ -152,6 +156,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             var judgeLine = CreateQuad("JudgeLine", parent, material, layerId, -90, new Color(1f, 1f, 1f, 0.9f));
             SetSegment(judgeLine, new Vector2(-FAR, LaneLayout.JUDGE_LINE_Y), new Vector2(FAR, LaneLayout.JUDGE_LINE_Y), 0.06f);
+            JudgeLine = judgeLine;
             return root;
         }
     }

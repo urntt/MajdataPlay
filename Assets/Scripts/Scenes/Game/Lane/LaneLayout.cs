@@ -40,6 +40,15 @@ namespace MajdataPlay.Scenes.Game.Lane
     internal static class LaneLayout
     {
         public const int LANE_COUNT = 8;
+        /// <summary>
+        /// 中心 C 区转成的 Tap/Hold 落在第 4、5 列之间，按其中任一列都算
+        /// </summary>
+        public const int CENTER_LANE = 4;
+        public const int CENTER_ALT_LANE = 5;
+        /// <summary>
+        /// Touch 转 Tap 后仍保留该 TouchArea，用来标记落在中间两列之间的音符
+        /// </summary>
+        public const char CENTER_TOUCH_AREA = 'C';
         public const float LANE_AREA_WIDTH = GameplayScreenLayout.FALLING_LANE_AREA_WIDTH;
         public const float LEFT = -LANE_AREA_WIDTH / 2f;
         public const float RIGHT = LANE_AREA_WIDTH / 2f;
@@ -57,9 +66,13 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public const float JUDGE_BAND_HALF_HEIGHT = 1.2f;
         /// <summary>
-        /// 悬空 Touch 可按的半高
+        /// 悬空 Touch 可按的半高，与 Touch 图形大小相当；相邻高度的可按区域允许重叠
         /// </summary>
-        public const float FLOAT_BAND_HALF_HEIGHT = 0.48f;
+        public const float FLOAT_HIT_HALF_HEIGHT = 0.9f;
+        /// <summary>
+        /// 悬空 Touch 的可按区域在所在列两侧再向外延伸的宽度
+        /// </summary>
+        public const float FLOAT_HIT_EXTRA_WIDTH = 0.2f;
 
         // 圆形模式中音符从内圈 1.225 移动到判定圈 4.8，下落式把这段距离线性映射到轨道长度，出现时机不变。
         const float INNER_DISTANCE = 1.225f;
@@ -142,6 +155,15 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _ => 0,
             };
         }
+        /// <summary>
+        /// 传感器对应的轨道位掩码，第 n 位对应第 n + 1 列；C 对应中间两列
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int GetSensorLaneMask(SensorArea area)
+        {
+            var lane = GetSensorLane(area);
+            return lane == 0 ? (1 << 3) | (1 << 4) : 1 << (lane - 1);
+        }
         /// <param name="lane">1~8</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsSensorInLane(SensorArea area, int lane)
@@ -175,6 +197,16 @@ namespace MajdataPlay.Scenes.Game.Lane
         public static Vector3 GetSensorFloatPosition(SensorArea area)
         {
             return new Vector3(GetSensorX(area), GetSensorFloatY(area), 0);
+        }
+        /// <summary>
+        /// 世界坐标 <paramref name="position"/> 是否落在悬空 Touch 的可按区域内：所在列（C 为中间两列）加两侧余量，上下各 <see cref="FLOAT_HIT_HALF_HEIGHT"/>
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInFloatHitArea(SensorArea area, Vector2 position)
+        {
+            var halfWidth = (GetSensorLane(area) == 0 ? LANE_WIDTH : LANE_WIDTH / 2f) + FLOAT_HIT_EXTRA_WIDTH;
+            return Mathf.Abs(position.x - GetSensorX(area)) <= halfWidth &&
+                   Mathf.Abs(position.y - GetSensorFloatY(area)) <= FLOAT_HIT_HALF_HEIGHT;
         }
     }
 }

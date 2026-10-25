@@ -6,7 +6,7 @@ using UnityEngine;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落。
+    /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落，终点画一颗星星标出结束的列。
     /// 路径落到判定线时所在的轨道，就是手指此时应在的位置。
     /// </summary>
     internal sealed class LaneSlidePath
@@ -20,6 +20,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float TOP_MARGIN = 0.5f;
         const string ROOT_NAME = "LaneSlidePaths";
+        const float END_MARKER_SCALE = 0.8f;
 
         static Transform? _root;
 
@@ -52,6 +53,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
 
         readonly Arrow[][] _paths;
+        // 终点星星的位置（相对高度同 Arrow.Y）；没有终点标记时为 null
+        readonly Vector2? _endPoint;
+        readonly Sprite? _endSprite;
+        SpriteRenderer? _endMarker;
         readonly int[] _firstVisible;
         readonly float _heightPerSec;
         readonly Sprite _sprite;
@@ -67,29 +72,42 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <param name="length">星星移动所需时间</param>
         /// <param name="speed">与音符相同的下落速度</param>
         /// <param name="sprite">Slide 箭头，前进方向为本地 -X</param>
+        /// <param name="endSprite">终点标记（星星）；为 null 时不画，例如连接 Slide 的中间段</param>
         public LaneSlidePath(ReadOnlySpan<Memory<SlideArea>> judgeQueues,
                              float startTiming,
                              float length,
                              float speed,
                              Sprite? sprite,
+                             Sprite? endSprite,
                              Material material,
                              int sortingOrder)
         {
             _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
+            _endSprite = endSprite;
             _material = material;
             _sortingOrder = sortingOrder;
             var paths = new List<Arrow[]>(judgeQueues.Length);
+            var vertexPaths = new List<Vertex[]>(judgeQueues.Length);
             foreach (var queue in judgeQueues)
             {
                 if (queue.IsEmpty)
                 {
                     continue;
                 }
-                paths.Add(BuildArrows(BuildPath(queue.Span, startTiming, length), _heightPerSec));
+                var vertices = BuildPath(queue.Span, startTiming, length);
+                vertexPaths.Add(vertices);
+                paths.Add(BuildArrows(vertices, _heightPerSec));
             }
             _paths = paths.ToArray();
             _firstVisible = new int[_paths.Length];
+            if (endSprite != null && vertexPaths.Count != 0)
+            {
+                // Wifi 只标中间一条的终点
+                var path = vertexPaths[vertexPaths.Count == 3 ? 1 : 0];
+                var end = path[path.Length - 1];
+                _endPoint = new Vector2(end.X, end.Timing * _heightPerSec);
+            }
         }
         /// <summary>
         /// 按当前时刻摆放箭头，只显示判定线与轨道顶端之间的部分
@@ -130,6 +148,31 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _renderers[k].enabled = false;
             }
             _enabledCount = used;
+            UpdateEndMarker(offset, top);
+        }
+        void UpdateEndMarker(float offset, float top)
+        {
+            if (_endPoint is not Vector2 endPoint)
+            {
+                return;
+            }
+            var y = endPoint.y + offset;
+            var isVisible = y >= LaneLayout.JUDGE_LINE_Y && y <= top;
+            if (!isVisible)
+            {
+                if (_endMarker != null)
+                {
+                    _endMarker.enabled = false;
+                }
+                return;
+            }
+            if (_endMarker == null)
+            {
+                _endMarker = LaneVisuals.CreateSprite("LaneSlideEnd", GetRoot(), _endSprite!, _material, LaneVisuals.SlidePathSortingLayerId, _sortingOrder + 1);
+                _endMarker.transform.localScale = new Vector3(END_MARKER_SCALE, END_MARKER_SCALE, 1f);
+            }
+            _endMarker.enabled = true;
+            _endMarker.transform.position = new Vector3(endPoint.x, y, 0);
         }
         /// <summary>
         /// Slide 结束后销毁箭头
@@ -150,6 +193,11 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             _renderers.Clear();
             _enabledCount = 0;
+            if (_endMarker != null)
+            {
+                UnityEngine.Object.Destroy(_endMarker.gameObject);
+                _endMarker = null;
+            }
         }
         SpriteRenderer GetRenderer(int index)
         {
@@ -166,24 +214,37 @@ namespace MajdataPlay.Scenes.Game.Lane
             _renderers.Add(created);
             return created;
         }
+        /// <summary>
+        /// 判定区到达判定线的时刻：判定区按箭头进度分布在星星移动的时间内，第一区对应起点，最后一区对应终点。
+        /// 路径与检查点判定（LaneSlideJudge）共用，保证看到的和判定的一致。
+        /// </summary>
+        internal static float GetAreaTiming(ReadOnlySpan<SlideArea> areas, int index, float startTiming, float length)
+        {
+            var count = areas.Length;
+            if (index >= count - 1)
+            {
+                return startTiming + length;
+            }
+            else if (index == 0)
+            {
+                return startTiming;
+            }
+            var totalProgress = Mathf.Max(1, areas[count - 1].ArrowProgressWhenFinished);
+            ref readonly var area = ref areas[index];
+            return startTiming + length * Mathf.Clamp01((area.ArrowProgressWhenOn + area.ArrowProgressWhenFinished) * 0.5f / totalProgress);
+        }
         static Vertex[] BuildPath(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
         {
             var count = areas.Length;
-            // 判定区按箭头进度分布在星星移动的时间内，最后一区对应 Slide 的终点
-            var totalProgress = Mathf.Max(1, areas[count - 1].ArrowProgressWhenFinished);
-            var vertices = new List<Vertex>(count + 1)
-            {
-                new Vertex(startTiming, GetAreaX(areas[0]))
-            };
-            for (var i = 1; i < count; i++)
-            {
-                ref readonly var area = ref areas[i];
-                var progress = i == count - 1 ? 1f : Mathf.Clamp01((area.ArrowProgressWhenOn + area.ArrowProgressWhenFinished) * 0.5f / totalProgress);
-                vertices.Add(new Vertex(startTiming + length * progress, GetAreaX(area)));
-            }
+            var vertices = new List<Vertex>(count + 1);
             if (count == 1)
             {
-                vertices.Add(new Vertex(startTiming + length, GetAreaX(areas[0])));
+                // 只有一个判定区：从起点到终点停在同一列
+                vertices.Add(new Vertex(startTiming, GetAreaX(areas[0])));
+            }
+            for (var i = 0; i < count; i++)
+            {
+                vertices.Add(new Vertex(GetAreaTiming(areas, i, startTiming, length), GetAreaX(areas[i])));
             }
             return vertices.ToArray();
         }

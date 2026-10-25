@@ -77,6 +77,17 @@ namespace MajdataPlay.Settings
         public float FallingSpeed { get; set; } = 7.5f;
 
         public bool FallingLaneDividers { get; set; } = true;
+
+        /// <summary>
+        /// 下落式的信息显示是否跟随“连击/第二信息/副屏信息”等显示设置；不跟随时右上显示分数与达成率、顶部中间显示连击
+        /// </summary>
+        public bool FallingInfoFollowDisplay { get; set; } = false;
+
+        public bool FallingDifficultyColor { get; set; } = true;
+
+        public bool FallingScoreColor { get; set; } = false;
+
+        public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
         
         [OptionEnumerator(typeof(GameOffsetEnumerator))]
         public float SlideFadeInOffset { get; set; } = 0f;
@@ -389,12 +400,20 @@ namespace MajdataPlay.Settings
 
         public bool FallingBreakToFlick { get; set; } = false;
 
+        public bool FallingTouchToTap { get; set; } = false;
+
         public bool IsAnyModActive()
         {
-            // 下落式也视为 Mod：成绩不保存、不上传
+            // 下落式也视为 Mod：成绩不上传，只保存到本地的下落式分区
+            return IsAnyModActiveExceptPlayStyle() || PlayStyle != PlayStyleOption.Standard;
+        }
+        /// <summary>
+        /// 除游玩模式外是否还启用了其他 Mod；只开下落式时仍保存本地成绩
+        /// </summary>
+        public bool IsAnyModActiveExceptPlayStyle()
+        {
             return !(PlaybackSpeed == 1f &&
-                !AllBreak && !AllEx && !AllTouch && AutoPlay == AutoplayModeOption.Disable && JudgeStyle == JudgeStyleOption.DEFAULT &&
-                PlayStyle == PlayStyleOption.Standard);
+                !AllBreak && !AllEx && !AllTouch && AutoPlay == AutoplayModeOption.Disable && JudgeStyle == JudgeStyleOption.DEFAULT);
         }
 
     }

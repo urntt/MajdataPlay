@@ -1,5 +1,6 @@
 using Cysharp.Threading.Tasks;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
+using MajdataPlay.Settings;
 using System;
 using TMPro;
 using UnityEngine;
@@ -11,8 +12,8 @@ using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式的 Phigros 式 HUD：左上暂停键（双击暂停）与跳过键、右上分数、左下曲名、右下难度、顶部进度条，
-    /// 连击数等移到顶部中间。暂停菜单与恢复倒计时放在单独的覆盖层画布上，盖在音符之上。
+    /// 下落式的 Phigros 式 HUD：左上暂停键（双击暂停）与跳过键、右上分数（下方小字为达成率）、左下曲名、右下难度、顶部进度条，
+    /// 连击数等移到顶部中间；判定线颜色按设置随成绩变化。暂停菜单与恢复倒计时放在单独的覆盖层画布上，盖在音符之上。
     /// <para>不依赖 EventSystem，按钮由本组件自行判断触摸与鼠标点击。</para>
     /// </summary>
     internal sealed class LaneHud : MonoBehaviour
@@ -26,17 +27,26 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 暂停键的点击区比图形大一些，手指更容易点中
         /// </summary>
         const float PAUSE_HIT_SIZE = 120f;
+        const float SCORE_FONT_SIZE = 46f;
+        const float ACHIEVEMENT_FONT_SIZE = 28f;
         const float DOUBLE_TAP_INTERVAL_SEC = 0.5f;
         const float RESUME_COUNTDOWN_SEC = 3f;
 
         static readonly Color PAUSE_BUTTON_COLOR = new Color(1f, 1f, 1f, 0.9f);
         static readonly Color PAUSE_BUTTON_ARMED_COLOR = new Color(0.45f, 0.85f, 1f, 1f);
+        static readonly Color JUDGE_LINE_WHITE = new Color(1f, 1f, 1f, 0.9f);
+        static readonly Color JUDGE_LINE_GOLD = new Color(1f, 0.82f, 0.3f, 0.9f);
+        static readonly Color JUDGE_LINE_PURPLE = new Color(0.78f, 0.45f, 1f, 0.9f);
+        static readonly Color JUDGE_LINE_GREEN = new Color(0.4f, 0.95f, 0.45f, 0.9f);
+        static readonly Color JUDGE_LINE_BLUE = new Color(0.4f, 0.75f, 1f, 0.9f);
 
         static LaneHud? _instance;
 
         GamePlayManager _gpManager = null!;
         NoteManager _noteManager = null!;
         BGManager _bgManager = null!;
+        ObjectCounter _objectCounter = null!;
+        FallingJudgeLineColorOption _judgeLineColorOption = FallingJudgeLineColorOption.White;
         Canvas? _canvas;
 
         RectTransform _root = null!;
@@ -199,17 +209,30 @@ namespace MajdataPlay.Scenes.Game.Lane
                         new Vector2(BUTTON_SIZE, BUTTON_SIZE));
             }
 
-            // 右上：分数（副屏信息，内容仍由“副屏信息显示”设置决定）
+            // 右上：分数（副屏信息；跟随显示设置时内容由“副屏信息显示”决定，否则为从 0% 往上涨的达成率）
+            // 与左上的暂停键对称：同样的边距，竖直方向与暂停键居中对齐
+            var gameOptions = MajEnv.Settings.Game;
             var score = objectCounter.SubScreenInfoDisplayerText;
             var scoreRect = score.rectTransform;
             scoreRect.SetParent(_root, false);
             scoreRect.localScale = Vector3.one;
             scoreRect.localRotation = Quaternion.identity;
-            scoreRect.anchorMin = new Vector2(1, 1);
-            scoreRect.anchorMax = new Vector2(1, 1);
-            scoreRect.pivot = new Vector2(1, 1);
-            scoreRect.anchoredPosition = new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN - 16f));
-            score.alignment = TextAlignmentOptions.TopRight;
+            SetRect(scoreRect, new Vector2(1, 1), new Vector2(1, 0.5f),
+                    new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
+                    new Vector2(800f, BUTTON_SIZE));
+            SetHudTextStyle(score, SCORE_FONT_SIZE, TextAlignmentOptions.Right);
+            if (!gameOptions.FallingInfoFollowDisplay)
+            {
+                // 分数下方小字：从 101% 往下掉的达成率
+                var achievement = CreateText("Achievement", _root, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
+                SetRect(achievement.rectTransform, new Vector2(1, 1), new Vector2(1, 1),
+                        new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE)),
+                        new Vector2(600f, ACHIEVEMENT_FONT_SIZE * 1.5f));
+                SetHudTextStyle(achievement, ACHIEVEMENT_FONT_SIZE, TextAlignmentOptions.TopRight);
+                objectCounter.SetFallingAchievementText(achievement);
+            }
+            _objectCounter = objectCounter;
+            _judgeLineColorOption = gameOptions.FallingJudgeLineColor;
 
             // 顶部中间：连击数、第二信息、判定时机条，保留它们之间的相对位置
             var topCenter = CreateRect("TopCenter", _root, layer);
@@ -222,7 +245,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 左下曲名、右下难度
             var titleText = CreateText("Title", _root, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
             SetRect(titleText.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(EDGE_MARGIN, 24f), new Vector2(1100f, 60f));
-            var difficultyText = CreateText("Difficulty", _root, layer, font, 40f, difficultyColor, TextAlignmentOptions.BottomRight, difficulty);
+            var difficultyText = CreateText("Difficulty", _root, layer, font, 40f, gameOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
             SetRect(difficultyText.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-EDGE_MARGIN, 24f), new Vector2(600f, 60f));
 
             BuildPauseOverlay(font);
@@ -328,6 +351,47 @@ namespace MajdataPlay.Scenes.Game.Lane
             var progress = length > 0 ? Mathf.Clamp01(_gpManager.ThisFrameSec / length) : 0f;
             _progressFill.anchorMax = new Vector2(progress, 1);
             FitBackground();
+            UpdateJudgeLineColor();
+        }
+        /// <summary>
+        /// maimai 式：保持 AP 金色，出现 Great 紫色、Good 绿色、Miss 白色；
+        /// Phigros 式：101% 往下掉的达成率不低于 100.5% 金色、不低于 100% 蓝色，否则白色
+        /// </summary>
+        void UpdateJudgeLineColor()
+        {
+            var judgeLine = LaneVisuals.JudgeLine;
+            if (judgeLine == null)
+            {
+                return;
+            }
+            Color color;
+            switch (_judgeLineColorOption)
+            {
+                case FallingJudgeLineColorOption.Maimai:
+                    {
+                        ref readonly var stats = ref _objectCounter.JudgeStats;
+                        color = stats.TotalMissCount != 0 ? JUDGE_LINE_WHITE
+                              : stats.TotalGoodCount != 0 ? JUDGE_LINE_GREEN
+                              : stats.TotalGreatCount != 0 ? JUDGE_LINE_PURPLE
+                              : JUDGE_LINE_GOLD;
+                    }
+                    break;
+                case FallingJudgeLineColorOption.Phigros:
+                    {
+                        var achievement = _objectCounter.Achievement101;
+                        color = achievement >= 100.5 ? JUDGE_LINE_GOLD
+                              : achievement >= 100 ? JUDGE_LINE_BLUE
+                              : JUDGE_LINE_WHITE;
+                    }
+                    break;
+                default:
+                    color = JUDGE_LINE_WHITE;
+                    break;
+            }
+            if (judgeLine.color != color)
+            {
+                judgeLine.color = color;
+            }
         }
         void OnDestroy()
         {
@@ -533,6 +597,18 @@ namespace MajdataPlay.Scenes.Game.Lane
             image.color = color;
             image.raycastTarget = false;
             return image;
+        }
+        /// <summary>
+        /// 固定字号、不自动缩放、不换行，避免沿用副屏文字原有的字号与边距
+        /// </summary>
+        static void SetHudTextStyle(TextMeshProUGUI text, float fontSize, TextAlignmentOptions alignment)
+        {
+            text.enableAutoSizing = false;
+            text.fontSize = fontSize;
+            text.margin = Vector4.zero;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Overflow;
+            text.alignment = alignment;
         }
         static TextMeshProUGUI CreateText(string name, Transform parent, int layer, TMP_FontAsset? font, float fontSize, Color color, TextAlignmentOptions alignment, string text)
         {

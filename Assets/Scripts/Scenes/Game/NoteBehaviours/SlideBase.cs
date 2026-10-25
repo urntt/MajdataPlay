@@ -213,8 +213,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         private SlideArea?[] _lastTriggerAreas = new SlideArea?[3];
 
-        // 下落式：沿路径排布的箭头
+        // 下落式：沿路径排布的箭头与 Phigros 式检查点判定
         private LaneSlidePath? _lanePath;
+        private LaneSlideJudge? _laneJudge;
 
         public abstract void Init();
         protected void MineCheck()
@@ -263,7 +264,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected virtual SensorCheckResult SensorCheck()
         {
-            if (AutoplayMode == AutoplayModeOption.Enable || !IsCheckable)
+            if (AutoplayMode == AutoplayModeOption.Enable)
+            {
+                return default;
+            }
+            else if (_laneJudge is not null)
+            {
+                // 下落式按检查点判定，只看时间，不受 IsCheckable 限制：连接 Slide 的后一段可能在前一段结算前就要开始计时
+                LaneCheckpointCheck();
+                return default;
+            }
+            else if (!IsCheckable)
             {
                 return default;
             }
@@ -357,7 +368,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         }
 
         /// <summary>
-        /// 下落式按 Phigros Drag 判定：判定区对应的轨道被按住即可，不需要点击，也不读取悬空 Touch 的传感器
+        /// 下落式（仅地雷 Slide 走判定队列）：判定区对应的轨道被按住即可，不需要点击，也不读取悬空 Touch 的传感器
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         SwitchStatus GetAreaStatus(SensorArea area)
@@ -366,29 +377,86 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                                       : NoteManager.GetSensorStatusInThisFrame(area);
         }
         /// <summary>
-        /// 下落式：根据判定队列生成路径箭头。需要在 StartTiming、Length 与判定队列确定后调用
+        /// 下落式：根据判定队列生成路径箭头与检查点。需要在 StartTiming、Length 与判定队列确定后调用
         /// </summary>
         protected void InitLanePath()
         {
+            _lanePath?.End();
+            _lanePath = null;
+            _laneJudge = null;
             if (!LaneMode.IsEnabled)
             {
                 return;
             }
-            _lanePath?.End();
             // 与 SingleSlideBase.LoadSkin 选择箭头的规则一致；Wifi 也使用 Slide 箭头
             var skin = MajInstances.SkinManager.GetSlideSkin();
+            var starSkin = skin.Star;
             Sprite? arrowSprite;
+            Sprite? endSprite;
             if (IsMine)
             {
                 arrowSprite = IsBreak ? skin.BreakMine : skin.Mine;
+                endSprite = IsBreak ? starSkin.BreakMine : starSkin.Mine;
             }
             else
             {
                 arrowSprite = IsBreak ? skin.Break : IsEach ? skin.Each : skin.Normal;
+                endSprite = IsBreak ? starSkin.Break : IsEach ? starSkin.Each : starSkin.Normal;
+            }
+            // 连接 Slide 只在最后一段的终点画星星
+            if (ConnectInfo.IsConnSlide && !ConnectInfo.IsGroupPartEnd)
+            {
+                endSprite = null;
             }
             var breakMaterial = BreakMaterial;
             var material = IsBreak && breakMaterial is not null ? breakMaterial : DefaultMaterial;
-            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, material, 0);
+            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, endSprite, material, 0);
+            if (!IsMine)
+            {
+                _laneJudge = new LaneSlideJudge(JudgeQueues, StartTiming, Length);
+            }
+        }
+        /// <summary>
+        /// 下落式：结算检查点；全部结算后清空判定队列，由 SlideCheck 调用 Judge 按命中比例评级
+        /// </summary>
+        void LaneCheckpointCheck()
+        {
+            if (IsEnded || !IsInited || IsFinished)
+            {
+                return;
+            }
+            var laneJudge = _laneJudge!;
+            var isNewlyHit = laneJudge.Update(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC, NoteManager.GetLaneHeldMask());
+            if (isNewlyHit && (ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide))
+            {
+                PlaySFX();
+            }
+            if (laneJudge.IsResolved)
+            {
+                ClearAllJudgeQueue();
+            }
+        }
+        /// <summary>
+        /// 下落式：按整组（连接 Slide 各段合计）检查点的命中比例评级，不看完成时间
+        /// </summary>
+        void JudgeLane()
+        {
+            var hitCount = 0;
+            var totalCount = 0;
+            for (SlideBase? part = this; part is not null; part = part.Parent?.GameObject.GetComponent<SlideBase>())
+            {
+                if (part._laneJudge is LaneSlideJudge laneJudge)
+                {
+                    hitCount += laneJudge.HitCount;
+                    totalCount += laneJudge.TotalCount;
+                }
+            }
+            var result = LaneSlideJudge.GetGrade(hitCount, totalCount);
+            ConvertJudgeGrade(ref result);
+            JudgeResult = result;
+            JudgeDiff = 0;
+            IsJudged = true;
+            LastWaitTimeSec = 0;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected void UpdateLanePath()
@@ -417,6 +485,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             else if (IsJudged)
             {
+                return;
+            }
+            else if (_laneJudge is not null)
+            {
+                JudgeLane();
                 return;
             }
             var stayTimeMSec = LastWaitTimeSec * 1000; // 停留时间
@@ -480,6 +553,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             else if (IsJudged)
             {
+                return;
+            }
+            else if (_laneJudge is not null)
+            {
+                JudgeLane();
                 return;
             }
             var diffSec = currentSec - JudgeTimingWithOffset;

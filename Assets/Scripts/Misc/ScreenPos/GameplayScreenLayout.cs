@@ -1,10 +1,12 @@
 using Cysharp.Threading.Tasks;
+using MajdataPlay.Settings;
 using UnityEngine;
 #nullable enable
 namespace MajdataPlay
 {
     /// <summary>
-    /// 游戏场景的画面布局状态。只有 Game 场景会请求横屏，其它场景保持竖屏。
+    /// 画面布局状态。“画面方向”设为横屏时所有页面使用横屏布局（圆形主屏居中、副屏在左侧）；
+    /// 下落式在游戏场景中始终横屏。
     /// </summary>
     public static class GameplayScreenLayout
     {
@@ -57,6 +59,20 @@ namespace MajdataPlay
             Screen.orientation = ScreenOrientation.LandscapeLeft;
             RestoreAutoRotationAsync().Forget();
 #endif
+        }
+        /// <summary>
+        /// 按“画面方向”设置切换横竖屏。游戏场景以外的页面在切换场景时调用；启动时也调用一次。
+        /// </summary>
+        public static void ApplyOrientationSetting()
+        {
+            if (MajEnv.Settings?.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
+            {
+                RequestLandscape();
+            }
+            else
+            {
+                Reset();
+            }
         }
         public static void Reset()
         {

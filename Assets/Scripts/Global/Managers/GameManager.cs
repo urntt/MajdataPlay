@@ -63,8 +63,9 @@ namespace MajdataPlay
             base.Awake();
             Majdata<GameManager>.SetAsSingleton(this);
             GameRuntime.Init();
-            // 播放器设置允许横屏只是为了让游戏场景能切到横屏，其它场景保持竖屏。
+            // 播放器设置允许横屏；启动时先限制为竖屏，再按“画面方向”设置决定是否转为横屏。
             GameplayScreenLayout.LockPortrait();
+            GameplayScreenLayout.ApplyOrientationSetting();
         }
         void Start()
         {

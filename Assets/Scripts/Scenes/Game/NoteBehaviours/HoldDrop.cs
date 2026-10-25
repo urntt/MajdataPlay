@@ -59,6 +59,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         float _waitReleaseTimeSec = 0;
 
         ButtonZone? _buttonPos;
+        // 下落式：中心 C 区 TouchHold 转成的 Hold 落在第 4、5 列之间，第 5 列也能判定
+        ButtonZone? _altButtonPos;
+        bool _isLaneCenter = false;
         Range<float> _bodyCheckRange;
 
         bool _isLaneMode = false;
@@ -124,6 +127,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _outerPos = NoteHelper.GetTapPosition(StartPos, 4.8f);
             SensorPos = (SensorArea)(StartPos - 1);
             _buttonPos = SensorPos.ToButtonZone();
+            _isLaneCenter = _isLaneMode && poolingInfo.IsLaneCenter;
+            _altButtonPos = _isLaneCenter ? ((SensorArea)(LaneLayout.CENTER_ALT_LANE - 1)).ToButtonZone() : null;
             PlayerReleaseTimeSec = 0;
             JudgeResult = JudgeGrade.Miss;
             if (IsMine)
@@ -280,7 +285,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                             _exRenderer.size = new Vector2(1.22f, 1.42f);
                             _thisRenderer.size = new Vector2(1.22f, 1.42f);
                             _tapLineTransform.localScale = new Vector3(0.2552f, 0.2552f, 1f);
-                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, 1.225f) : _innerPos;
+                            Transform.position = _isLaneMode ? GetLanePosition(1.225f) : _innerPos;
                             SetExRendererActive(true);
                             SetNoteRendererActive(true);
 
@@ -339,7 +344,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
                         lineScale = lineScale >= 1f ? 1f : lineScale;
 
-                        Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, dis) : _outerPos * (dis / 4.8f); //0.325
+                        Transform.position = _isLaneMode ? GetLanePosition(dis) : _outerPos * (dis / 4.8f); //0.325
                         _tapLineTransform.localScale = new Vector3(lineScale, lineScale, 1f);
                         _thisRenderer.size = new Vector2(1.22f, size);
                         _exRenderer.size = new Vector2(1.22f, size);
@@ -353,7 +358,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         var scale = Mathf.Abs(ratio);
                         _tapLineTransform.localScale = new Vector3(1f, 1f, 1f);
                         Distance = endDistance;
-                        Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, endDistance) : _outerPos * ratio;
+                        Transform.position = _isLaneMode ? GetLanePosition(endDistance) : _outerPos * ratio;
                         _tapLineTransform.localScale = new Vector3(scale, scale, 1f);
                         break;
                     default:
@@ -407,6 +412,23 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 _lastHoldState = HOLD_STATE_PRESSED;
             }
         }
+        /// <summary>
+        /// 下落式音符位置；中心音符落在第 4、5 列之间
+        /// </summary>
+        Vector3 GetLanePosition(float distance)
+        {
+            var position = LaneLayout.GetNotePosition(StartPos, distance);
+            if (_isLaneCenter)
+            {
+                position.x = LaneLayout.GetSensorX(SensorArea.C);
+            }
+            return position;
+        }
+        bool IsLaneButtonPressed()
+        {
+            return NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On) ||
+                   (_altButtonPos is ButtonZone altButtonPos && NoteManager.CheckButtonStatusInThisFrame(altButtonPos, SwitchStatus.On));
+        }
         private void HeadCheck()
         {
             if (IsEnded || !IsInited || IsJudged)
@@ -419,6 +441,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
 
             if (NoteManager.IsButtonClickedInThisFrame(_buttonPos) && NoteManager.TryUseButtonClickEvent(_buttonPos))
+            {
+                Judge(ThisFrameSec);
+            }
+            else if (_altButtonPos is ButtonZone altButtonPos && NoteManager.IsButtonClickedInThisFrame(altButtonPos) && NoteManager.TryUseButtonClickEvent(altButtonPos))
             {
                 Judge(ThisFrameSec);
             }
@@ -476,7 +502,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 return;
             }
-            var isButtonPressed = NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On);
+            var isButtonPressed = IsLaneButtonPressed();
             // 下落式中 Hold 只响应轨道，悬空 Touch 区不算按住
             var isSensorPressed = !_isLaneMode && NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
             var isPressed = isButtonPressed || isSensorPressed;
@@ -518,7 +544,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 return;
             }
-            var isButtonPressed = NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On);
+            var isButtonPressed = IsLaneButtonPressed();
             // 下落式中 Hold 只响应轨道，悬空 Touch 区不算按住
             var isSensorPressed = !_isLaneMode && NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On);
             var isPressed = isButtonPressed || isSensorPressed;

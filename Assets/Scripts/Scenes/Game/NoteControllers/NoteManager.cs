@@ -430,6 +430,22 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _laneInput.IgnoreActivePointers();
         }
         /// <summary>
+        /// 下落式：本帧被按住的轨道（触摸或实体按键），第 n 位对应第 n + 1 列
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetLaneHeldMask()
+        {
+            var mask = 0;
+            for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
+            {
+                if (_btnStatusInThisFrame[lane - 1] == SwitchStatus.On)
+                {
+                    mask |= 1 << (lane - 1);
+                }
+            }
+            return mask;
+        }
+        /// <summary>
         /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -121,6 +121,64 @@ namespace MajdataPlay.Extensions
             }
             return source;
         }
+        /// <summary>
+        /// 下落式 Touch 转 Tap：Touch/TouchHold 换成所在轨道的 Tap/Hold（A/B/D/E 的第 n 区对应第 n 列）。
+        /// 中心 C 区换成 StartPosition 为 4、TouchArea 仍为 'C' 的 Tap/Hold，由 NoteLoader 识别为落在中间两列之间。
+        /// 同一时刻同一列已有 Tap、Hold 或星星头时丢弃转换出的音符，避免一列叠两个音符。
+        /// </summary>
+        internal static SimaiChart ConvertTouchToLaneTap(this SimaiChart source)
+        {
+            const int CENTER_BIT = 1 << 8;
+            var timingPoints = source.NoteTimings;
+            foreach (var timingPoint in timingPoints)
+            {
+                var notes = timingPoint.Notes;
+                var occupied = 0;
+                foreach (var note in notes)
+                {
+                    var isLaneNote = note.Type is SimaiNoteType.Tap or SimaiNoteType.Hold ||
+                                     (note.Type == SimaiNoteType.Slide && !note.IsSlideNoHead);
+                    if (isLaneNote && note.StartPosition is >= 1 and <= 8)
+                    {
+                        occupied |= 1 << (note.StartPosition - 1);
+                    }
+                }
+                var newNoteList = new List<SimaiNote>(notes.Length);
+                var isChanged = false;
+                foreach (var note in notes)
+                {
+                    if (note.Type is not (SimaiNoteType.Touch or SimaiNoteType.TouchHold))
+                    {
+                        newNoteList.Add(note);
+                        continue;
+                    }
+                    isChanged = true;
+                    var isCenter = note.TouchArea == Scenes.Game.Lane.LaneLayout.CENTER_TOUCH_AREA;
+                    var bit = isCenter ? CENTER_BIT : 1 << (note.StartPosition - 1);
+                    if ((occupied & bit) != 0)
+                    {
+                        continue;
+                    }
+                    occupied |= bit;
+                    note.Type = note.Type == SimaiNoteType.TouchHold ? SimaiNoteType.Hold : SimaiNoteType.Tap;
+                    if (isCenter)
+                    {
+                        note.StartPosition = Scenes.Game.Lane.LaneLayout.CENTER_LANE;
+                    }
+                    else
+                    {
+                        note.TouchArea = ' ';
+                    }
+                    note.IsHanabi = false;
+                    newNoteList.Add(note);
+                }
+                if (isChanged)
+                {
+                    timingPoint.Notes = newNoteList.ToArray();
+                }
+            }
+            return source;
+        }
         public static SimaiChart Clamp(this SimaiChart source,Range<long> noteIndexRange)
         {
             using PooledList<SimaiTimingPoint> newTimingList = new();

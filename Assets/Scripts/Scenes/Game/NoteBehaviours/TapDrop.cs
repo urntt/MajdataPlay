@@ -49,6 +49,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         Color _defaultColor = Color.white;
 
         ButtonZone? _buttonPos;
+        // 下落式：中心 C 区 Touch 转成的 Tap 落在第 4、5 列之间，第 5 列也能判定
+        ButtonZone? _altButtonPos;
+        bool _isLaneCenter = false;
 
         Vector3 _innerPos = NoteHelper.GetTapPosition(1, 1.225f);
         Vector3 _outerPos = NoteHelper.GetTapPosition(1, 4.8f);
@@ -112,6 +115,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _outerPos = NoteHelper.GetTapPosition(StartPos, 4.8f);
             SensorPos = (SensorArea)(StartPos - 1);
             _buttonPos = SensorPos.ToButtonZone();
+            _isLaneCenter = _isLaneMode && poolingInfo.IsLaneCenter;
+            _altButtonPos = _isLaneCenter ? ((SensorArea)(LaneLayout.CENTER_ALT_LANE - 1)).ToButtonZone() : null;
             _isFlick = _isLaneMode && LaneMode.IsBreakToFlick && IsBreak && !IsMine;
             if (IsMine)
             {
@@ -204,7 +209,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     case NoteStatus.Inited:
                         if (destScale >= 0f)
                         {
-                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, 1.225f) : _innerPos;
+                            Transform.position = _isLaneMode ? GetLanePosition(1.225f) : _innerPos;
                             _tapLineTransform.localScale = new Vector3(1.225f / 4.8f, 1.225f / 4.8f, 1f);
                             SetNoteRendererActive(true);
                             SetExRendererActive(true);
@@ -234,7 +239,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     case NoteStatus.Running:
                         {
                             Distance = distance;
-                            Transform.position = _isLaneMode ? LaneLayout.GetNotePosition(StartPos, distance) : _outerPos * (distance / 4.8f);
+                            Transform.position = _isLaneMode ? GetLanePosition(distance) : _outerPos * (distance / 4.8f);
                             var lineScale = Mathf.Abs(distance / 4.8f);
                             _tapLineTransform.localScale = new Vector3(lineScale, lineScale, 1f);
                         }
@@ -319,6 +324,28 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 End();
             }
         }
+        /// <summary>
+        /// 下落式音符位置；中心音符落在第 4、5 列之间
+        /// </summary>
+        Vector3 GetLanePosition(float distance)
+        {
+            var position = LaneLayout.GetNotePosition(StartPos, distance);
+            if (_isLaneCenter)
+            {
+                position.x = LaneLayout.GetSensorX(SensorArea.C);
+            }
+            return position;
+        }
+        bool TryUseLaneFlick()
+        {
+            if (NoteManager.IsLaneFlickedInThisFrame(StartPos) && NoteManager.TryUseLaneFlick(StartPos))
+            {
+                return true;
+            }
+            return _isLaneCenter &&
+                   NoteManager.IsLaneFlickedInThisFrame(LaneLayout.CENTER_ALT_LANE) &&
+                   NoteManager.TryUseLaneFlick(LaneLayout.CENTER_ALT_LANE);
+        }
         private void Check()
         {
             if (IsEnded || !IsInited)
@@ -332,13 +359,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
             if (_isFlick)
             {
-                if (!NoteManager.IsLaneFlickedInThisFrame(StartPos) || !NoteManager.TryUseLaneFlick(StartPos))
+                if (!TryUseLaneFlick())
                 {
                     return;
                 }
                 Judge(ThisFrameSec);
             }
             else if (NoteManager.IsButtonClickedInThisFrame(_buttonPos) && NoteManager.TryUseButtonClickEvent(_buttonPos))
+            {
+                Judge(ThisFrameSec);
+            }
+            else if (_altButtonPos is ButtonZone altButtonPos && NoteManager.IsButtonClickedInThisFrame(altButtonPos) && NoteManager.TryUseButtonClickEvent(altButtonPos))
             {
                 Judge(ThisFrameSec);
             }

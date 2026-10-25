@@ -259,16 +259,12 @@ namespace MajdataPlay.Scenes.Game
             }
             if (LaneMode.IsEnabled)
             {
-                // 下落式强制横屏，使用 16:9 游玩区
+                // 下落式强制横屏，画面铺满屏幕
                 GameplayScreenLayout.RequestLandscape(isFallingPlayArea: true);
-            }
-            else if (_gameSettings.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
-            {
-                GameplayScreenLayout.RequestLandscape();
             }
             else
             {
-                GameplayScreenLayout.Reset();
+                GameplayScreenLayout.ApplyOrientationSetting();
             }
             _songDetail = _gameInfo.Current;
             HistoryScore = ScoreManager.GetScore(_songDetail, _listConfig.SelectedDiff);
@@ -907,6 +903,11 @@ namespace MajdataPlay.Scenes.Game
             if (ModInfo.AllTouch)
             {
                 _chart = _chart.ConvertToTouch();
+            }
+            if (LaneMode.IsEnabled && _gameSettings.Mod.FallingTouchToTap)
+            {
+                // 在统计音符总数和加载音符之前转换，两者保持一致
+                _chart = _chart.ConvertTouchToLaneTap();
             }
             if (_chart.IsEmpty)
             {
