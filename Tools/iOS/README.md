@@ -51,8 +51,8 @@ Tools/iOS/build_unsigned_ipa.sh
 
 ### 一次性准备
 
-1. **启用 Actions**：fork 的仓库默认禁用工作流。在仓库的 **Actions** 页面点击启用。
-   - 上游的 `Build Project`（`main.yml`）需要原作者的苹果证书，在你的仓库里会失败，建议在 Actions 页面左侧选中它，点 `…` → **Disable workflow**。
+1. **启用 Actions**：fork 的仓库如果没启用工作流，在仓库的 **Actions** 页面点击启用。
+   - 上游的 `Build Project`（`main.yml`）只在推送到 `dev` 等分支时运行。它需要原作者的苹果证书，在你的仓库里会失败。如果以后要往这些分支推送，先在 Actions 页面左侧选中它，点 `…` → **Disable workflow**。
 2. **配置 Secrets**：在仓库 **Settings → Secrets and variables → Actions → New repository secret** 添加三项：
    - `UNITY_EMAIL`：Unity 账号邮箱
    - `UNITY_PASSWORD`：Unity 账号密码
@@ -67,10 +67,12 @@ Tools/iOS/build_unsigned_ipa.sh
 任选一种：
 
 - **网页触发**：Actions → **Build unsigned iOS IPA** → **Run workflow**，选择分支后运行。可以填包名和保留天数。需要先完成上面的第 3 步。
-- **提交触发**：在任意分支推送一个提交信息里带 `[ipa]` 的提交，例如：
+- **提交触发**：在任意分支推送一个提交信息里带 `[ipa]` 的提交（普通提交信息里不要写到这个词，否则也会触发），例如：
   ```bash
   git commit --allow-empty -m "build [ipa]" && git push
   ```
+
+- **重新运行**：配置好 Secrets 之前触发的运行会失败，打开那次运行，点 **Re-run all jobs** 即可。
 
 运行完成后，在这次运行的页面底部 **Artifacts** 里下载 `MajdataPlay-iOS-<提交号>`。下载的是 zip，解压后就是 ipa。
 

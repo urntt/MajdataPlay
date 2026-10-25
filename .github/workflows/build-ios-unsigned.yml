@@ -4,7 +4,7 @@ run-name: Unsigned iOS IPA (${{ github.ref_name }})
 # 打包未签名的 ipa，下载后用 Sideloadly 等工具以自己的 Apple ID 签名安装，不需要 Apple 开发者证书。
 # 触发方式：
 #   1. 网页 Actions → Build unsigned iOS IPA → Run workflow（本文件需要在默认分支上才会出现按钮）
-#   2. 推送到任意分支时，提交信息里带 [ipa]
+#   2. 推送到任意分支时，提交信息里带 [ipa]（注意普通提交信息里不要写到这个词）
 # 需要在仓库 Secrets 里配置 UNITY_EMAIL、UNITY_PASSWORD、UNITY_LICENSE，详见 Tools/iOS/README.md。
 on:
   workflow_dispatch:
@@ -42,6 +42,17 @@ jobs:
     timeout-minutes: 300
 
     steps:
+      - name: Check Unity license secrets
+        run: |
+          missing=""
+          [ -n "$UNITY_LICENSE" ] || missing="$missing UNITY_LICENSE"
+          [ -n "$UNITY_EMAIL" ] || missing="$missing UNITY_EMAIL"
+          [ -n "$UNITY_PASSWORD" ] || missing="$missing UNITY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少仓库 Secrets:$missing。请在 Settings → Secrets and variables → Actions 中添加，详见 Tools/iOS/README.md"
+            exit 1
+          fi
+
       - name: Checkout the repository
         uses: actions/checkout@v4
         with:
