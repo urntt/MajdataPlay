@@ -390,27 +390,18 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             // 与 SingleSlideBase.LoadSkin 选择箭头的规则一致；Wifi 也使用 Slide 箭头
             var skin = MajInstances.SkinManager.GetSlideSkin();
-            var starSkin = skin.Star;
             Sprite? arrowSprite;
-            Sprite? endSprite;
             if (IsMine)
             {
                 arrowSprite = IsBreak ? skin.BreakMine : skin.Mine;
-                endSprite = IsBreak ? starSkin.BreakMine : starSkin.Mine;
             }
             else
             {
                 arrowSprite = IsBreak ? skin.Break : IsEach ? skin.Each : skin.Normal;
-                endSprite = IsBreak ? starSkin.Break : IsEach ? starSkin.Each : starSkin.Normal;
-            }
-            // 连接 Slide 只在最后一段的终点画星星
-            if (ConnectInfo.IsConnSlide && !ConnectInfo.IsGroupPartEnd)
-            {
-                endSprite = null;
             }
             var breakMaterial = BreakMaterial;
             var material = IsBreak && breakMaterial is not null ? breakMaterial : DefaultMaterial;
-            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, endSprite, material, 0);
+            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, material, 0);
             if (!IsMine)
             {
                 _laneJudge = new LaneSlideJudge(JudgeQueues, StartTiming, Length);

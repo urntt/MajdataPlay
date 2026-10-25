@@ -1,3 +1,4 @@
+using MajdataPlay.IO;
 using MajdataPlay.Scenes.Game.Notes.Slide;
 using System;
 using System.Collections.Generic;
@@ -6,8 +7,8 @@ using UnityEngine;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落，终点画一颗星星标出结束的列。
-    /// 路径落到判定线时所在的轨道，就是手指此时应在的位置。
+    /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落。
+    /// 路径落到判定线时所在的轨道，就是手指此时应在的位置；最后一个箭头正好落在结束的列上。
     /// </summary>
     internal sealed class LaneSlidePath
     {
@@ -20,7 +21,6 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float TOP_MARGIN = 0.5f;
         const string ROOT_NAME = "LaneSlidePaths";
-        const float END_MARKER_SCALE = 0.8f;
 
         static Transform? _root;
 
@@ -53,10 +53,6 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
 
         readonly Arrow[][] _paths;
-        // 终点星星的位置（相对高度同 Arrow.Y）；没有终点标记时为 null
-        readonly Vector2? _endPoint;
-        readonly Sprite? _endSprite;
-        SpriteRenderer? _endMarker;
         readonly int[] _firstVisible;
         readonly float _heightPerSec;
         readonly Sprite _sprite;
@@ -72,42 +68,29 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <param name="length">星星移动所需时间</param>
         /// <param name="speed">与音符相同的下落速度</param>
         /// <param name="sprite">Slide 箭头，前进方向为本地 -X</param>
-        /// <param name="endSprite">终点标记（星星）；为 null 时不画，例如连接 Slide 的中间段</param>
         public LaneSlidePath(ReadOnlySpan<Memory<SlideArea>> judgeQueues,
                              float startTiming,
                              float length,
                              float speed,
                              Sprite? sprite,
-                             Sprite? endSprite,
                              Material material,
                              int sortingOrder)
         {
             _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
-            _endSprite = endSprite;
             _material = material;
             _sortingOrder = sortingOrder;
             var paths = new List<Arrow[]>(judgeQueues.Length);
-            var vertexPaths = new List<Vertex[]>(judgeQueues.Length);
             foreach (var queue in judgeQueues)
             {
                 if (queue.IsEmpty)
                 {
                     continue;
                 }
-                var vertices = BuildPath(queue.Span, startTiming, length);
-                vertexPaths.Add(vertices);
-                paths.Add(BuildArrows(vertices, _heightPerSec));
+                paths.Add(BuildArrows(BuildPath(queue.Span, startTiming, length), _heightPerSec));
             }
             _paths = paths.ToArray();
             _firstVisible = new int[_paths.Length];
-            if (endSprite != null && vertexPaths.Count != 0)
-            {
-                // Wifi 只标中间一条的终点
-                var path = vertexPaths[vertexPaths.Count == 3 ? 1 : 0];
-                var end = path[path.Length - 1];
-                _endPoint = new Vector2(end.X, end.Timing * _heightPerSec);
-            }
         }
         /// <summary>
         /// 按当前时刻摆放箭头，只显示判定线与轨道顶端之间的部分
@@ -148,31 +131,6 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _renderers[k].enabled = false;
             }
             _enabledCount = used;
-            UpdateEndMarker(offset, top);
-        }
-        void UpdateEndMarker(float offset, float top)
-        {
-            if (_endPoint is not Vector2 endPoint)
-            {
-                return;
-            }
-            var y = endPoint.y + offset;
-            var isVisible = y >= LaneLayout.JUDGE_LINE_Y && y <= top;
-            if (!isVisible)
-            {
-                if (_endMarker != null)
-                {
-                    _endMarker.enabled = false;
-                }
-                return;
-            }
-            if (_endMarker == null)
-            {
-                _endMarker = LaneVisuals.CreateSprite("LaneSlideEnd", GetRoot(), _endSprite!, _material, LaneVisuals.SlidePathSortingLayerId, _sortingOrder + 1);
-                _endMarker.transform.localScale = new Vector3(END_MARKER_SCALE, END_MARKER_SCALE, 1f);
-            }
-            _endMarker.enabled = true;
-            _endMarker.transform.position = new Vector3(endPoint.x, y, 0);
         }
         /// <summary>
         /// Slide 结束后销毁箭头
@@ -193,11 +151,6 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             _renderers.Clear();
             _enabledCount = 0;
-            if (_endMarker != null)
-            {
-                UnityEngine.Object.Destroy(_endMarker.gameObject);
-                _endMarker = null;
-            }
         }
         SpriteRenderer GetRenderer(int index)
         {
@@ -237,29 +190,33 @@ namespace MajdataPlay.Scenes.Game.Lane
         {
             var count = areas.Length;
             var vertices = new List<Vertex>(count + 1);
+            // 终点落在结束的列上：最后一个判定区优先取外圈 A 区所在的列
+            var endX = GetEndAreaX(areas[count - 1]);
             if (count == 1)
             {
                 // 只有一个判定区：从起点到终点停在同一列
-                vertices.Add(new Vertex(startTiming, GetAreaX(areas[0])));
+                vertices.Add(new Vertex(startTiming, endX));
             }
             for (var i = 0; i < count; i++)
             {
-                vertices.Add(new Vertex(GetAreaTiming(areas, i, startTiming, length), GetAreaX(areas[i])));
+                var x = i == count - 1 ? endX : GetAreaX(areas[i]);
+                vertices.Add(new Vertex(GetAreaTiming(areas, i, startTiming, length), x));
             }
             return vertices.ToArray();
         }
         /// <summary>
-        /// 沿折线按弧长等距取点，箭头指向路径终点（时间更晚、位置更高的一端）
+        /// 从终点往回沿折线按弧长等距取点，保证最后一个箭头正好落在终点（结束的列）上；
+        /// 箭头指向路径终点（时间更晚、位置更高的一端）
         /// </summary>
         static Arrow[] BuildArrows(Vertex[] vertices, float heightPerSec)
         {
             var arrows = new List<Arrow>();
-            // 下一个箭头距当前线段起点的弧长
-            var next = ARROW_SPACING / 2f;
-            for (var i = 0; i < vertices.Length - 1; i++)
+            // 下一个箭头距当前线段终点的弧长
+            var next = 0f;
+            for (var i = vertices.Length - 1; i > 0; i--)
             {
-                var from = new Vector2(vertices[i].X, vertices[i].Timing * heightPerSec);
-                var to = new Vector2(vertices[i + 1].X, vertices[i + 1].Timing * heightPerSec);
+                var from = new Vector2(vertices[i - 1].X, vertices[i - 1].Timing * heightPerSec);
+                var to = new Vector2(vertices[i].X, vertices[i].Timing * heightPerSec);
                 var delta = to - from;
                 var length = delta.magnitude;
                 if (length <= 1e-4f)
@@ -269,12 +226,31 @@ namespace MajdataPlay.Scenes.Game.Lane
                 var rotation = Quaternion.Euler(0, 0, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg - 180f);
                 for (; next <= length; next += ARROW_SPACING)
                 {
-                    var point = from + delta * (next / length);
+                    var point = to - delta * (next / length);
                     arrows.Add(new Arrow(point.x, point.y, rotation));
                 }
                 next -= length;
             }
+            // 改回从起点到终点的顺序，相对高度单调不减
+            arrows.Reverse();
             return arrows.ToArray();
+        }
+        /// <summary>
+        /// 最后一个判定区的横坐标：含外圈 A 区时取 A 区所在的列（即 Slide 结束的列），否则取各区平均
+        /// </summary>
+        static float GetEndAreaX(in SlideArea area)
+        {
+            var sum = 0f;
+            var count = 0;
+            foreach (var sensor in area.IncludedAreas)
+            {
+                if (sensor is >= SensorArea.A1 and <= SensorArea.A8)
+                {
+                    sum += LaneLayout.GetSensorX(sensor);
+                    count++;
+                }
+            }
+            return count != 0 ? sum / count : GetAreaX(area);
         }
         static float GetAreaX(in SlideArea area)
         {
