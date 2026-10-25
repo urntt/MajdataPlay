@@ -27,8 +27,15 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 暂停键的点击区比图形大一些，手指更容易点中
         /// </summary>
         const float PAUSE_HIT_SIZE = 120f;
-        const float SCORE_FONT_SIZE = 46f;
-        const float ACHIEVEMENT_FONT_SIZE = 28f;
+        /// <summary>
+        /// 分数的数字高度约等于暂停键“II”的高度
+        /// </summary>
+        const float SCORE_FONT_SIZE = 64f;
+        /// <summary>
+        /// 分数下方的达成率为分数的 40% 大，半透明
+        /// </summary>
+        const float ACHIEVEMENT_FONT_SIZE = SCORE_FONT_SIZE * 0.4f;
+        const float ACHIEVEMENT_ALPHA = 0.7f;
         const float DOUBLE_TAP_INTERVAL_SEC = 0.5f;
         const float RESUME_COUNTDOWN_SEC = 3f;
 
@@ -220,15 +227,21 @@ namespace MajdataPlay.Scenes.Game.Lane
             SetRect(scoreRect, new Vector2(1, 1), new Vector2(1, 0.5f),
                     new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
                     new Vector2(800f, BUTTON_SIZE));
-            SetHudTextStyle(score, SCORE_FONT_SIZE, TextAlignmentOptions.Right);
+            // 按数字（大写字母）高度居中，数字与暂停键的两道竖线水平对齐
+            SetHudTextStyle(score, SCORE_FONT_SIZE, TextAlignmentOptions.CaplineRight);
             if (!gameOptions.FallingInfoFollowDisplay)
             {
-                // 分数下方小字：从 101% 往下掉的达成率
+                // 分数下方小字：从 101% 往下掉的达成率，紧贴分数数字下方
                 var achievement = CreateText("Achievement", _root, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
                 SetRect(achievement.rectTransform, new Vector2(1, 1), new Vector2(1, 1),
-                        new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE)),
+                        new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f + SCORE_FONT_SIZE * 0.45f)),
                         new Vector2(600f, ACHIEVEMENT_FONT_SIZE * 1.5f));
                 SetHudTextStyle(achievement, ACHIEVEMENT_FONT_SIZE, TextAlignmentOptions.TopRight);
+                // 颜色由 ObjectCounter 按评级设置，透明度单独用 CanvasGroup 控制，互不覆盖
+                var achievementGroup = achievement.gameObject.AddComponent<CanvasGroup>();
+                achievementGroup.alpha = ACHIEVEMENT_ALPHA;
+                achievementGroup.interactable = false;
+                achievementGroup.blocksRaycasts = false;
                 objectCounter.SetFallingAchievementText(achievement);
             }
             _objectCounter = objectCounter;

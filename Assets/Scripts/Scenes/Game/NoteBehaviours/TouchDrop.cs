@@ -269,8 +269,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 return;
             }
+            if (LaneMode.IsEnabled)
+            {
+                // 下落式：可按范围内有手指就算命中，不需要新按下；手指提前停在上面或划过去都可以
+                if (!NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On))
+                {
+                    return;
+                }
+                Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
+            }
 #if UNITY_ANDROID || UNITY_IOS
-            if (NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
+            else if (NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))
             {
                 Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
             }
@@ -279,7 +288,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
 #else
-            if (IsUseButtonRingForTouch && 
+            else if (IsUseButtonRingForTouch && 
                 NoteManager.IsButtonClickedInThisFrame(_buttonPos) && 
                 NoteManager.TryUseButtonClickEvent(_buttonPos))
             {

@@ -428,21 +428,32 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
         }
         /// <summary>
-        /// 下落式：按整组（连接 Slide 各段合计）检查点的命中比例评级，不看完成时间
+        /// 下落式：按整组（连接 Slide 各段合计）检查点的命中数，以及整组首、尾检查点是否命中评级，不看完成时间
         /// </summary>
         void JudgeLane()
         {
             var hitCount = 0;
             var totalCount = 0;
+            var isFirstHit = false;
+            var isLastHit = false;
+            var isLastPart = true;
+            // 从最后一段沿 Parent 往前，最后遍历到的是第一段
             for (SlideBase? part = this; part is not null; part = part.Parent?.GameObject.GetComponent<SlideBase>())
             {
-                if (part._laneJudge is LaneSlideJudge laneJudge)
+                if (part._laneJudge is not LaneSlideJudge laneJudge || laneJudge.TotalCount == 0)
                 {
-                    hitCount += laneJudge.HitCount;
-                    totalCount += laneJudge.TotalCount;
+                    continue;
                 }
+                hitCount += laneJudge.HitCount;
+                totalCount += laneJudge.TotalCount;
+                if (isLastPart)
+                {
+                    isLastHit = laneJudge.IsLastHit;
+                    isLastPart = false;
+                }
+                isFirstHit = laneJudge.IsFirstHit;
             }
-            var result = LaneSlideJudge.GetGrade(hitCount, totalCount);
+            var result = LaneSlideJudge.GetGrade(hitCount, totalCount, isFirstHit, isLastHit);
             ConvertJudgeGrade(ref result);
             JudgeResult = result;
             JudgeDiff = 0;

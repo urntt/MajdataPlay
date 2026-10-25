@@ -66,13 +66,13 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public const float JUDGE_BAND_HALF_HEIGHT = 1.2f;
         /// <summary>
-        /// 悬空 Touch 可按的半高，与 Touch 图形大小相当；相邻高度的可按区域允许重叠
+        /// 悬空 Touch 可按的半高，比 Touch 图形大；相邻高度的可按区域允许重叠
         /// </summary>
-        public const float FLOAT_HIT_HALF_HEIGHT = 0.9f;
+        public const float FLOAT_HIT_HALF_HEIGHT = 1.3f;
         /// <summary>
-        /// 悬空 Touch 的可按区域在所在列两侧再向外延伸的宽度
+        /// 悬空 Touch 的可按区域在所在列两侧再各延伸的列数
         /// </summary>
-        public const float FLOAT_HIT_EXTRA_WIDTH = 0.2f;
+        public const int FLOAT_HIT_EXTRA_LANES = 1;
 
         // 圆形模式中音符从内圈 1.225 移动到判定圈 4.8，下落式把这段距离线性映射到轨道长度，出现时机不变。
         const float INNER_DISTANCE = 1.225f;
@@ -108,6 +108,22 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             var lane = Mathf.FloorToInt((worldX - LEFT) / LANE_WIDTH) + 1;
             return Mathf.Clamp(lane, 1, LANE_COUNT);
+        }
+        /// <summary>
+        /// 每列的判定范围是整列加左右各半列：手指在 <paramref name="lane"/> 的右半边时也算右边一列，左半边时也算左边一列
+        /// </summary>
+        /// <param name="lane">手指所在的列，1~8</param>
+        /// <returns>同时算作的相邻列，1~8；没有时返回 0</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int GetNeighborLane(float worldX, int lane)
+        {
+            if (lane is < 1 or > LANE_COUNT)
+            {
+                return 0;
+            }
+            var offset = worldX - GetLaneX(lane);
+            var neighbor = offset > 0 ? lane + 1 : offset < 0 ? lane - 1 : 0;
+            return neighbor is >= 1 and <= LANE_COUNT ? neighbor : 0;
         }
         /// <summary>
         /// 把圆形模式中的径向距离投影为轨道上的高度
@@ -178,18 +194,18 @@ namespace MajdataPlay.Scenes.Game.Lane
             return lane == 0 ? LEFT + LANE_WIDTH * LANE_COUNT / 2f : GetLaneX(lane);
         }
         /// <summary>
-        /// 悬空 Touch 的高度：越靠外圈越接近判定线
+        /// 悬空 Touch 的高度：越靠外圈越接近判定线，最高的 C 区也不到轨道一半，便于和判定线上的音符一起看
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float GetSensorFloatY(SensorArea area)
         {
             var ratio = area switch
             {
-                >= SensorArea.A1 and <= SensorArea.A8 => 0.15f,
-                >= SensorArea.D1 and <= SensorArea.D8 => 0.25f,
-                >= SensorArea.E1 and <= SensorArea.E8 => 0.4f,
-                >= SensorArea.B1 and <= SensorArea.B8 => 0.55f,
-                _ => 0.7f,
+                >= SensorArea.A1 and <= SensorArea.A8 => 0.12f,
+                >= SensorArea.D1 and <= SensorArea.D8 => 0.2f,
+                >= SensorArea.E1 and <= SensorArea.E8 => 0.28f,
+                >= SensorArea.B1 and <= SensorArea.B8 => 0.36f,
+                _ => 0.45f,
             };
             return JUDGE_LINE_Y + TRAVEL_LENGTH * ratio;
         }
@@ -199,12 +215,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             return new Vector3(GetSensorX(area), GetSensorFloatY(area), 0);
         }
         /// <summary>
-        /// 世界坐标 <paramref name="position"/> 是否落在悬空 Touch 的可按区域内：所在列（C 为中间两列）加两侧余量，上下各 <see cref="FLOAT_HIT_HALF_HEIGHT"/>
+        /// 世界坐标 <paramref name="position"/> 是否落在悬空 Touch 的可按区域内：所在列（C 为中间两列）加左右各 <see cref="FLOAT_HIT_EXTRA_LANES"/> 列，上下各 <see cref="FLOAT_HIT_HALF_HEIGHT"/>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsInFloatHitArea(SensorArea area, Vector2 position)
         {
-            var halfWidth = (GetSensorLane(area) == 0 ? LANE_WIDTH : LANE_WIDTH / 2f) + FLOAT_HIT_EXTRA_WIDTH;
+            var halfWidth = (GetSensorLane(area) == 0 ? LANE_WIDTH : LANE_WIDTH / 2f) + LANE_WIDTH * FLOAT_HIT_EXTRA_LANES;
             return Mathf.Abs(position.x - GetSensorX(area)) <= halfWidth &&
                    Mathf.Abs(position.y - GetSensorFloatY(area)) <= FLOAT_HIT_HALF_HEIGHT;
         }

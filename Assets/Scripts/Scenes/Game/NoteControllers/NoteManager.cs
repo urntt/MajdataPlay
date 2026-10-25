@@ -362,6 +362,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         }
         /// <summary>
         /// 下落式模式：实体按键（键盘、按键环、手柄）与轨道触摸合并为按键状态，悬空 Touch 区合并为传感器状态。
+        /// 轨道触摸的点击不计入按键点击次数，由 <see cref="IsButtonClickedInThisFrame"/>、<see cref="TryUseButtonClickEvent"/> 另行查询，
+        /// 因为一次按下可以打所在列或相邻列，但只能用一次。
         /// 屏幕触摸到圆形传感器的映射已由 InputManager.SuppressTouchPanelSimulation 关闭。
         /// </summary>
         void LaneIOUpdate()
@@ -373,7 +375,6 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             var previousSensorStatus = InputManager.SensorStatusInPreviousFrame;
             var currentSensorStatus = InputManager.SensorStatusInThisFrame;
             var laneHeld = _laneInput.LaneHeld;
-            var laneClickedCount = _laneInput.LaneClickedCount;
             var floatSensorHeld = _laneInput.FloatSensorHeld;
             var floatSensorClickedCount = _laneInput.FloatSensorClickedCount;
 #if UNITY_ANDROID || UNITY_IOS
@@ -388,15 +389,14 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 #else
                 var physicalClickedCount = previousButtonStatus[i] == SwitchStatus.Off && isPhysicalOn ? 1 : 0;
 #endif
-                var clickedCount = physicalClickedCount + laneClickedCount[i];
                 _isPhysicalBtnOnInThisFrame[i] = isPhysicalOn;
                 _isPhysicalBtnClickedInThisFrame[i] = physicalClickedCount != 0;
 
                 _btnStatusInPreviousFrame[i] = _btnStatusInThisFrame[i];
                 _btnStatusInThisFrame[i] = isPhysicalOn || laneHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
-                _isBtnClickedInThisFrame[i] = clickedCount != 0;
+                _isBtnClickedInThisFrame[i] = physicalClickedCount != 0;
 #if UNITY_ANDROID || UNITY_IOS
-                _btnClickedCountInThisFrame[i] = clickedCount;
+                _btnClickedCountInThisFrame[i] = physicalClickedCount;
 #endif
             }
             for (var i = 0; i < 33; i++)
@@ -607,7 +607,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
             if (btnUsedCount >= btnClickedCount)
             {
-                return false;
+                // 下落式：实体按键的点击用完后，再用轨道触摸的点击（含相邻列的）
+                return _isLaneMode && _laneInput.TryUseClick((int)zone + 1);
             }
             btnUsedCount++;
             return true;
@@ -650,6 +651,16 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 return default;
             }
             ref var isUsed = ref _isBtnUsedInThisFrame[(int)zone];
+            if (_isLaneMode)
+            {
+                // 下落式：实体按键没有点击或已用过时，再用轨道触摸的点击（含相邻列的）
+                if (!isUsed && _isBtnClickedInThisFrame[(int)zone])
+                {
+                    isUsed = true;
+                    return true;
+                }
+                return _laneInput.TryUseClick((int)zone + 1);
+            }
             if (isUsed)
             {
                 return false;
@@ -823,7 +834,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             }
             var i = (int)zone;
 
-            return _isBtnClickedInThisFrame[i];
+            return _isBtnClickedInThisFrame[i] || (_isLaneMode && _laneInput.HasUnusedClick(i + 1));
             //return _btnStatusInPreviousFrame[i] == SwitchStatus.Off &&
             //       _btnStatusInThisFrame[i] == SwitchStatus.On;
         }

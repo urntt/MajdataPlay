@@ -8,7 +8,7 @@ namespace MajdataPlay.Scenes.Game.Lane
     /// <summary>
     /// 下落式 Slide 的 Phigros 式检查点判定：路径上每个判定区对应一个检查点，相当于一个隐形 Drag。
     /// 检查点到达判定线前后一小段时间内，手指在它所在的列上即算命中；提前按住不会让后面的检查点提前结算。
-    /// 全部检查点结算后按命中比例给出评级。
+    /// 全部检查点结算后，按命中数以及首、尾检查点是否命中给出评级。
     /// </summary>
     internal sealed class LaneSlideJudge
     {
@@ -41,6 +41,14 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 全部检查点都已结算
         /// </summary>
         public bool IsResolved => _next >= _checkpoints.Length;
+        /// <summary>
+        /// 第一个检查点（星星的起点）是否命中
+        /// </summary>
+        public bool IsFirstHit => _checkpoints.Length != 0 && _checkpoints[0].IsHit;
+        /// <summary>
+        /// 最后一个检查点（星星的终点）是否命中
+        /// </summary>
+        public bool IsLastHit => _checkpoints.Length != 0 && _checkpoints[^1].IsHit;
 
         /// <param name="judgeQueues">Slide 的判定队列（Wifi 为左、中、右三条）</param>
         /// <param name="startTiming">星星开始移动的时刻</param>
@@ -102,21 +110,30 @@ namespace MajdataPlay.Scenes.Game.Lane
             return isNewlyHit;
         }
         /// <summary>
-        /// 全部命中为 Perfect，命中不少于 3/4 为 Great，不少于一半为 Good，否则 Miss
+        /// 从上往下取第一个满足的：
+        /// 全部命中为 Critical Perfect；首、尾都命中为 Perfect；首命中且另有任一检查点命中为 Great；
+        /// 有任一检查点命中为 Good；都没命中为 Miss。
+        /// 没有快慢之分，调用方需将 JudgeDiff 置 0。
         /// </summary>
-        public static JudgeGrade GetGrade(int hitCount, int totalCount)
+        public static JudgeGrade GetGrade(int hitCount, int totalCount, bool isFirstHit, bool isLastHit)
         {
             if (totalCount <= 0 || hitCount >= totalCount)
             {
                 return JudgeGrade.Perfect;
             }
-            var ratio = (float)hitCount / totalCount;
-            return ratio switch
+            else if (isFirstHit && isLastHit)
             {
-                >= 0.75f => JudgeGrade.LateGreat,
-                >= 0.5f => JudgeGrade.LateGood,
-                _ => JudgeGrade.Miss
-            };
+                return JudgeGrade.LatePerfect2nd;
+            }
+            else if (isFirstHit && hitCount >= 2)
+            {
+                return JudgeGrade.LateGreat;
+            }
+            else if (hitCount > 0)
+            {
+                return JudgeGrade.LateGood;
+            }
+            return JudgeGrade.Miss;
         }
         static Checkpoint[] Build(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
         {

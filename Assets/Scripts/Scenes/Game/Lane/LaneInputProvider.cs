@@ -10,8 +10,9 @@ namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
     /// 下落式模式的触屏输入：按屏幕位置换算为轨道（列）与高度。
-    /// <para>Tap/Hold/Break/Flick/Slide 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。</para>
-    /// <para>悬空 Touch 使用“悬空区”：必须按在该传感器所在的轨道和高度。</para>
+    /// <para>Tap/Hold/Break/Flick/Slide 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。
+    /// 每列的判定范围是整列加左右各半列，一次按下只能打一个音符。</para>
+    /// <para>悬空 Touch 使用“悬空区”：必须按在该传感器所在的轨道和高度附近。</para>
     /// </summary>
     internal sealed class LaneInputProvider
     {
@@ -30,13 +31,15 @@ namespace MajdataPlay.Scenes.Game.Lane
         const int MOUSE_TOUCH_ID = int.MinValue;
 
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
-        public ReadOnlySpan<int> LaneClickedCount => _laneClickedCount;
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
         public ReadOnlySpan<int> FloatSensorClickedCount => _floatSensorClickedCount;
 
         readonly bool[] _laneHeld = new bool[LaneLayout.LANE_COUNT];
-        readonly int[] _laneClickedCount = new int[LaneLayout.LANE_COUNT];
+        readonly List<LaneClick> _clicks = new(16);
         readonly int[] _flickLatch = new int[LaneLayout.LANE_COUNT];
+        // 同一次划动标记的两列共用一个编号，被一列用掉后另一列也失效
+        readonly int[] _flickId = new int[LaneLayout.LANE_COUNT];
+        int _nextFlickId = 0;
         readonly bool[] _floatSensorHeld = new bool[33];
         readonly int[] _floatSensorClickedCount = new int[33];
 
@@ -44,6 +47,18 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly List<int> _staleTouchIds = new(16);
         readonly HashSet<int> _activeTouchIds = new();
 
+        /// <summary>
+        /// 一次按下：可以打手指所在列或相邻列的音符，但只能用一次
+        /// </summary>
+        struct LaneClick
+        {
+            public int Lane;
+            /// <summary>
+            /// 同时算作的相邻列，没有时为 0
+            /// </summary>
+            public int NeighborLane;
+            public bool IsUsed;
+        }
         struct TouchRecord
         {
             public Vector2 LastPosition;
@@ -64,7 +79,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         public void Update(Camera? camera, Vector4 subScreenEdge)
         {
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
-            Array.Clear(_laneClickedCount, 0, _laneClickedCount.Length);
+            _clicks.Clear();
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
             for (var i = 0; i < _flickLatch.Length; i++)
@@ -114,6 +129,54 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _records.Remove(id);
             }
         }
+        /// <summary>
+        /// 本帧是否有尚未使用、能打到 <paramref name="lane"/> 的按下
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool HasUnusedClick(int lane)
+        {
+            foreach (var click in _clicks)
+            {
+                if (!click.IsUsed && (click.Lane == lane || click.NeighborLane == lane))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        /// <summary>
+        /// 使用一次能打到 <paramref name="lane"/> 的按下，优先使用手指就在这一列上的
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool TryUseClick(int lane)
+        {
+            var index = -1;
+            for (var i = 0; i < _clicks.Count; i++)
+            {
+                var click = _clicks[i];
+                if (click.IsUsed)
+                {
+                    continue;
+                }
+                if (click.Lane == lane)
+                {
+                    index = i;
+                    break;
+                }
+                if (index == -1 && click.NeighborLane == lane)
+                {
+                    index = i;
+                }
+            }
+            if (index == -1)
+            {
+                return false;
+            }
+            var used = _clicks[index];
+            used.IsUsed = true;
+            _clicks[index] = used;
+            return true;
+        }
         /// <param name="lane">1~8</param>
         public bool IsFlicked(int lane)
         {
@@ -129,7 +192,14 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 return false;
             }
-            _flickLatch[lane - 1] = 0;
+            var id = _flickId[lane - 1];
+            for (var i = 0; i < _flickLatch.Length; i++)
+            {
+                if (_flickId[i] == id)
+                {
+                    _flickLatch[i] = 0;
+                }
+            }
             return true;
         }
         /// <summary>
@@ -166,7 +236,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         {
             _records.Clear();
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
-            Array.Clear(_laneClickedCount, 0, _laneClickedCount.Length);
+            _clicks.Clear();
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
@@ -199,14 +269,23 @@ namespace MajdataPlay.Scenes.Game.Lane
             var isInSubScreen = position.x > subScreenEdge.x && position.x < subScreenEdge.z &&
                                 position.y > subScreenEdge.w && position.y < subScreenEdge.y;
             var lane = isInSubScreen ? 0 : LaneLayout.GetLaneAt(position.x);
+            var neighborLane = LaneLayout.GetNeighborLane(position.x, lane);
             var isInLineArea = lane != 0 &&
                                (LaneMode.IsVerticalJudge || Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT);
             if (isInLineArea)
             {
                 _laneHeld[lane - 1] = true;
+                if (neighborLane != 0)
+                {
+                    _laneHeld[neighborLane - 1] = true;
+                }
                 if (isBegan)
                 {
-                    _laneClickedCount[lane - 1]++;
+                    _clicks.Add(new LaneClick()
+                    {
+                        Lane = lane,
+                        NeighborLane = neighborLane
+                    });
                 }
             }
             // Flick
@@ -215,7 +294,14 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 if (isInLineArea && speed >= FLICK_SPEED)
                 {
+                    var id = ++_nextFlickId;
                     _flickLatch[lane - 1] = FLICK_LATCH_FRAMES;
+                    _flickId[lane - 1] = id;
+                    if (neighborLane != 0)
+                    {
+                        _flickLatch[neighborLane - 1] = FLICK_LATCH_FRAMES;
+                        _flickId[neighborLane - 1] = id;
+                    }
                     record.IsFlickArmed = false;
                 }
             }

@@ -5,6 +5,7 @@ using MajdataPlay.Collections;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Extensions;
 using MajdataPlay.Numerics;
+using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes;
 using MajdataPlay.Scenes.Game.Notes.Behaviours;
 using MajdataPlay.Settings;
@@ -748,7 +749,11 @@ namespace MajdataPlay.Scenes.Game
             UpdateComboCount(grade, multiple);
             UpdateJudgeCount(note, judgeResult, multiple);
             UpdateNoteScoreCount(note, judgeResult, multiple);
-            UpdateFastLateCount(judgeResult, multiple);
+            // 下落式的星星按检查点评级，没有快慢，不计入 Fast/Late
+            if (!(isSlide && LaneMode.IsEnabled))
+            {
+                UpdateFastLateCount(judgeResult, multiple);
+            }
         }
 
         /// <summary>

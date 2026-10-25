@@ -34,6 +34,13 @@ namespace MajdataPlay
         const float MAIN_DISPLAY_HEIGHT = 1080f;
         // 横屏时副屏放在左侧栏，与屏幕边缘、主屏之间留出的间距（Canvas 单位）
         const float LANDSCAPE_SIDE_MARGIN = 24f;
+        // 横屏时 EdgeCanvas 黑板伸到屏幕外的长度；原值 1000 万过大，换算位置时会损失精度
+        const float LANDSCAPE_EDGE_PANEL_EXTENT = 20000f;
+        const int EDGE_PANEL_UP = 0;
+        const int EDGE_PANEL_DOWN = 1;
+        const int EDGE_PANEL_LEFT = 2;
+        const int EDGE_PANEL_RIGHT = 3;
+        static readonly string[] EDGE_PANEL_NAMES = { "UpCanvas", "DownCanvas", "LeftCanvas", "RightCanvas" };
 
         int _flag = FLAG_NOT_INIT;
 
@@ -138,6 +145,13 @@ namespace MajdataPlay
         // 常驻画布（GlobalCanvas）上才有：EdgeCanvas 遮住主屏两侧，Main_Display 上的 Image 是圆外全黑的遮罩
         GameObject? _edgeCanvas;
         bool _isEdgeCanvasActive;
+        RectTransform? _edgeCanvasRt;
+        Vector2 _originalEdgeCanvasPos;
+        // EdgeCanvas 下的上、下、左、右黑板及其原始状态，退出横屏时还原
+        readonly RectTransform?[] _edgePanels = new RectTransform?[4];
+        readonly Vector2[] _originalEdgePanelPos = new Vector2[4];
+        readonly Vector2[] _originalEdgePanelSize = new Vector2[4];
+        readonly bool[] _isEdgePanelActive = new bool[4];
         Image? _circleMask;
         bool _isCircleMaskEnabled;
 
@@ -219,6 +233,21 @@ namespace MajdataPlay
             {
                 _edgeCanvas = edgeCanvas.gameObject;
                 _isEdgeCanvasActive = _edgeCanvas.activeSelf;
+                _edgeCanvasRt = edgeCanvas as RectTransform;
+                if (_edgeCanvasRt != null)
+                {
+                    _originalEdgeCanvasPos = _edgeCanvasRt.anchoredPosition;
+                }
+                for (var i = 0; i < EDGE_PANEL_NAMES.Length; i++)
+                {
+                    if (edgeCanvas.Find(EDGE_PANEL_NAMES[i]) is RectTransform panel)
+                    {
+                        _edgePanels[i] = panel;
+                        _originalEdgePanelPos[i] = panel.anchoredPosition;
+                        _originalEdgePanelSize[i] = panel.sizeDelta;
+                        _isEdgePanelActive[i] = panel.gameObject.activeSelf;
+                    }
+                }
             }
             if (TryGetComponent<Image>(out var circleMask))
             {
@@ -404,6 +433,10 @@ namespace MajdataPlay
             var scaleFactor = Mathf.Min(Screen.width / referenceResolution.x, Screen.height / referenceResolution.y);
             var canvasWidth = Screen.width / scaleFactor;
             var canvasHeight = Screen.height / scaleFactor;
+            var sideWidth = Mathf.Max(0f, (canvasWidth - MAIN_DISPLAY_HEIGHT) / 2f);
+            var subScale = Mathf.Clamp((sideWidth - LANDSCAPE_SIDE_MARGIN * 2f) / SCREEN_CANVAS_WIDTH, 0.05f, 1f);
+            var subX = -(MAIN_DISPLAY_HEIGHT / 2f + sideWidth / 2f);
+            var subY = canvasHeight / 2f - SUB_DISPLAY_HEIGHT * subScale / 2f - LANDSCAPE_SIDE_MARGIN;
             if (_subDisplay != null && GameplayScreenLayout.IsFallingPlayArea)
             {
                 // 下落式由 HUD 显示信息，不显示副屏；缩放为 0 后副屏点击区域也随之消失
@@ -411,11 +444,7 @@ namespace MajdataPlay
             }
             else if (_subDisplay != null)
             {
-                var sideWidth = Mathf.Max(0f, (canvasWidth - MAIN_DISPLAY_HEIGHT) / 2f);
-                var subScale = Mathf.Clamp((sideWidth - LANDSCAPE_SIDE_MARGIN * 2f) / SCREEN_CANVAS_WIDTH, 0.05f, 1f);
-                var x = -(MAIN_DISPLAY_HEIGHT / 2f + sideWidth / 2f);
-                var y = canvasHeight / 2f - SUB_DISPLAY_HEIGHT * subScale / 2f - LANDSCAPE_SIDE_MARGIN;
-                _subDisplay.anchoredPosition = new Vector2(x, y);
+                _subDisplay.anchoredPosition = new Vector2(subX, subY);
                 _subDisplay.localScale = new Vector3(subScale, subScale, 1f);
             }
             // 遮罩只用于竖屏主副屏之间的区域，横屏下连同其中的调试文字一起缩为 0。
@@ -427,16 +456,80 @@ namespace MajdataPlay
             {
                 _subCoverBottomTransform.localScale = Vector3.zero;
             }
-            // EdgeCanvas 的两侧黑块会挡住左侧栏的副屏；下落式画面铺满屏幕，圆形遮罩也要关掉
+            // 下落式画面铺满屏幕，EdgeCanvas 和圆形遮罩都要关掉；
+            // 其他页面的 EdgeCanvas 改为遮住主屏方框外的区域，只让出左上角的副屏
             if (_edgeCanvas != null)
             {
-                _edgeCanvas.SetActive(false);
+                if (GameplayScreenLayout.IsFallingPlayArea)
+                {
+                    _edgeCanvas.SetActive(false);
+                }
+                else
+                {
+                    _edgeCanvas.SetActive(true);
+                    ApplyLandscapeEdgePanels(subY - SUB_DISPLAY_HEIGHT * subScale / 2f);
+                }
             }
             if (_circleMask != null)
             {
                 _circleMask.enabled = _isCircleMaskEnabled && !GameplayScreenLayout.IsFallingPlayArea;
             }
             _isSubCoverPendingRefresh = false;
+        }
+
+        /// <summary>
+        /// 横屏时 EdgeCanvas 的四块黑板：右侧整列、方框上方、方框下方、左侧副屏底边以下，
+        /// 遮住竖屏时伸出圆形主屏的半圆按键，与竖屏的观感一致
+        /// </summary>
+        /// <param name="subDisplayBottom">副屏底边，与主屏在同一父节点坐标系</param>
+        void ApplyLandscapeEdgePanels(float subDisplayBottom)
+        {
+            if (_edgeCanvasRt == null)
+            {
+                return;
+            }
+            _edgeCanvasRt.anchoredPosition = Vector2.zero;
+            var origin = (Vector2)_edgeCanvasRt.localPosition;
+            var mainRect = _rt.rect;
+            var mainPosition = (Vector2)_rt.localPosition;
+            var left = mainPosition.x + mainRect.xMin;
+            var right = mainPosition.x + mainRect.xMax;
+            var bottom = mainPosition.y + mainRect.yMin;
+            var top = mainPosition.y + mainRect.yMax;
+            const float FAR = LANDSCAPE_EDGE_PANEL_EXTENT;
+            SetEdgePanel(EDGE_PANEL_RIGHT, origin, right, FAR, -FAR, FAR);
+            SetEdgePanel(EDGE_PANEL_UP, origin, left, right, top, FAR);
+            SetEdgePanel(EDGE_PANEL_DOWN, origin, left, right, -FAR, bottom);
+            SetEdgePanel(EDGE_PANEL_LEFT, origin, -FAR, left, -FAR, subDisplayBottom);
+        }
+        void SetEdgePanel(int index, Vector2 origin, float left, float right, float bottom, float top)
+        {
+            var panel = _edgePanels[index];
+            if (panel == null)
+            {
+                return;
+            }
+            panel.gameObject.SetActive(true);
+            panel.sizeDelta = new Vector2(Mathf.Max(0f, right - left), Mathf.Max(0f, top - bottom));
+            panel.anchoredPosition = new Vector2((left + right) / 2f, (bottom + top) / 2f) - origin;
+        }
+        void RestoreEdgePanels()
+        {
+            if (_edgeCanvasRt != null)
+            {
+                _edgeCanvasRt.anchoredPosition = _originalEdgeCanvasPos;
+            }
+            for (var i = 0; i < _edgePanels.Length; i++)
+            {
+                var panel = _edgePanels[i];
+                if (panel == null)
+                {
+                    continue;
+                }
+                panel.anchoredPosition = _originalEdgePanelPos[i];
+                panel.sizeDelta = _originalEdgePanelSize[i];
+                panel.gameObject.SetActive(_isEdgePanelActive[i]);
+            }
         }
 
         /// <summary>
@@ -481,6 +574,7 @@ namespace MajdataPlay
                 }
                 if (_edgeCanvas != null)
                 {
+                    RestoreEdgePanels();
                     _edgeCanvas.SetActive(_isEdgeCanvasActive);
                 }
                 if (_circleMask != null)
