@@ -1,0 +1,97 @@
+name: Build unsigned iOS IPA
+run-name: Unsigned iOS IPA (${{ github.ref_name }})
+
+# 打包未签名的 ipa，下载后用 Sideloadly 等工具以自己的 Apple ID 签名安装，不需要 Apple 开发者证书。
+# 触发方式：
+#   1. 网页 Actions → Build unsigned iOS IPA → Run workflow（本文件需要在默认分支上才会出现按钮）
+#   2. 推送到任意分支时，提交信息里带 [ipa]
+# 需要在仓库 Secrets 里配置 UNITY_EMAIL、UNITY_PASSWORD、UNITY_LICENSE，详见 Tools/iOS/README.md。
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "App 包名（留空为 com.<仓库所有者>.majdataplay）"
+        required: false
+        default: ""
+      retention_days:
+        description: "ipa 保留天数"
+        required: false
+        default: "7"
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+  UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+  UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+  UNITY_VERSION: 6000.3.17f1
+  BUILDS_PATH: build
+  BUNDLE_ID: ${{ inputs.bundle_id || format('com.{0}.majdataplay', github.repository_owner) }}
+
+jobs:
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-26
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ipa]') }}
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract version from unity project
+        run: |
+          VERSION=$(grep -m1 'bundleVersion:' ProjectSettings/ProjectSettings.asset | awk '{print $2}')
+          echo "BUNDLE_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-iOS-${{ hashFiles('ProjectSettings/ProjectVersion.txt', 'ProjectSettings/**', 'Packages/manifest.json', 'Packages/packages-lock.json') }}
+          restore-keys: |
+            Library-${{ runner.os }}-iOS-
+
+      - name: Export Xcode project with Unity
+        uses: game-ci/unity-builder@v4
+        with:
+          unityVersion: ${{ env.UNITY_VERSION }}
+          targetPlatform: iOS
+          versioning: Custom
+          version: ${{ env.BUNDLE_VERSION }}
+          buildName: MajdataPlay
+          buildsPath: ${{ env.BUILDS_PATH }}
+
+      - name: Build and package unsigned IPA
+        env:
+          SKIP_UNITY: "1"
+          XCODE_PROJECT_DIR: ${{ github.workspace }}/${{ env.BUILDS_PATH }}/iOS/MajdataPlay
+          OUTPUT_DIR: ${{ github.workspace }}/out
+          IPA_NAME: MajdataPlay-${{ env.SHORT_SHA }}-unsigned.ipa
+        run: bash Tools/iOS/build_unsigned_ipa.sh
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MajdataPlay-iOS-${{ env.SHORT_SHA }}
+          path: out/*.ipa
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days || 7 }}
+
+      - name: Upload build logs on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ env.SHORT_SHA }}
+          path: out/*.log
+          if-no-files-found: ignore
+          retention-days: 7
