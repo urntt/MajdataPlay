@@ -147,6 +147,8 @@
     "MAJSETTING_PROPERTY_FallingSpeed_DESC": "Falling only. Replaces Tap Speed to set how fast notes fall; same scale as Tap Speed",
     "MAJSETTING_PROPERTY_FallingLaneDividers": "Falling: Lane Dividers",
     "MAJSETTING_PROPERTY_FallingLaneDividers_DESC": "Falling only. Turn off to hide the vertical lines between lanes",
+    "MAJSETTING_PROPERTY_FallingSweep": "Falling: Sweep Taps",
+    "MAJSETTING_PROPERTY_FallingSweep_DESC": "Falling only. When on, a held finger sliding into a lane also counts as a tap on that lane, like sweeping across the buttons on a cabinet, so fast staircases can be swept. A finger following a slide's arrows does not sweep. When off, only new presses count",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay": "Falling: Follow Info Display",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay_DESC": "Falling only. On: combo, secondary and sub-screen info follow the display settings. Off: score and achievement at top right, combo at top center",
     "MAJSETTING_PROPERTY_FallingDifficultyColor": "Falling: Difficulty Color",

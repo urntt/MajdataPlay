@@ -490,12 +490,18 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
             if (LaneMode.IsEnabled)
             {
-                // 下落式：可按范围内有手指就算命中，不需要新按下；手指提前停在上面或划过去都可以
+                // 下落式：可按范围内有手指就算命中，不需要新按下。
+                // 手指本帧刚进入范围（新按下或划进来）时立即判定；早就停在范围里的手指等到判定时刻再判定，不会提前打掉
                 if (!NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On))
                 {
                     return;
                 }
-                Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
+                var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
+                if (!NoteManager.IsSensorClickedInThisFrame(SensorPos) && judgeSec < JudgeTimingWithOffset)
+                {
+                    return;
+                }
+                Judge(judgeSec);
             }
 #if UNITY_ANDROID || UNITY_IOS
             else if (NoteManager.IsSensorClickedInThisFrame(SensorPos) && NoteManager.TryUseSensorClickEvent(SensorPos))

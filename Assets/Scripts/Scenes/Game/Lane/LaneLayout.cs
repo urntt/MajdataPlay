@@ -17,6 +17,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         public static bool IsVerticalJudge { get; private set; } = true;
         public static bool IsBreakToFlick { get; private set; } = false;
         public static bool IsLaneDividerVisible { get; private set; } = true;
+        /// <summary>
+        /// 扫键：按住的手指划进某一列也算点击这一列
+        /// </summary>
+        public static bool IsSweepEnabled { get; private set; } = false;
 
         public static void Enable(GameSetting settings)
         {
@@ -24,6 +28,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsVerticalJudge = settings.Mod.FallingVerticalJudge;
             IsBreakToFlick = settings.Mod.FallingBreakToFlick;
             IsLaneDividerVisible = settings.Game.FallingLaneDividers;
+            IsSweepEnabled = settings.Game.FallingSweep;
         }
         public static void Disable()
         {
@@ -31,6 +36,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsVerticalJudge = true;
             IsBreakToFlick = false;
             IsLaneDividerVisible = true;
+            IsSweepEnabled = false;
         }
     }
     /// <summary>

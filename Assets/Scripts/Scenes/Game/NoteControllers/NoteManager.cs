@@ -86,6 +86,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         // 本帧拖动 Slide 用的手指横坐标：轨道触摸加上实体按键按住列的中心
         float[] _laneDragXs = new float[16];
         int _laneDragCount = 0;
+        // 扫键：本帧各条进行中星星的当前位置，下一帧交给轨道输入，跟着星星的手指不扫键
+        readonly List<float> _pendingLaneSlideXs = new(8);
+        float[] _laneSlideXs = new float[8];
+        int _laneSlideCount = 0;
         /// <summary>
         /// 两列的音符离判定时刻差不多时（在此范围内），轨道点击优先给手指所在的列
         /// </summary>
@@ -312,6 +316,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 timings.Clear();
             }
             _laneDragCount = 0;
+            _pendingLaneSlideXs.Clear();
+            _laneSlideCount = 0;
         }
         public void ResetCounter()
         {
@@ -386,7 +392,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         /// </summary>
         void LaneIOUpdate()
         {
-            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge);
+            // 上一帧星星报告的位置用于本帧的扫键判断，晚一帧可以忽略
+            if (_laneSlideXs.Length < _pendingLaneSlideXs.Count)
+            {
+                _laneSlideXs = new float[_pendingLaneSlideXs.Count * 2];
+            }
+            _pendingLaneSlideXs.CopyTo(_laneSlideXs);
+            _laneSlideCount = _pendingLaneSlideXs.Count;
+            _pendingLaneSlideXs.Clear();
+            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge, new ReadOnlySpan<float>(_laneSlideXs, 0, _laneSlideCount));
 
             var previousButtonStatus = InputManager.ButtonStatusInPreviousFrame;
             var currentButtonStatus = InputManager.ButtonStatusInThisFrame;
@@ -469,6 +483,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     _laneDragXs[_laneDragCount++] = LaneLayout.GetLaneX(lane);
                 }
             }
+        }
+        /// <summary>
+        /// 下落式扫键：进行中的星星报告当前位置，在它附近的手指划过的列不算扫键
+        /// </summary>
+        public void AddLaneSlideX(float x)
+        {
+            _pendingLaneSlideXs.Add(x);
         }
         static Dictionary<long, float>[] CreateLaneNoteTimings()
         {

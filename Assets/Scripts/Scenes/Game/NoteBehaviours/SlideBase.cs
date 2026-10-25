@@ -419,7 +419,18 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var laneJudge = _laneJudge!;
-            var isNewlyHit = laneJudge.Update(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC, NoteManager.LaneDragXs);
+            var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
+            var isNewlyHit = laneJudge.Update(judgeSec, NoteManager.LaneDragXs);
+            if (LaneMode.IsSweepEnabled)
+            {
+                // 扫键：告诉 NoteManager 星星当前的位置，跟着星星的手指不扫键
+                Span<float> activeXs = stackalloc float[3];
+                var activeCount = laneJudge.GetActiveXs(judgeSec, activeXs);
+                for (var i = 0; i < activeCount; i++)
+                {
+                    NoteManager.AddLaneSlideX(activeXs[i]);
+                }
+            }
             if (isNewlyHit && (ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide))
             {
                 PlaySFX();

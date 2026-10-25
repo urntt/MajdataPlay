@@ -79,6 +79,11 @@ namespace MajdataPlay.Settings
         public bool FallingLaneDividers { get; set; } = true;
 
         /// <summary>
+        /// 下落式扫键：按住的手指划进某一列也算点击这一列，像机台上手划过按键也能打到；关闭时只有新按下才算
+        /// </summary>
+        public bool FallingSweep { get; set; } = false;
+
+        /// <summary>
         /// 下落式的信息显示是否跟随“连击/第二信息/副屏信息”等显示设置；不跟随时右上显示分数与达成率、顶部中间显示连击
         /// </summary>
         public bool FallingInfoFollowDisplay { get; set; } = false;

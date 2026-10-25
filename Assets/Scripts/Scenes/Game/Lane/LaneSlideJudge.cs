@@ -25,9 +25,9 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float LATE_SEC = 0.15f;
         /// <summary>
-        /// 手指横坐标与箭头位置相差不超过该值即算命中（左右各一列半）
+        /// 手指横坐标与箭头位置相差不超过该值即算命中（左右各一列半）；扫键也用它判断手指是否正在跟这条星星
         /// </summary>
-        const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 1.5f;
+        internal const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 1.5f;
         /// <summary>
         /// 路径中横向跨过该距离的一段视为 8 与 1 之间的跳跃（圆周上相邻，轨道上却在两端）
         /// </summary>
@@ -47,6 +47,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             public bool IsHit;
         }
 
+        readonly LanePathVertex[][] _paths;
         readonly Sample[] _samples;
         // 每个点在各条路径上的横坐标，按 [点序号 * 路径数 + 路径序号] 存放；Wifi 有三条路径
         readonly float[] _sampleXs;
@@ -74,6 +75,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <param name="length">星星移动所需时间</param>
         public LaneSlideJudge(LanePathVertex[][] paths, float startTiming, float length)
         {
+            _paths = paths;
             _pathCount = paths.Length;
             if (_pathCount == 0)
             {
@@ -150,6 +152,25 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _next++;
             }
             return isNewlyHit;
+        }
+        /// <summary>
+        /// 判定期间（第一个点之前 <see cref="EARLY_SEC"/> 起，到全部点结算为止）各条路径在 <paramref name="now"/> 时的横坐标，
+        /// 用于判断手指是否正在跟这条星星
+        /// </summary>
+        /// <param name="output">长度不少于路径数（Wifi 为 3）</param>
+        /// <returns>写入的数量；不在判定期间时为 0</returns>
+        public int GetActiveXs(float now, Span<float> output)
+        {
+            if (IsResolved || _samples.Length == 0 || now < _samples[0].Timing - EARLY_SEC)
+            {
+                return 0;
+            }
+            var count = Mathf.Min(_pathCount, output.Length);
+            for (var p = 0; p < count; p++)
+            {
+                output[p] = GetX(_paths[p], now);
+            }
+            return count;
         }
         /// <summary>
         /// 从上往下取第一个满足的：

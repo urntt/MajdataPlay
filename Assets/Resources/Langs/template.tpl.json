@@ -143,6 +143,8 @@
     "MAJSETTING_PROPERTY_FallingSpeed_DESC",
     "MAJSETTING_PROPERTY_FallingLaneDividers",
     "MAJSETTING_PROPERTY_FallingLaneDividers_DESC",
+    "MAJSETTING_PROPERTY_FallingSweep",
+    "MAJSETTING_PROPERTY_FallingSweep_DESC",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay_DESC",
     "MAJSETTING_PROPERTY_FallingDifficultyColor",

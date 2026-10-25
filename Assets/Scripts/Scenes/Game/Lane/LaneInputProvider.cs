@@ -30,6 +30,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const int FLICK_LATCH_FRAMES = 3;
         const int MOUSE_TOUCH_ID = int.MinValue;
+        /// <summary>
+        /// 扫键时越过两列分界线这么远才算进入新的一列，手指停在分界线上来回抖时不会连续触发
+        /// </summary>
+        const float SWEEP_HYSTERESIS = LaneLayout.LANE_WIDTH * 0.15f;
 
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
@@ -82,12 +86,17 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// 从 HUD 按钮上开始、或恢复游戏时已按住的手指，在抬起前都不参与判定
             /// </summary>
             public bool IsIgnored;
+            /// <summary>
+            /// 扫键用：这根手指上一帧所在的列（带防抖），不在轨道判定区时为 0
+            /// </summary>
+            public int SweepLane;
         }
 
         /// <summary>
         /// 每帧在音符判定前调用
         /// </summary>
-        public void Update(Camera? camera, Vector4 subScreenEdge)
+        /// <param name="slideXs">进行中星星的当前横坐标，扫键开启时跟着星星的手指不扫键</param>
+        public void Update(Camera? camera, Vector4 subScreenEdge, ReadOnlySpan<float> slideXs)
         {
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             _clicks.Clear();
@@ -119,13 +128,13 @@ namespace MajdataPlay.Scenes.Game.Lane
                         continue;
                     }
                     var isBegan = touch.phase == TouchPhase.Began;
-                    HandlePointer(touch.touchId, touch.screenPosition, isBegan, camera, subScreenEdge, deltaTime);
+                    HandlePointer(touch.touchId, touch.screenPosition, isBegan, camera, subScreenEdge, deltaTime, slideXs);
                 }
             }
 #if UNITY_STANDALONE || UNITY_EDITOR
             else if (Mouse.current is Mouse mouse && mouse.leftButton.isPressed)
             {
-                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime);
+                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime, slideXs);
             }
 #endif
             _staleTouchIds.Clear();
@@ -227,7 +236,56 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             _dragXs[_dragCount++] = x;
         }
-        void HandlePointer(int id, Vector2 screenPosition, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime)
+        /// <summary>
+        /// 扫键用的当前列：从 <paramref name="lastLane"/> 移到相邻列时，要越过分界线 <see cref="SWEEP_HYSTERESIS"/> 才算
+        /// </summary>
+        static int GetSweepLane(float x, int lane, int lastLane)
+        {
+            if (lastLane == 0 || lane == lastLane)
+            {
+                return lane;
+            }
+            var boundary = lane > lastLane ? LaneLayout.LEFT + lastLane * LaneLayout.LANE_WIDTH
+                                           : LaneLayout.LEFT + (lastLane - 1) * LaneLayout.LANE_WIDTH;
+            return Mathf.Abs(x - boundary) >= SWEEP_HYSTERESIS ? lane : lastLane;
+        }
+        /// <summary>
+        /// 手指离某条进行中星星的当前位置不超过星星的命中范围，视为正在跟这条星星
+        /// </summary>
+        static bool IsFollowingSlide(float x, ReadOnlySpan<float> slideXs)
+        {
+            foreach (var slideX in slideXs)
+            {
+                if (Mathf.Abs(x - slideX) <= LaneSlideJudge.HIT_HALF_WIDTH)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        /// <summary>
+        /// 扫键：手指从 <paramref name="fromLane"/> 划到 <paramref name="toLane"/>，经过的每一列（不含起点列）各算一次点击，只算这一列
+        /// </summary>
+        void AddSweepClicks(int fromLane, int toLane)
+        {
+            if (fromLane == 0)
+            {
+                _clicks.Add(new LaneClick()
+                {
+                    Lane = toLane
+                });
+                return;
+            }
+            var step = toLane > fromLane ? 1 : -1;
+            for (var sweptLane = fromLane + step; sweptLane != toLane + step; sweptLane += step)
+            {
+                _clicks.Add(new LaneClick()
+                {
+                    Lane = sweptLane
+                });
+            }
+        }
+        void HandlePointer(int id, Vector2 screenPosition, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime, ReadOnlySpan<float> slideXs)
         {
             _activeTouchIds.Add(id);
             var world = camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, -camera.transform.position.z));
@@ -275,6 +333,14 @@ namespace MajdataPlay.Scenes.Game.Lane
                     });
                 }
             }
+            // 扫键：按住的手指划进新的一列也算点击这一列；正在跟星星的手指不算，免得把星星途经列上的 Tap 提前扫掉
+            var sweepLane = isInLineArea ? GetSweepLane(position.x, lane, record.SweepLane) : 0;
+            if (LaneMode.IsSweepEnabled && !isBegan && sweepLane != 0 && sweepLane != record.SweepLane &&
+                !IsFollowingSlide(position.x, slideXs))
+            {
+                AddSweepClicks(record.SweepLane, sweepLane);
+            }
+            record.SweepLane = sweepLane;
             // Flick
             var speed = hasRecord ? (position - record.LastPosition).magnitude / deltaTime : 0f;
             if (record.IsFlickArmed)

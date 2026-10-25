@@ -146,6 +146,8 @@
     "MAJSETTING_PROPERTY_FallingSpeed_DESC": "仅下落式生效。代替 Tap 速度决定音符下落快慢，数值含义与 Tap 速度相同",
     "MAJSETTING_PROPERTY_FallingLaneDividers": "下落式轨道分割线",
     "MAJSETTING_PROPERTY_FallingLaneDividers_DESC": "仅下落式生效。关闭后不显示轨道之间的竖直分割线",
+    "MAJSETTING_PROPERTY_FallingSweep": "下落式扫键",
+    "MAJSETTING_PROPERTY_FallingSweep_DESC": "仅下落式生效。开启后，按住屏幕的手指划进某一列也算点击这一列，像机台上手划过按键也能打到，可以一路扫过连续的台阶；正在跟着星星箭头的手指不扫键。关闭时只有新按下才算",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay": "下落式信息跟随显示设置",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay_DESC": "仅下落式生效。开启：连击、第二信息、副屏信息按显示设置；关闭：右上显示分数与达成率，顶部中间显示连击",
     "MAJSETTING_PROPERTY_FallingDifficultyColor": "下落式难度颜色",
