@@ -294,13 +294,13 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 if (isInLineArea && speed >= FLICK_SPEED)
                 {
-                    var id = ++_nextFlickId;
+                    var flickId = ++_nextFlickId;
                     _flickLatch[lane - 1] = FLICK_LATCH_FRAMES;
-                    _flickId[lane - 1] = id;
+                    _flickId[lane - 1] = flickId;
                     if (neighborLane != 0)
                     {
                         _flickLatch[neighborLane - 1] = FLICK_LATCH_FRAMES;
-                        _flickId[neighborLane - 1] = id;
+                        _flickId[neighborLane - 1] = flickId;
                     }
                     record.IsFlickArmed = false;
                 }
