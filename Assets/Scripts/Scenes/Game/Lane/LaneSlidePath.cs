@@ -7,6 +7,20 @@ using UnityEngine;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
+    /// 下落式 Slide 路径上的一个顶点：判定区到达判定线的时刻与所在的横坐标
+    /// </summary>
+    internal readonly struct LanePathVertex
+    {
+        public readonly float Timing;
+        public readonly float X;
+
+        public LanePathVertex(float timing, float x)
+        {
+            Timing = timing;
+            X = x;
+        }
+    }
+    /// <summary>
     /// 下落式 Slide：沿判定区连成的路径等距排布皮肤里的 Slide 箭头，整体随时间下落。
     /// 路径落到判定线时所在的轨道，就是手指此时应在的位置；最后一个箭头正好落在结束的列上。
     /// </summary>
@@ -24,17 +38,6 @@ namespace MajdataPlay.Scenes.Game.Lane
 
         static Transform? _root;
 
-        readonly struct Vertex
-        {
-            public readonly float Timing;
-            public readonly float X;
-
-            public Vertex(float timing, float x)
-            {
-                Timing = timing;
-                X = x;
-            }
-        }
         readonly struct Arrow
         {
             public readonly float X;
@@ -63,14 +66,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         int _enabledCount = 0;
         bool _isEnded = false;
 
-        /// <param name="judgeQueues">Slide 的判定队列（Wifi 为左、中、右三条）</param>
-        /// <param name="startTiming">星星开始移动的时刻</param>
-        /// <param name="length">星星移动所需时间</param>
+        /// <param name="paths">由 <see cref="BuildPaths"/> 生成的路径，与判定（LaneSlideJudge）共用</param>
         /// <param name="speed">与音符相同的下落速度</param>
         /// <param name="sprite">Slide 箭头，前进方向为本地 -X</param>
-        public LaneSlidePath(ReadOnlySpan<Memory<SlideArea>> judgeQueues,
-                             float startTiming,
-                             float length,
+        public LaneSlidePath(LanePathVertex[][] paths,
                              float speed,
                              Sprite? sprite,
                              Material material,
@@ -80,17 +79,30 @@ namespace MajdataPlay.Scenes.Game.Lane
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
             _sortingOrder = sortingOrder;
-            var paths = new List<Arrow[]>(judgeQueues.Length);
+            _paths = new Arrow[paths.Length][];
+            for (var i = 0; i < paths.Length; i++)
+            {
+                _paths[i] = BuildArrows(paths[i], _heightPerSec);
+            }
+            _firstVisible = new int[_paths.Length];
+        }
+        /// <summary>
+        /// 每条判定队列（Wifi 为左、中、右三条）生成一条路径：判定区按到达判定线的时刻排列的折线
+        /// </summary>
+        /// <param name="startTiming">星星开始移动的时刻</param>
+        /// <param name="length">星星移动所需时间</param>
+        internal static LanePathVertex[][] BuildPaths(ReadOnlySpan<Memory<SlideArea>> judgeQueues, float startTiming, float length)
+        {
+            var paths = new List<LanePathVertex[]>(judgeQueues.Length);
             foreach (var queue in judgeQueues)
             {
                 if (queue.IsEmpty)
                 {
                     continue;
                 }
-                paths.Add(BuildArrows(BuildPath(queue.Span, startTiming, length), _heightPerSec));
+                paths.Add(BuildPath(queue.Span, startTiming, length));
             }
-            _paths = paths.ToArray();
-            _firstVisible = new int[_paths.Length];
+            return paths.ToArray();
         }
         /// <summary>
         /// 按当前时刻摆放箭头，只显示判定线与轨道顶端之间的部分
@@ -168,10 +180,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             return created;
         }
         /// <summary>
-        /// 判定区到达判定线的时刻：判定区按箭头进度分布在星星移动的时间内，第一区对应起点，最后一区对应终点。
-        /// 路径与检查点判定（LaneSlideJudge）共用，保证看到的和判定的一致。
+        /// 判定区到达判定线的时刻：判定区按箭头进度分布在星星移动的时间内，第一区对应起点，最后一区对应终点
         /// </summary>
-        internal static float GetAreaTiming(ReadOnlySpan<SlideArea> areas, int index, float startTiming, float length)
+        static float GetAreaTiming(ReadOnlySpan<SlideArea> areas, int index, float startTiming, float length)
         {
             var count = areas.Length;
             if (index >= count - 1)
@@ -186,21 +197,21 @@ namespace MajdataPlay.Scenes.Game.Lane
             ref readonly var area = ref areas[index];
             return startTiming + length * Mathf.Clamp01((area.ArrowProgressWhenOn + area.ArrowProgressWhenFinished) * 0.5f / totalProgress);
         }
-        static Vertex[] BuildPath(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
+        static LanePathVertex[] BuildPath(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
         {
             var count = areas.Length;
-            var vertices = new List<Vertex>(count + 1);
+            var vertices = new List<LanePathVertex>(count + 1);
             // 终点落在结束的列上：最后一个判定区优先取外圈 A 区所在的列
             var endX = GetEndAreaX(areas[count - 1]);
             if (count == 1)
             {
                 // 只有一个判定区：从起点到终点停在同一列
-                vertices.Add(new Vertex(startTiming, endX));
+                vertices.Add(new LanePathVertex(startTiming, endX));
             }
             for (var i = 0; i < count; i++)
             {
                 var x = i == count - 1 ? endX : GetAreaX(areas[i]);
-                vertices.Add(new Vertex(GetAreaTiming(areas, i, startTiming, length), x));
+                vertices.Add(new LanePathVertex(GetAreaTiming(areas, i, startTiming, length), x));
             }
             return vertices.ToArray();
         }
@@ -208,7 +219,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 从终点往回沿折线按弧长等距取点，保证最后一个箭头正好落在终点（结束的列）上；
         /// 箭头指向路径终点（时间更晚、位置更高的一端）
         /// </summary>
-        static Arrow[] BuildArrows(Vertex[] vertices, float heightPerSec)
+        static Arrow[] BuildArrows(LanePathVertex[] vertices, float heightPerSec)
         {
             var arrows = new List<Arrow>();
             // 下一个箭头距当前线段终点的弧长

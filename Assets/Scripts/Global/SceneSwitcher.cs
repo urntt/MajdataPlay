@@ -30,6 +30,10 @@ namespace MajdataPlay
         public static event EventHandler<(MajScenes NewScene, MajScenes OldScene)>? OnSceneChanged;
         public static MajScenes CurrentScene { get; private set; } = MajScenes.Init;
         public static MajScenes LastScene { get; private set; } = MajScenes.Init;
+        /// <summary>
+        /// 转场进度：0 为完全打开，1 为完全合上
+        /// </summary>
+        public static float TransitionProgress { get; private set; } = 0f;
 
         private Canvas _canvas;
 
@@ -415,6 +419,7 @@ namespace MajdataPlay
         void SetMaskProgress(float progress)
         {
             _maskProgress = Mathf.Clamp01(progress);
+            TransitionProgress = _maskProgress;
             Shader.SetGlobalFloat(TRANSITION_PROGRESS_ID, _maskProgress);
             var decorationAlpha = Mathf.SmoothStep(0f, 1f, _maskProgress);
             foreach (var decoration in _maskDecorations)

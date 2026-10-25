@@ -81,6 +81,19 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly LaneInputProvider _laneInput = new();
         readonly bool[] _isPhysicalBtnOnInThisFrame = new bool[8];
         readonly bool[] _isPhysicalBtnClickedInThisFrame = new bool[8];
+        // 每列音符的判定时刻（按队列序号），用于把轨道点击分给离判定时刻最近的音符
+        readonly Dictionary<long, float>[] _laneNoteTimings = CreateLaneNoteTimings();
+        // 本帧拖动 Slide 用的手指横坐标：轨道触摸加上实体按键按住列的中心
+        float[] _laneDragXs = new float[16];
+        int _laneDragCount = 0;
+        /// <summary>
+        /// 两列的音符离判定时刻差不多时（在此范围内），轨道点击优先给手指所在的列
+        /// </summary>
+        const float LANE_CLICK_PRIMARY_BIAS_SEC = 0.05f;
+        /// <summary>
+        /// 与 Tap 的 Good 判定区间相同，超出的音符不参与分配
+        /// </summary>
+        const float LANE_CLICK_CANDIDATE_RANGE_SEC = 0.15f;
 
         const string SENSOR_IS_NULL = "Sensor index requested by Note is null";
         const string SENSOR_OUT_OF_RANGE = "Sensor index requested by Note is out of range";
@@ -294,6 +307,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             Array.Fill(_noteCurrentIndex, 0);
             Array.Fill(_touchCurrentIndex, 0);
             _laneInput.Clear();
+            foreach (var timings in _laneNoteTimings)
+            {
+                timings.Clear();
+            }
+            _laneDragCount = 0;
         }
         public void ResetCounter()
         {
@@ -362,7 +380,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         }
         /// <summary>
         /// 下落式模式：实体按键（键盘、按键环、手柄）与轨道触摸合并为按键状态，悬空 Touch 区合并为传感器状态。
-        /// 轨道触摸的点击不计入按键点击次数，由 <see cref="IsButtonClickedInThisFrame"/>、<see cref="TryUseButtonClickEvent"/> 另行查询，
+        /// 轨道触摸的点击不计入按键点击次数，由 <see cref="TryUseLaneClick"/> 另行分配，
         /// 因为一次按下可以打所在列或相邻列，但只能用一次。
         /// 屏幕触摸到圆形传感器的映射已由 InputManager.SuppressTouchPanelSimulation 关闭。
         /// </summary>
@@ -399,6 +417,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 _btnClickedCountInThisFrame[i] = physicalClickedCount;
 #endif
             }
+            UpdateLaneDragXs();
             for (var i = 0; i < 33; i++)
             {
                 var isPhysicalOn = currentSensorStatus[i] == SwitchStatus.On;
@@ -430,20 +449,139 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _laneInput.IgnoreActivePointers();
         }
         /// <summary>
-        /// 下落式：本帧被按住的轨道（触摸或实体按键），第 n 位对应第 n + 1 列
+        /// 下落式 Slide：本帧手指的横坐标（世界坐标）。实体按键按住某列时视为手指在该列中心
         /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetLaneHeldMask()
+        public ReadOnlySpan<float> LaneDragXs => new ReadOnlySpan<float>(_laneDragXs, 0, _laneDragCount);
+        void UpdateLaneDragXs()
         {
-            var mask = 0;
+            var touchXs = _laneInput.DragXs;
+            var capacity = touchXs.Length + LaneLayout.LANE_COUNT;
+            if (_laneDragXs.Length < capacity)
+            {
+                _laneDragXs = new float[capacity * 2];
+            }
+            touchXs.CopyTo(_laneDragXs);
+            _laneDragCount = touchXs.Length;
             for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
             {
-                if (_btnStatusInThisFrame[lane - 1] == SwitchStatus.On)
+                if (_isPhysicalBtnOnInThisFrame[lane - 1])
                 {
-                    mask |= 1 << (lane - 1);
+                    _laneDragXs[_laneDragCount++] = LaneLayout.GetLaneX(lane);
                 }
             }
-            return mask;
+        }
+        static Dictionary<long, float>[] CreateLaneNoteTimings()
+        {
+            var timings = new Dictionary<long, float>[LaneLayout.LANE_COUNT];
+            for (var i = 0; i < timings.Length; i++)
+            {
+                timings[i] = new Dictionary<long, float>();
+            }
+            return timings;
+        }
+        /// <summary>
+        /// 下落式：登记可以用轨道点击判定的 Tap/Hold 的判定时刻，用于把点击分给离判定时刻最近的音符
+        /// </summary>
+        public void RegisterLaneNote(TapQueueInfo queueInfo, float judgeTiming)
+        {
+            var keyIndex = queueInfo.KeyIndex - 1;
+            if (!keyIndex.InRange(0, LaneLayout.LANE_COUNT - 1))
+            {
+                return;
+            }
+            _laneNoteTimings[keyIndex][queueInfo.Index] = judgeTiming;
+        }
+        /// <summary>
+        /// 该列当前待判定的音符离 <paramref name="now"/> 的时间差；没有或不在判定区间内时返回 false
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        bool TryGetLaneCandidateDiff(int lane, float now, out float diff)
+        {
+            diff = 0f;
+            if (lane is < 1 or > LaneLayout.LANE_COUNT)
+            {
+                return false;
+            }
+            if (!_laneNoteTimings[lane - 1].TryGetValue(_noteCurrentIndex[lane - 1], out var timing))
+            {
+                return false;
+            }
+            diff = MathF.Abs(now - timing);
+            return diff <= LANE_CLICK_CANDIDATE_RANGE_SEC;
+        }
+        /// <param name="excludeIndex">不计入的按下</param>
+        bool HasOtherUnusedLaneClick(int lane, int excludeIndex)
+        {
+            for (var i = 0; i < _laneInput.ClickCount; i++)
+            {
+                if (i == excludeIndex)
+                {
+                    continue;
+                }
+                var click = _laneInput.GetClick(i);
+                if (!click.IsUsed && (click.Lane == lane || click.NeighborLane == lane))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        /// <summary>
+        /// 下落式：为 <paramref name="lane"/> 上判定时刻为 <paramref name="judgeTiming"/> 的音符使用一次轨道点击。
+        /// <para>一次按下可以打手指所在列或相邻列，给两列中离判定时刻更近的音符；差不多时优先给手指所在列。
+        /// 另一列另有按下可用时不替它保留。同一列有多个按下可选时，优先用另一列不需要的那个。</para>
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool TryUseLaneClick(int lane, float judgeTiming, float now)
+        {
+            if (!_isLaneMode)
+            {
+                return false;
+            }
+            var myDiff = MathF.Abs(now - judgeTiming);
+            var bestIndex = -1;
+            var bestRank = int.MaxValue;
+            for (var i = 0; i < _laneInput.ClickCount; i++)
+            {
+                var click = _laneInput.GetClick(i);
+                if (click.IsUsed)
+                {
+                    continue;
+                }
+                var isPrimary = click.Lane == lane;
+                if (!isPrimary && click.NeighborLane != lane)
+                {
+                    continue;
+                }
+                var otherLane = isPrimary ? click.NeighborLane : click.Lane;
+                var isOtherWanting = TryGetLaneCandidateDiff(otherLane, now, out var otherDiff);
+                if (isOtherWanting)
+                {
+                    // 另一列是手指所在列时，它在差不多的时间内就优先；否则另一列要明显更近才让给它
+                    var isOtherBetter = isPrimary ? otherDiff + LANE_CLICK_PRIMARY_BIAS_SEC < myDiff
+                                                  : otherDiff <= myDiff + LANE_CLICK_PRIMARY_BIAS_SEC;
+                    if (isOtherBetter && !HasOtherUnusedLaneClick(otherLane, i))
+                    {
+                        continue;
+                    }
+                }
+                var rank = (isPrimary ? 0 : 2) + (isOtherWanting ? 1 : 0);
+                if (rank < bestRank)
+                {
+                    bestRank = rank;
+                    bestIndex = i;
+                    if (rank == 0)
+                    {
+                        break;
+                    }
+                }
+            }
+            if (bestIndex == -1)
+            {
+                return false;
+            }
+            _laneInput.UseClick(bestIndex);
+            return true;
         }
         /// <summary>
         /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。
@@ -607,8 +745,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
             if (btnUsedCount >= btnClickedCount)
             {
-                // 下落式：实体按键的点击用完后，再用轨道触摸的点击（含相邻列的）
-                return _isLaneMode && _laneInput.TryUseClick((int)zone + 1);
+                return false;
             }
             btnUsedCount++;
             return true;
@@ -651,16 +788,6 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 return default;
             }
             ref var isUsed = ref _isBtnUsedInThisFrame[(int)zone];
-            if (_isLaneMode)
-            {
-                // 下落式：实体按键没有点击或已用过时，再用轨道触摸的点击（含相邻列的）
-                if (!isUsed && _isBtnClickedInThisFrame[(int)zone])
-                {
-                    isUsed = true;
-                    return true;
-                }
-                return _laneInput.TryUseClick((int)zone + 1);
-            }
             if (isUsed)
             {
                 return false;
@@ -834,7 +961,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             }
             var i = (int)zone;
 
-            return _isBtnClickedInThisFrame[i] || (_isLaneMode && _laneInput.HasUnusedClick(i + 1));
+            return _isBtnClickedInThisFrame[i];
             //return _btnStatusInPreviousFrame[i] == SwitchStatus.Off &&
             //       _btnStatusInThisFrame[i] == SwitchStatus.On;
         }

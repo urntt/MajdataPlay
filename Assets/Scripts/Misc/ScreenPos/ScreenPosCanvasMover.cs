@@ -154,6 +154,10 @@ namespace MajdataPlay
         readonly bool[] _isEdgePanelActive = new bool[4];
         Image? _circleMask;
         bool _isCircleMaskEnabled;
+        Color _originalCircleMaskColor;
+        // 下落式转场时用来让 EdgeCanvas 随进度渐隐渐显，运行时按需添加
+        CanvasGroup? _edgeCanvasGroup;
+        float _lastTransitionProgress = float.NaN;
 
 
         void Awake()
@@ -253,6 +257,7 @@ namespace MajdataPlay
             {
                 _circleMask = circleMask;
                 _isCircleMaskEnabled = circleMask.enabled;
+                _originalCircleMaskColor = circleMask.color;
             }
             _canvasScaleFactor = Mathf.Max(
                 Screen.width / _baseReferenceResolution.x,
@@ -456,23 +461,26 @@ namespace MajdataPlay
             {
                 _subCoverBottomTransform.localScale = Vector3.zero;
             }
-            // 下落式画面铺满屏幕，EdgeCanvas 和圆形遮罩都要关掉；
-            // 其他页面的 EdgeCanvas 改为遮住主屏方框外的区域，只让出左上角的副屏
-            if (_edgeCanvas != null)
+            if (GameplayScreenLayout.IsFallingPlayArea)
             {
-                if (GameplayScreenLayout.IsFallingPlayArea)
-                {
-                    _edgeCanvas.SetActive(false);
-                }
-                else
+                // 下落式画面铺满屏幕，平时关掉 EdgeCanvas 和圆形遮罩；
+                // 转场动画只在中间的圆里，转场期间由 UpdateFallingTransitionMask 按进度遮住四周。没有副屏，左侧整列都遮
+                ApplyLandscapeEdgePanels(LANDSCAPE_EDGE_PANEL_EXTENT);
+                UpdateFallingTransitionMask(true);
+            }
+            else
+            {
+                // 其他页面的 EdgeCanvas 遮住主屏方框外的区域，只让出左上角的副屏
+                RestoreMaskAlpha();
+                if (_edgeCanvas != null)
                 {
                     _edgeCanvas.SetActive(true);
                     ApplyLandscapeEdgePanels(subY - SUB_DISPLAY_HEIGHT * subScale / 2f);
                 }
-            }
-            if (_circleMask != null)
-            {
-                _circleMask.enabled = _isCircleMaskEnabled && !GameplayScreenLayout.IsFallingPlayArea;
+                if (_circleMask != null)
+                {
+                    _circleMask.enabled = _isCircleMaskEnabled;
+                }
             }
             _isSubCoverPendingRefresh = false;
         }
@@ -501,6 +509,56 @@ namespace MajdataPlay
             SetEdgePanel(EDGE_PANEL_UP, origin, left, right, top, FAR);
             SetEdgePanel(EDGE_PANEL_DOWN, origin, left, right, -FAR, bottom);
             SetEdgePanel(EDGE_PANEL_LEFT, origin, -FAR, left, -FAR, subDisplayBottom);
+        }
+        /// <summary>
+        /// 下落式：按转场进度显示圆形遮罩与 EdgeCanvas。合上时四周逐渐变黑，打开时逐渐显出，完全打开后全部关掉
+        /// </summary>
+        /// <param name="force">进度没变时也刷新</param>
+        void UpdateFallingTransitionMask(bool force)
+        {
+            var progress = SceneSwitcher.TransitionProgress;
+            if (!force && progress == _lastTransitionProgress)
+            {
+                return;
+            }
+            _lastTransitionProgress = progress;
+            var isVisible = progress > 0f;
+            if (_circleMask != null)
+            {
+                _circleMask.enabled = _isCircleMaskEnabled && isVisible;
+                var color = _originalCircleMaskColor;
+                color.a *= progress;
+                _circleMask.color = color;
+            }
+            if (_edgeCanvas != null)
+            {
+                _edgeCanvas.SetActive(isVisible);
+                if (isVisible)
+                {
+                    if (_edgeCanvasGroup == null)
+                    {
+                        _edgeCanvasGroup = _edgeCanvas.AddComponent<CanvasGroup>();
+                        _edgeCanvasGroup.interactable = false;
+                        _edgeCanvasGroup.blocksRaycasts = false;
+                    }
+                    _edgeCanvasGroup.alpha = progress;
+                }
+            }
+        }
+        /// <summary>
+        /// 还原圆形遮罩与 EdgeCanvas 的透明度
+        /// </summary>
+        void RestoreMaskAlpha()
+        {
+            _lastTransitionProgress = float.NaN;
+            if (_circleMask != null)
+            {
+                _circleMask.color = _originalCircleMaskColor;
+            }
+            if (_edgeCanvasGroup != null)
+            {
+                _edgeCanvasGroup.alpha = 1f;
+            }
         }
         void SetEdgePanel(int index, Vector2 origin, float left, float right, float bottom, float top)
         {
@@ -552,6 +610,10 @@ namespace MajdataPlay
                     _lastFallingPlayArea = isFallingPlayArea;
                     ApplyLandscape(scale);
                 }
+                else if (isFallingPlayArea)
+                {
+                    UpdateFallingTransitionMask(false);
+                }
                 return true;
             }
             else if (_isLandscape)
@@ -572,6 +634,7 @@ namespace MajdataPlay
                 {
                     _subCoverBottomTransform.localScale = Vector3.one;
                 }
+                RestoreMaskAlpha();
                 if (_edgeCanvas != null)
                 {
                     RestoreEdgePanels();

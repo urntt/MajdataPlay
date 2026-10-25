@@ -213,7 +213,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         private SlideArea?[] _lastTriggerAreas = new SlideArea?[3];
 
-        // 下落式：沿路径排布的箭头与 Phigros 式检查点判定
+        // 下落式：沿路径排布的箭头与 Drag 式判定
         private LaneSlidePath? _lanePath;
         private LaneSlideJudge? _laneJudge;
 
@@ -270,7 +270,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             else if (_laneJudge is not null)
             {
-                // 下落式按检查点判定，只看时间，不受 IsCheckable 限制：连接 Slide 的后一段可能在前一段结算前就要开始计时
+                // 下落式按路径上的取样点判定，只看时间，不受 IsCheckable 限制：连接 Slide 的后一段可能在前一段结算前就要开始计时
                 LaneCheckpointCheck();
                 return default;
             }
@@ -377,7 +377,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                                       : NoteManager.GetSensorStatusInThisFrame(area);
         }
         /// <summary>
-        /// 下落式：根据判定队列生成路径箭头与检查点。需要在 StartTiming、Length 与判定队列确定后调用
+        /// 下落式：根据判定队列生成路径箭头与 Drag 式判定。需要在 StartTiming、Length 与判定队列确定后调用
         /// </summary>
         protected void InitLanePath()
         {
@@ -401,14 +401,16 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             var breakMaterial = BreakMaterial;
             var material = IsBreak && breakMaterial is not null ? breakMaterial : DefaultMaterial;
-            _lanePath = new LaneSlidePath(JudgeQueues, StartTiming, Length, Speed, arrowSprite, material, 0);
+            // 箭头与判定共用同一条路径，保证看到的和判定的一致
+            var paths = LaneSlidePath.BuildPaths(JudgeQueues, StartTiming, Length);
+            _lanePath = new LaneSlidePath(paths, Speed, arrowSprite, material, 0);
             if (!IsMine)
             {
-                _laneJudge = new LaneSlideJudge(JudgeQueues, StartTiming, Length);
+                _laneJudge = new LaneSlideJudge(paths, StartTiming, Length);
             }
         }
         /// <summary>
-        /// 下落式：结算检查点；全部结算后清空判定队列，由 SlideCheck 调用 Judge 按命中比例评级
+        /// 下落式：结算路径上的取样点；全部结算后清空判定队列，由 SlideCheck 调用 Judge 评级
         /// </summary>
         void LaneCheckpointCheck()
         {
@@ -417,7 +419,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var laneJudge = _laneJudge!;
-            var isNewlyHit = laneJudge.Update(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC, NoteManager.GetLaneHeldMask());
+            var isNewlyHit = laneJudge.Update(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC, NoteManager.LaneDragXs);
             if (isNewlyHit && (ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide))
             {
                 PlaySFX();
@@ -428,7 +430,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
         }
         /// <summary>
-        /// 下落式：按整组（连接 Slide 各段合计）检查点的命中数，以及整组首、尾检查点是否命中评级，不看完成时间
+        /// 下落式：按整组（连接 Slide 各段合计）取样点的命中数，以及整组首、尾点是否命中评级，不看完成时间
         /// </summary>
         void JudgeLane()
         {

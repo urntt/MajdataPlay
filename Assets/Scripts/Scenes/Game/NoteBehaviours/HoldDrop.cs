@@ -139,6 +139,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 JudgableRange = new(JudgeTimingWithOffset - (TAP_JUDGE_GOOD_AREA_MSEC / 1000), JudgeTimingWithOffset + (TAP_JUDGE_GOOD_AREA_MSEC / 1000), ContainsType.Closed);
             }
+            if (_isLaneMode && !IsMine)
+            {
+                NoteManager.RegisterLaneNote(QueueInfo, JudgeTimingWithOffset);
+            }
             _lastHoldState = HOLD_STATE_NONE;
             _lastHeadState = HOLD_HEAD_STATE_NOT_JUDGED;
             _waitReleaseTimeSec = 0;
@@ -429,6 +433,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             return NoteManager.CheckButtonStatusInThisFrame(_buttonPos, SwitchStatus.On) ||
                    (_altButtonPos is ButtonZone altButtonPos && NoteManager.CheckButtonStatusInThisFrame(altButtonPos, SwitchStatus.On));
         }
+        /// <summary>
+        /// 下落式：使用一次轨道点击（手指在本列或相邻列的半边），中心音符也可以用第 5 列
+        /// </summary>
+        bool TryUseLaneClick()
+        {
+            var now = ThisFrameSec;
+            return NoteManager.TryUseLaneClick(StartPos, JudgeTimingWithOffset, now) ||
+                   (_isLaneCenter && NoteManager.TryUseLaneClick(LaneLayout.CENTER_ALT_LANE, JudgeTimingWithOffset, now));
+        }
         private void HeadCheck()
         {
             if (IsEnded || !IsInited || IsJudged)
@@ -445,6 +458,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 Judge(ThisFrameSec);
             }
             else if (_altButtonPos is ButtonZone altButtonPos && NoteManager.IsButtonClickedInThisFrame(altButtonPos) && NoteManager.TryUseButtonClickEvent(altButtonPos))
+            {
+                Judge(ThisFrameSec);
+            }
+            else if (_isLaneMode && TryUseLaneClick())
             {
                 Judge(ThisFrameSec);
             }

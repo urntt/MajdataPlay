@@ -1,107 +1,149 @@
 using MajdataPlay.Scenes.Game.Notes;
-using MajdataPlay.Scenes.Game.Notes.Slide;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 #nullable enable
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
-    /// 下落式 Slide 的 Phigros 式检查点判定：路径上每个判定区对应一个检查点，相当于一个隐形 Drag。
-    /// 检查点到达判定线前后一小段时间内，手指在它所在的列上即算命中；提前按住不会让后面的检查点提前结算。
-    /// 全部检查点结算后，按命中数以及首、尾检查点是否命中给出评级。
+    /// 下落式 Slide 的 Drag 式判定：沿箭头路径每隔一小段时间取一个点，相当于一串隐形的 Drag。
+    /// 点到达判定线前后一小段时间内，有手指的横坐标离箭头位置不超过一列半宽即算命中；
+    /// 提前命中不会让后面的点提前结算。全部点结算后，按命中情况以及首、尾点是否命中给出评级。
     /// </summary>
     internal sealed class LaneSlideJudge
     {
         /// <summary>
-        /// 检查点到达判定线前多久开始接受按住
+        /// 取点间隔
+        /// </summary>
+        const float SAMPLE_INTERVAL_SEC = 0.05f;
+        /// <summary>
+        /// 点到达判定线前多久开始接受手指
         /// </summary>
         const float EARLY_SEC = 0.15f;
         /// <summary>
-        /// 检查点到达判定线后多久仍未按住则记为漏掉
+        /// 点到达判定线后多久仍未命中则记为漏掉
         /// </summary>
         const float LATE_SEC = 0.15f;
+        /// <summary>
+        /// 手指横坐标与箭头位置相差不超过该值即算命中（左右各一列半）
+        /// </summary>
+        const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 1.5f;
+        /// <summary>
+        /// 路径中横向跨过该距离的一段视为 8 与 1 之间的跳跃（圆周上相邻，轨道上却在两端）
+        /// </summary>
+        const float WRAP_DISTANCE = LaneLayout.LANE_WIDTH * 4;
+        /// <summary>
+        /// 跳跃结束后留给手指横移的时间，期间的点不计
+        /// </summary>
+        const float WRAP_GRACE_SEC = 0.15f;
 
-        struct Checkpoint
+        struct Sample
         {
             public float Timing;
             /// <summary>
-            /// 可以命中的轨道，第 n 位对应第 n + 1 列
+            /// 到达判定线后仍可命中的时间
             /// </summary>
-            public int LaneMask;
+            public float LateSec;
             public bool IsHit;
         }
 
-        readonly Checkpoint[] _checkpoints;
-        // 第一个尚未结算的检查点
+        readonly Sample[] _samples;
+        // 每个点在各条路径上的横坐标，按 [点序号 * 路径数 + 路径序号] 存放；Wifi 有三条路径
+        readonly float[] _sampleXs;
+        readonly int _pathCount;
+        // 第一个尚未结算的点
         int _next = 0;
 
         public int HitCount { get; private set; } = 0;
-        public int TotalCount => _checkpoints.Length;
+        public int TotalCount => _samples.Length;
         /// <summary>
-        /// 全部检查点都已结算
+        /// 全部点都已结算
         /// </summary>
-        public bool IsResolved => _next >= _checkpoints.Length;
+        public bool IsResolved => _next >= _samples.Length;
         /// <summary>
-        /// 第一个检查点（星星的起点）是否命中
+        /// 第一个点（星星的起点）是否命中
         /// </summary>
-        public bool IsFirstHit => _checkpoints.Length != 0 && _checkpoints[0].IsHit;
+        public bool IsFirstHit => _samples.Length != 0 && _samples[0].IsHit;
         /// <summary>
-        /// 最后一个检查点（星星的终点）是否命中
+        /// 最后一个点（星星的终点）是否命中
         /// </summary>
-        public bool IsLastHit => _checkpoints.Length != 0 && _checkpoints[^1].IsHit;
+        public bool IsLastHit => _samples.Length != 0 && _samples[^1].IsHit;
 
-        /// <param name="judgeQueues">Slide 的判定队列（Wifi 为左、中、右三条）</param>
+        /// <param name="paths">由 <see cref="LaneSlidePath.BuildPaths"/> 生成的路径，与箭头共用</param>
         /// <param name="startTiming">星星开始移动的时刻</param>
         /// <param name="length">星星移动所需时间</param>
-        public LaneSlideJudge(ReadOnlySpan<Memory<SlideArea>> judgeQueues, float startTiming, float length)
+        public LaneSlideJudge(LanePathVertex[][] paths, float startTiming, float length)
         {
-            if (judgeQueues.Length == 3 && !judgeQueues[0].IsEmpty && !judgeQueues[1].IsEmpty && !judgeQueues[2].IsEmpty)
+            _pathCount = paths.Length;
+            if (_pathCount == 0)
             {
-                _checkpoints = BuildWifi(judgeQueues[0].Span, judgeQueues[1].Span, judgeQueues[2].Span, startTiming, length);
+                _samples = Array.Empty<Sample>();
+                _sampleXs = Array.Empty<float>();
                 return;
             }
-            foreach (var queue in judgeQueues)
+            var intervalCount = Mathf.Max(1, Mathf.CeilToInt(length / SAMPLE_INTERVAL_SEC));
+            var interval = length / intervalCount;
+            var samples = new List<Sample>(intervalCount + 1);
+            var sampleXs = new List<float>((intervalCount + 1) * _pathCount);
+            for (var k = 0; k <= intervalCount; k++)
             {
-                if (!queue.IsEmpty)
+                var isLast = k == intervalCount;
+                var timing = isLast ? startTiming + length : startTiming + interval * k;
+                var lateSec = LATE_SEC;
+                if (k != 0 && IsInWrapGrace(paths, timing))
                 {
-                    _checkpoints = Build(queue.Span, startTiming, length);
-                    return;
+                    // 起点、终点必取；终点落在跳跃里时多留一些时间
+                    if (!isLast)
+                    {
+                        continue;
+                    }
+                    lateSec += WRAP_GRACE_SEC;
+                }
+                samples.Add(new Sample()
+                {
+                    Timing = timing,
+                    LateSec = lateSec
+                });
+                foreach (var path in paths)
+                {
+                    sampleXs.Add(GetX(path, timing));
                 }
             }
-            _checkpoints = Array.Empty<Checkpoint>();
+            _samples = samples.ToArray();
+            _sampleXs = sampleXs.ToArray();
         }
         /// <summary>
-        /// 每帧调用，按顺序结算检查点
+        /// 每帧调用，按顺序结算各点
         /// </summary>
-        /// <param name="heldLaneMask">本帧被按住的轨道，第 n 位对应第 n + 1 列</param>
-        /// <returns>本帧是否有检查点首次被命中</returns>
-        public bool Update(float thisFrameSec, int heldLaneMask)
+        /// <param name="fingerXs">本帧手指的横坐标</param>
+        /// <returns>本帧是否有点首次被命中</returns>
+        public bool Update(float thisFrameSec, ReadOnlySpan<float> fingerXs)
         {
             var isNewlyHit = false;
-            for (var i = _next; i < _checkpoints.Length; i++)
+            for (var i = _next; i < _samples.Length; i++)
             {
-                ref var checkpoint = ref _checkpoints[i];
-                if (thisFrameSec < checkpoint.Timing - EARLY_SEC)
+                ref var sample = ref _samples[i];
+                if (thisFrameSec < sample.Timing - EARLY_SEC)
                 {
                     break;
                 }
-                if (!checkpoint.IsHit && (heldLaneMask & checkpoint.LaneMask) != 0)
+                if (!sample.IsHit && thisFrameSec <= sample.Timing + sample.LateSec && IsAnyFingerNear(i, fingerXs))
                 {
-                    checkpoint.IsHit = true;
+                    sample.IsHit = true;
                     isNewlyHit = true;
                 }
             }
-            // 命中的检查点等到达判定线时才结算，整条 Slide 不会提前结束
-            while (_next < _checkpoints.Length)
+            // 命中的点等到达判定线时才结算，整条 Slide 不会提前结束
+            while (_next < _samples.Length)
             {
-                ref var checkpoint = ref _checkpoints[_next];
-                var isResolved = checkpoint.IsHit ? thisFrameSec >= checkpoint.Timing
-                                                  : thisFrameSec > checkpoint.Timing + LATE_SEC;
+                ref var sample = ref _samples[_next];
+                var isResolved = sample.IsHit ? thisFrameSec >= sample.Timing
+                                              : thisFrameSec > sample.Timing + sample.LateSec;
                 if (!isResolved)
                 {
                     break;
                 }
-                if (checkpoint.IsHit)
+                if (sample.IsHit)
                 {
                     HitCount++;
                 }
@@ -111,8 +153,8 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
         /// <summary>
         /// 从上往下取第一个满足的：
-        /// 全部命中为 Critical Perfect；首、尾都命中为 Perfect；首命中且另有任一检查点命中为 Great；
-        /// 有任一检查点命中为 Good；都没命中为 Miss。
+        /// 全部命中为 Critical Perfect；首、尾都命中为 Perfect；首命中且另有任一点命中为 Great；
+        /// 有任一点命中为 Good；都没命中为 Miss。
         /// 没有快慢之分，调用方需将 JudgeDiff 置 0。
         /// </summary>
         public static JudgeGrade GetGrade(int hitCount, int totalCount, bool isFirstHit, bool isLastHit)
@@ -135,57 +177,66 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             return JudgeGrade.Miss;
         }
-        static Checkpoint[] Build(ReadOnlySpan<SlideArea> areas, float startTiming, float length)
+        bool IsAnyFingerNear(int sampleIndex, ReadOnlySpan<float> fingerXs)
         {
-            var checkpoints = new Checkpoint[areas.Length];
-            for (var i = 0; i < areas.Length; i++)
+            var offset = sampleIndex * _pathCount;
+            for (var p = 0; p < _pathCount; p++)
             {
-                checkpoints[i] = new Checkpoint()
+                var x = _sampleXs[offset + p];
+                foreach (var fingerX in fingerXs)
                 {
-                    Timing = LaneSlidePath.GetAreaTiming(areas, i, startTiming, length),
-                    LaneMask = GetLaneMask(areas[i])
-                };
+                    if (Mathf.Abs(fingerX - x) <= HIT_HALF_WIDTH)
+                    {
+                        return true;
+                    }
+                }
             }
-            return checkpoints;
+            return false;
         }
         /// <summary>
-        /// Wifi 以中间一条为准，每个检查点可以命中左、中、右三条路径在同一进度上的任一列
+        /// 路径在 <paramref name="timing"/> 时的横坐标，在相邻顶点之间线性插值，与箭头的摆放一致
         /// </summary>
-        static Checkpoint[] BuildWifi(ReadOnlySpan<SlideArea> left,
-                                      ReadOnlySpan<SlideArea> center,
-                                      ReadOnlySpan<SlideArea> right,
-                                      float startTiming,
-                                      float length)
+        static float GetX(LanePathVertex[] path, float timing)
         {
-            var checkpoints = new Checkpoint[center.Length];
-            for (var i = 0; i < center.Length; i++)
+            if (timing <= path[0].Timing)
             {
-                checkpoints[i] = new Checkpoint()
+                return path[0].X;
+            }
+            for (var i = 1; i < path.Length; i++)
+            {
+                var to = path[i];
+                if (timing > to.Timing)
                 {
-                    Timing = LaneSlidePath.GetAreaTiming(center, i, startTiming, length),
-                    LaneMask = GetLaneMask(center[i]) |
-                               GetLaneMask(left[MapIndex(i, center.Length, left.Length)]) |
-                               GetLaneMask(right[MapIndex(i, center.Length, right.Length)])
-                };
+                    continue;
+                }
+                var from = path[i - 1];
+                var duration = to.Timing - from.Timing;
+                return duration <= 1e-5f ? to.X : Mathf.Lerp(from.X, to.X, (timing - from.Timing) / duration);
             }
-            return checkpoints;
+            return path[^1].X;
         }
-        static int MapIndex(int index, int fromLength, int toLength)
+        /// <summary>
+        /// <paramref name="timing"/> 是否落在某条路径 8 与 1 之间的跳跃上，或跳跃结束后的缓冲时间内
+        /// </summary>
+        static bool IsInWrapGrace(LanePathVertex[][] paths, float timing)
         {
-            if (fromLength <= 1)
+            foreach (var path in paths)
             {
-                return toLength - 1;
+                for (var i = 1; i < path.Length; i++)
+                {
+                    var from = path[i - 1];
+                    var to = path[i];
+                    if (Mathf.Abs(to.X - from.X) < WRAP_DISTANCE)
+                    {
+                        continue;
+                    }
+                    if (timing > from.Timing && timing < to.Timing + WRAP_GRACE_SEC)
+                    {
+                        return true;
+                    }
+                }
             }
-            return Mathf.Clamp(Mathf.RoundToInt(index * (toLength - 1) / (float)(fromLength - 1)), 0, toLength - 1);
-        }
-        static int GetLaneMask(in SlideArea area)
-        {
-            var mask = 0;
-            foreach (var sensor in area.IncludedAreas)
-            {
-                mask |= LaneLayout.GetSensorLaneMask(sensor);
-            }
-            return mask;
+            return false;
         }
     }
 }

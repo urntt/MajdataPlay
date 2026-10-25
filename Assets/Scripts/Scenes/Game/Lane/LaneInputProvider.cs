@@ -10,8 +10,9 @@ namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
     /// 下落式模式的触屏输入：按屏幕位置换算为轨道（列）与高度。
-    /// <para>Tap/Hold/Break/Flick/Slide 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。
-    /// 每列的判定范围是整列加左右各半列，一次按下只能打一个音符。</para>
+    /// <para>Tap/Hold/Break/Flick 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。
+    /// 每列的判定范围是整列加左右各半列，一次按下只能打一个音符，具体给哪一列由 NoteManager 按时间就近分配。</para>
+    /// <para>Slide 使用手指的横坐标，与箭头路径的位置比较；高度规则与“列”相同。</para>
     /// <para>悬空 Touch 使用“悬空区”：必须按在该传感器所在的轨道和高度附近。</para>
     /// </summary>
     internal sealed class LaneInputProvider
@@ -33,9 +34,19 @@ namespace MajdataPlay.Scenes.Game.Lane
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
         public ReadOnlySpan<int> FloatSensorClickedCount => _floatSensorClickedCount;
+        /// <summary>
+        /// 本帧的按下数量，配合 <see cref="GetClick"/>、<see cref="UseClick"/> 由 NoteManager 分配给音符
+        /// </summary>
+        public int ClickCount => _clicks.Count;
+        /// <summary>
+        /// 本帧在轨道判定区内的手指横坐标（世界坐标）
+        /// </summary>
+        public ReadOnlySpan<float> DragXs => new ReadOnlySpan<float>(_dragXs, 0, _dragCount);
 
         readonly bool[] _laneHeld = new bool[LaneLayout.LANE_COUNT];
         readonly List<LaneClick> _clicks = new(16);
+        float[] _dragXs = new float[16];
+        int _dragCount = 0;
         readonly int[] _flickLatch = new int[LaneLayout.LANE_COUNT];
         // 同一次划动标记的两列共用一个编号，被一列用掉后另一列也失效
         readonly int[] _flickId = new int[LaneLayout.LANE_COUNT];
@@ -50,7 +61,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <summary>
         /// 一次按下：可以打手指所在列或相邻列的音符，但只能用一次
         /// </summary>
-        struct LaneClick
+        internal struct LaneClick
         {
             public int Lane;
             /// <summary>
@@ -80,6 +91,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         {
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             _clicks.Clear();
+            _dragCount = 0;
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
             for (var i = 0; i < _flickLatch.Length; i++)
@@ -129,53 +141,18 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _records.Remove(id);
             }
         }
-        /// <summary>
-        /// 本帧是否有尚未使用、能打到 <paramref name="lane"/> 的按下
-        /// </summary>
-        /// <param name="lane">1~8</param>
-        public bool HasUnusedClick(int lane)
+        public LaneClick GetClick(int index)
         {
-            foreach (var click in _clicks)
-            {
-                if (!click.IsUsed && (click.Lane == lane || click.NeighborLane == lane))
-                {
-                    return true;
-                }
-            }
-            return false;
+            return _clicks[index];
         }
         /// <summary>
-        /// 使用一次能打到 <paramref name="lane"/> 的按下，优先使用手指就在这一列上的
+        /// 标记该按下已被某个音符使用
         /// </summary>
-        /// <param name="lane">1~8</param>
-        public bool TryUseClick(int lane)
+        public void UseClick(int index)
         {
-            var index = -1;
-            for (var i = 0; i < _clicks.Count; i++)
-            {
-                var click = _clicks[i];
-                if (click.IsUsed)
-                {
-                    continue;
-                }
-                if (click.Lane == lane)
-                {
-                    index = i;
-                    break;
-                }
-                if (index == -1 && click.NeighborLane == lane)
-                {
-                    index = i;
-                }
-            }
-            if (index == -1)
-            {
-                return false;
-            }
-            var used = _clicks[index];
-            used.IsUsed = true;
-            _clicks[index] = used;
-            return true;
+            var click = _clicks[index];
+            click.IsUsed = true;
+            _clicks[index] = click;
         }
         /// <param name="lane">1~8</param>
         public bool IsFlicked(int lane)
@@ -237,9 +214,18 @@ namespace MajdataPlay.Scenes.Game.Lane
             _records.Clear();
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             _clicks.Clear();
+            _dragCount = 0;
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+        }
+        void AddDragX(float x)
+        {
+            if (_dragCount == _dragXs.Length)
+            {
+                Array.Resize(ref _dragXs, _dragXs.Length * 2);
+            }
+            _dragXs[_dragCount++] = x;
         }
         void HandlePointer(int id, Vector2 screenPosition, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime)
         {
@@ -274,6 +260,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                                (LaneMode.IsVerticalJudge || Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT);
             if (isInLineArea)
             {
+                AddDragX(position.x);
                 _laneHeld[lane - 1] = true;
                 if (neighborLane != 0)
                 {
