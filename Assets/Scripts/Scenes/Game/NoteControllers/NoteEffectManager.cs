@@ -113,8 +113,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         /// <param name="position"></param>
         /// <param name="isBreak"></param>
         /// <param name="judge"></param>
+        /// <param name="isOnRing">下落式 Slide 保持原样时外圈的星星头，特效放在圆形模式的位置</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void PlayTapJudgeResult(int position, in NoteJudgeResult judgeResult)
+        public void PlayTapJudgeResult(int position, in NoteJudgeResult judgeResult, bool isOnRing = false)
         {
             var pos = (SensorArea)(position - 1);
             CabinetLed.SetButtonLightWithTimeout(GetColor(judgeResult.Grade), position - 1);
@@ -124,7 +125,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 _lastTriggerTimes[pos] = MajTimeline.Time;
                 _effectPool.ResetFeedbackEffect(pos);
             }
-            _effectPool.PlayTapJudgeResult(judgeResult, position);
+            _effectPool.PlayTapJudgeResult(judgeResult, position, isOnRing);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void PlayHoldEffect(int keyIndex, in JudgeGrade judgeType)

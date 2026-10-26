@@ -82,6 +82,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly bool[] _isPhysicalBtnOnInThisFrame = new bool[8];
         readonly bool[] _isPhysicalBtnClickedInThisFrame = new bool[8];
         readonly bool[] _isPhysicalSensorOnInThisFrame = new bool[33];
+        // Slide 保持原样：外圈星星头可用的圆形传感器点击（触摸进入加实体传感器按下）及本帧已用次数
+        readonly int[] _laneCircleClickedCount = new int[33];
+        readonly int[] _laneCircleUsedCount = new int[33];
         // 每列音符的判定时刻（按队列序号），用于把轨道点击分给离判定时刻最近的音符
         readonly Dictionary<long, float>[] _laneNoteTimings = CreateLaneNoteTimings();
         // 本帧拖动 Slide 用的手指横坐标：轨道触摸加上实体按键按住列的中心
@@ -450,6 +453,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
                 _sensorStatusInPreviousFrame[i] = _sensorStatusInThisFrame[i];
                 _isPhysicalSensorOnInThisFrame[i] = isPhysicalOn;
+                _laneCircleClickedCount[i] = physicalClickedCount + _laneInput.CircleSensorClickedCount[i];
+                _laneCircleUsedCount[i] = 0;
                 _sensorStatusInThisFrame[i] = isPhysicalOn || floatSensorHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
                 _isSensorClickedInThisFrame[i] = clickedCount != 0;
 #if UNITY_ANDROID || UNITY_IOS
@@ -618,6 +623,19 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 return SwitchStatus.Off;
             }
             return _isPhysicalSensorOnInThisFrame[index] || _laneInput.CircleSensorHeld[index] ? SwitchStatus.On : SwitchStatus.Off;
+        }
+        /// <summary>
+        /// 下落式 Slide 保持原样：外圈的星星头使用一次圆形传感器点击（手指进入该传感器，或实体传感器按下）
+        /// </summary>
+        public bool TryUseLaneCircleSensorClick(SensorArea area)
+        {
+            var index = (int)area;
+            if (index is < 0 or >= 33 || _laneCircleUsedCount[index] >= _laneCircleClickedCount[index])
+            {
+                return false;
+            }
+            _laneCircleUsedCount[index]++;
+            return true;
         }
         /// <summary>
         /// 下落式 Slide（Drag）：判定区对应的任一轨道被按住即视为 On，不需要点击。

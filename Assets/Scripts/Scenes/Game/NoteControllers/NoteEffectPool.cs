@@ -38,6 +38,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         private GameObject _touchFeedbackEffectPrefab;
 
         private TapEffectDisplayer[] _tapJudgeEffects = new TapEffectDisplayer[8];
+        // 下落式 Slide 保持原样：外圈星星头的判定特效，放在圆形模式的位置
+        private readonly TapEffectDisplayer?[] _ringTapJudgeEffects = new TapEffectDisplayer?[8];
         private TouchHoldEffectDisplayer[] _touchHoldJudgeEffects = new TouchHoldEffectDisplayer[33];
         private TouchEffectDisplayer[] _touchJudgeEffects = new TouchEffectDisplayer[33];
 
@@ -77,6 +79,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             foreach (var effect in _tapJudgeEffects)
             {
                 effect.Reset();
+            }
+            foreach (var effect in _ringTapJudgeEffects)
+            {
+                effect?.Reset();
             }
             foreach (var effect in _touchHoldJudgeEffects)
             {
@@ -147,6 +153,20 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 displayer.ResetAll();
                 _tapJudgeEffects[i] = displayer;
                 generatedTapEffectDisplayers.Add(displayer);
+                if (_isLaneMode && LaneMode.IsSlideOriginal)
+                {
+                    // 外圈的星星头与圆形模式相同，不移到轨道上
+                    var ringObj = Instantiate(_tapEffectPrefab, tapParent);
+                    ringObj.name = $"RingTapEffect_{i + 1}";
+                    ringObj.transform.rotation = rotation;
+                    if (_gpManager != null && _gpManager.IsClassicMode)
+                        ringObj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 0);
+                    var ringDisplayer = ringObj.GetComponent<TapEffectDisplayer>();
+                    ringDisplayer.DistanceRatio = MajEnv.Settings.Display.OuterJudgeDistance;
+                    ringDisplayer.ResetAll();
+                    _ringTapJudgeEffects[i] = ringDisplayer;
+                    generatedTapEffectDisplayers.Add(ringDisplayer);
+                }
             }
             for (var i = 0; i < 33; i++)
             {
@@ -302,9 +322,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         [Il2CppSetOption(Option.NullChecks, false)]
         [Il2CppSetOption(Option.ArrayBoundsChecks, false)]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void PlayTapJudgeResult(in NoteJudgeResult judgeResult, int keyIndex)
+        public void PlayTapJudgeResult(in NoteJudgeResult judgeResult, int keyIndex, bool isOnRing = false)
         {
-            var effectDisplayer = _tapJudgeEffects[keyIndex - 1];
+            var effectDisplayer = isOnRing ? _ringTapJudgeEffects[keyIndex - 1] ?? _tapJudgeEffects[keyIndex - 1]
+                                           : _tapJudgeEffects[keyIndex - 1];
             effectDisplayer.Play(judgeResult);
         }
         /// <summary>

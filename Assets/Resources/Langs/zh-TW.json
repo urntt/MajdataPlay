@@ -417,7 +417,7 @@
     "MAJSETTING_PROPERTY_FallingTouchToTap": "下落式Touch轉Tap",
     "MAJSETTING_PROPERTY_FallingTouchToTap_DESC": "僅下落式生效。Touch 與 TouchHold 改為在對應軌道下落的 Tap 與 Hold，中心 C 區落在中間兩列之間，按任一列都算",
     "MAJSETTING_PROPERTY_FallingSlideOriginal": "下落式Slide保持原樣",
-    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "僅下落式生效。開啟後星星（Slide）不再轉成下落的箭頭，樣式和判定與標準遊玩相同，懸空顯示在畫面中央；星星頭仍是下落的 Tap",
+    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "僅下落式生效。開啟後星星與標準遊玩相同：星星頭回到圓形外圈，按外圈判定；Slide 不再轉成下落的箭頭，懸空顯示在畫面中央，樣式和判定與標準遊玩相同",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior": "遊戲時副螢幕點擊行為",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior_DESC": "設定遊戲時點擊副螢幕所執行的操作",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior_OPTION_None": "無",

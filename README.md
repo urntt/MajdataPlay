@@ -14,65 +14,65 @@ This project is based on [@LeZi9916](https://github.com/LeZi9916) 's DJAuto bran
 
 Simai is a maimai chart discription language developed by [Celeca](https://twitter.com/formiku39854)
 
-## 本 Fork 新增内容
+## What's New in This Fork
 
-这是 [LingFeng-bbben/MajdataPlay](https://github.com/LingFeng-bbben/MajdataPlay) 的 Fork，在原版基础上新增了 Phigros 式的**下落式玩法**和**横屏模式**。安装包见 [Releases](https://github.com/urntt/MajdataPlay/releases)，提供未签名的 iOS ipa 和 Android APK。
+This is a fork of [LingFeng-bbben/MajdataPlay](https://github.com/LingFeng-bbben/MajdataPlay) that adds a Phigros-style **falling mode** and a **landscape mode**. Builds are on the [Releases](https://github.com/urntt/MajdataPlay/releases) page: an unsigned iOS ipa and an Android APK.
 
-### 下落式玩法
+### Falling mode
 
-开启方式：设置 → Mod → 游玩模式，选“下落式”。
+To turn it on: Settings → Mod → Play Style, choose "Falling".
 
-- **画面**
-  - 8 条轨道居中，在 16:9 屏幕上占屏宽的 70%，判定线横贯整个屏幕，背景铺满屏幕。
-  - 横屏显示，HUD 在四角：左上暂停键（双击暂停），右上分数，下方是从 101% 往下掉的达成率；顶部中间连击，左下曲名，右下难度。
-  - 开局和结束的转场动画期间，圆形以外的区域会遮黑。
+- **Display**
+  - The 8 lanes are centered and take up 70% of the screen width on a 16:9 screen. The judge line spans the whole screen and the background fills it.
+  - The game runs in landscape with the HUD in the corners: pause button at the top left (double-tap to pause), score at the top right, and below it the achievement rate counting down from 101%. Combo is at the top center, the song title at the bottom left, and the difficulty at the bottom right.
+  - During the opening and closing transitions, everything outside the circle is covered.
 - **Tap / Hold / Break**
-  - 落在对应编号的列上；中心 C 区的音符落在第 4、5 列之间，按任一列都算。
-  - 每列的判定范围是整列加左右各半列。一次按下只打一个音符，给离判定时刻最近的那一个。
-- **星星（Slide）**
-  - 原版的 Slide 箭头沿判定区路径排布，随音符一起下落。
-  - 判定是 Drag 式：手指的横坐标离箭头不超过一列半就算命中。经过 8 与 1 之间（轨道两端）的跳跃时会放宽。
-  - 评级：全中 Critical Perfect，首尾都中 Perfect，首中且另有命中 Great，有命中 Good，全漏 Miss。
-- **悬空 Touch**
-  - 按 A、D、E、B、C 圈由低到高，悬停在对应列的上方。
-  - 可按范围是左右各多一列；手指进入或停留在范围内就算命中，提前停着的手指会等到判定时刻再判定。
-- **成绩**：下落式的成绩单独保存在本地，与普通成绩分开，不上传；只开下落式时，结算页照常保存成绩。
+  - Notes fall in the lane with the same number. Notes in the center C area fall between lanes 4 and 5, and either lane can hit them.
+  - Each lane's judge range is the whole lane plus half a lane on each side. One press hits one note: the one closest to its judge time.
+- **Slides (stars)**
+  - The original slide arrows are laid out along the path of the judge areas and fall with the notes.
+  - Judging works like a Drag: it's a hit when a finger's horizontal position is within one and a half lanes of the arrow. The jump between 8 and 1 (the two ends of the lanes) is judged more leniently.
+  - Grades: every point hit is Critical Perfect, first and last hit is Perfect, first hit plus any other is Great, any hit is Good, and nothing hit is Miss.
+- **Floating Touch**
+  - Touch notes hover above their lane, from low to high in the order A, D, E, B, C.
+  - The hit range extends one extra lane on each side. A finger entering or resting in the range counts as a hit. A finger already resting there is judged at the exact judge time.
+- **Scores**: Falling mode scores are saved locally, separately from normal scores, and are not uploaded. When falling mode is the only mod on, the result screen saves the score as usual.
 
-#### 下落式设置（设置 → 游戏设定，随设置保存）
+#### Falling settings (Settings → Game Settings, saved with your settings)
 
-| 设置 | 说明 |
+| Setting | Description |
 |---|---|
-| 下落式速度 | 音符下落快慢，数值含义与 Tap 速度相同 |
-| 下落式轨道分割线 | 是否显示轨道之间的竖线 |
-| 下落式扫键 | 按住的手指划进某一列也算点击，可以扫连续的台阶；正在跟星星的手指不扫键 |
-| 下落式信息跟随显示设置 | 关闭时用上面的 HUD 布局；开启时连击等信息按显示设置 |
-| 下落式难度颜色 / 分数颜色 | 右下难度、右上分数是否按评级上色 |
-| 下落式判定线颜色 | 纯白；maimai 式（AP 金、Great 紫、Good 绿、Miss 白）；Phigros 式（≥100.5% 金、≥100% 蓝，否则白） |
+| Falling: Note Speed | How fast notes fall. The value means the same as Tap speed. |
+| Falling: Lane Dividers | Show the vertical lines between lanes. |
+| Falling: Sweep Taps | A held finger sliding into a lane also counts as a tap, so you can sweep fast staircases. A finger following a slide doesn't sweep. |
+| Falling: Follow Info Display | Off: use the HUD layout above. On: combo and other info follow the display settings. |
+| Falling: Difficulty Color / Score Color | Color the difficulty (bottom right) and the score (top right) by grade. |
+| Falling: Judge Line Color | White; maimai (gold for AP, purple for Great, green for Good, white for Miss); or Phigros (gold at ≥100.5%, blue at ≥100%, otherwise white). |
 
-#### 下落式 Mod（设置 → Mod）
+#### Falling mods (Settings → Mod)
 
-| Mod | 说明 |
+| Mod | Description |
 |---|---|
-| 下落式垂直判定 | 开启时在正确的列上任意高度都算，关闭时需按在判定线附近 |
-| 下落式 Break 转 Flick | Break 需要在轨道上划动才会判定 |
-| 下落式 Touch 转 Tap | Touch、TouchHold 改为在对应列下落的 Tap、Hold |
-| 下落式 Slide 保持原样 | 星星保持标准游玩的样式和判定，悬空显示在画面中央 |
+| Falling: Vertical Judge | On: a press at any height in the right lane counts. Off: the press has to be near the judge line. |
+| Falling: Break to Flick | A Break is judged only when you flick on the lane. |
+| Falling: Touch to Tap | Touch and TouchHold notes become Tap and Hold notes falling in their lane. |
+| Falling: Keep Slides Original | Off by default. Stars play as in standard mode: star heads go back to the outer ring and are judged there, and slides float in the middle of the screen, looking and judged as in standard play. |
 
-### 横屏模式
+### Landscape mode
 
-设置 → 显示设定 → 画面方向，选横屏后所有页面都横屏显示：主屏居中，副屏缩小放在左上角，其余区域遮黑。
+Settings → Display Settings → Screen Orientation, choose "Landscape". Every page is shown in landscape: the main screen is centered, the sub screen is shrunk into the top left corner, and the rest is covered.
 
-### 其他
+### Other
 
-- **保存 Mod 设置**：设置 → 调试，开启后 Mod 设置随设置一起保存，重启游戏不会重置。
-- **应用图标**：加了一个粉色的 U 字发卡。
-- **打包**
-  - `Tools/iOS/build_unsigned_ipa.sh`：在 Mac 上一条命令打出未签名 ipa。
-  - GitHub Actions：提交信息带 `[ipa]` 打 iOS 包，带 `[apk]` 打 Android 包，带 `[release]` 同时打两个并发布 Release。
-  - 说明见 [Tools/iOS/README.md](Tools/iOS/README.md)。
-- **Android 安装包**：包名为 `com.<仓库所有者>.majdataplay`，可与官方版同时安装，谱面目录与官方版相同（`/sdcard/Documents/MajdataPlay`）。
-  - 在仓库 Secrets 里配置 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASS`、`ANDROID_KEYALIAS_NAME`、`ANDROID_KEYALIAS_PASS` 后，每次用同一个签名，可以直接覆盖更新。
-  - 不配置时每次临时生成签名，更新前需要先卸载旧版。
+- **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.
+- **App icon**: now wears a pink U-shaped hairclip.
+- **Packaging**
+  - `Tools/iOS/build_unsigned_ipa.sh` builds an unsigned ipa on a Mac with one command.
+  - GitHub Actions: a commit message containing `[ipa]` builds the iOS ipa, `[apk]` builds the Android APK, and `[release]` builds both and publishes a release.
+  - See [Tools/iOS/README.md](Tools/iOS/README.md) for details.
+- **Android APK**: the package name is `com.<repository owner>.majdataplay`, so it installs alongside the official build. It uses the same chart folder as the official build (`/sdcard/Documents/MajdataPlay`).
+  - With `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASS`, `ANDROID_KEYALIAS_NAME` and `ANDROID_KEYALIAS_PASS` set in the repository secrets, every build uses the same signing key and can update in place.
+  - Without them, each build uses a temporary key, so uninstall the old version before updating.
 
 ## Supported platforms
 

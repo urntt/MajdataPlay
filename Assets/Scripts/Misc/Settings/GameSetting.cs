@@ -428,7 +428,7 @@ namespace MajdataPlay.Settings
 
         public bool FallingTouchToTap { get; set; } = false;
         /// <summary>
-        /// 下落式：星星（Slide）保持标准游玩的样式与判定，悬空显示在画面中央；星星头仍是下落的 Tap
+        /// 下落式：星星保持标准游玩的样式与判定。星星头回到圆形外圈并按外圈判定，Slide 悬空显示在画面中央
         /// </summary>
         public bool FallingSlideOriginal { get; set; } = false;
 

@@ -1038,8 +1038,9 @@ namespace MajdataPlay.Scenes.Game
             }
             LaneVisuals.SetLayerRecursively(notes.GetChild(6), MajEnv.HIDDEN_LAYER);
             LaneVisuals.SetLayerRecursively(notes.GetChild(7), MajEnv.HIDDEN_LAYER);
+            // Slide 保持原样时星星头回到外圈，保留圆形判定圈作为参照
             var outline = Majdata<OutlineLoader>.Instance;
-            if (outline != null)
+            if (outline != null && !LaneMode.IsSlideOriginal)
             {
                 LaneVisuals.SetLayerRecursively(outline.transform, MajEnv.HIDDEN_LAYER);
             }

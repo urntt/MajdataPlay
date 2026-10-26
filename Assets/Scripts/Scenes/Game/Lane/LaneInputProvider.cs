@@ -43,6 +43,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public ReadOnlySpan<bool> CircleSensorHeld => _circleSensorHeld;
         /// <summary>
+        /// Slide 保持原样时：本帧手指进入各圆形传感器的次数，外圈的星星头用它判定
+        /// </summary>
+        public ReadOnlySpan<int> CircleSensorClickedCount => _circleSensorClickedCount;
+        /// <summary>
         /// 本帧的按下数量，配合 <see cref="GetClick"/>、<see cref="UseClick"/> 由 NoteManager 分配给音符
         /// </summary>
         public int ClickCount => _clicks.Count;
@@ -62,6 +66,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly bool[] _floatSensorHeld = new bool[33];
         readonly int[] _floatSensorClickedCount = new int[33];
         readonly bool[] _circleSensorHeld = new bool[33];
+        readonly int[] _circleSensorClickedCount = new int[33];
 
         readonly Dictionary<int, TouchRecord> _records = new(16);
         readonly List<int> _staleTouchIds = new(16);
@@ -95,6 +100,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// 扫键用：这根手指上一帧所在的列（带防抖），不在轨道判定区时为 0
             /// </summary>
             public int SweepLane;
+            /// <summary>
+            /// Slide 保持原样用：上一帧所在的圆形传感器（33 位）
+            /// </summary>
+            public ulong LastCircleSensors;
         }
 
         /// <summary>
@@ -109,6 +118,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
+            Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
             for (var i = 0; i < _flickLatch.Length; i++)
             {
                 if (_flickLatch[i] > 0)
@@ -234,6 +244,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
+            Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
         }
         void AddDragX(float x)
         {
@@ -320,11 +331,27 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 副屏区域用于跳过乐曲等操作，不参与轨道判定
             var isInSubScreen = position.x > subScreenEdge.x && position.x < subScreenEdge.z &&
                                 position.y > subScreenEdge.w && position.y < subScreenEdge.y;
-            // Slide 保持原样：另按标准圆形传感器换算，只给 Slide 用
+            // Slide 保持原样：另按标准圆形传感器换算，只给 Slide 和外圈的星星头用；进入某个传感器即视为点击
+            var circleSensors = 0UL;
             if (LaneMode.IsSlideOriginal && !isInSubScreen)
             {
-                InputManager.GetTouchPanelSensorStates(camera, screenPosition, touchRadius, _circleSensorHeld);
+                Span<bool> pointerSensors = stackalloc bool[33];
+                InputManager.GetTouchPanelSensorStates(camera, screenPosition, touchRadius, pointerSensors);
+                for (var i = 0; i < pointerSensors.Length; i++)
+                {
+                    if (!pointerSensors[i])
+                    {
+                        continue;
+                    }
+                    circleSensors |= 1UL << i;
+                    _circleSensorHeld[i] = true;
+                    if ((record.LastCircleSensors & (1UL << i)) == 0)
+                    {
+                        _circleSensorClickedCount[i]++;
+                    }
+                }
             }
+            record.LastCircleSensors = circleSensors;
             var lane = isInSubScreen ? 0 : LaneLayout.GetLaneAt(position.x);
             var neighborLane = LaneLayout.GetNeighborLane(position.x, lane);
             var isInLineArea = lane != 0 &&

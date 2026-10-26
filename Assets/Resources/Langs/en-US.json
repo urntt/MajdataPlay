@@ -165,7 +165,7 @@
     "MAJSETTING_PROPERTY_FallingTouchToTap": "Falling: Touch to Tap",
     "MAJSETTING_PROPERTY_FallingTouchToTap_DESC": "Falling only. Touch and TouchHold become Tap and Hold falling in their lanes; center C notes fall between the two middle lanes and either lane counts",
     "MAJSETTING_PROPERTY_FallingSlideOriginal": "Falling: Keep Slides Original",
-    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "Falling only. When on, slides are not turned into falling arrows: they look and are judged the same as in standard play, floating in the middle of the screen. The star head is still a falling Tap",
+    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "Falling only. When on, stars play as in standard mode: the star head returns to the outer ring and is judged there, and the slide is not turned into falling arrows but floats in the middle of the screen, looking and judged the same as in standard play",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior": "Sub-Screen Tap Behavior (Gameplay)",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior_DESC": "Set what happens when tapping the sub-screen during gameplay",
     "MAJSETTING_PROPERTY_GameplaySubScreenClickBehavior_OPTION_None": "None",

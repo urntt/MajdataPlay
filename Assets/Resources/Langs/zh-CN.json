@@ -164,7 +164,7 @@
     "MAJSETTING_PROPERTY_FallingTouchToTap": "下落式Touch转Tap",
     "MAJSETTING_PROPERTY_FallingTouchToTap_DESC": "仅下落式生效。Touch 与 TouchHold 改为在对应轨道下落的 Tap 与 Hold，中心 C 区落在中间两列之间，按任一列都算",
     "MAJSETTING_PROPERTY_FallingSlideOriginal": "下落式Slide保持原样",
-    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "仅下落式生效。开启后星星（Slide）不再转成下落的箭头，样式和判定与标准游玩相同，悬空显示在画面中央；星星头仍是下落的 Tap",
+    "MAJSETTING_PROPERTY_FallingSlideOriginal_DESC": "仅下落式生效。开启后星星与标准游玩相同：星星头回到圆形外圈，按外圈判定；Slide 不再转成下落的箭头，悬空显示在画面中央，样式和判定与标准游玩相同",
     "MAJSETTING_PROPERTY_HoldScale": "Hold缩放级别",
     "MAJSETTING_PROPERTY_HoldScale_DESC": "调整Hold的大小",
     "MAJSETTING_PROPERTY_Hanabi": "Hanabi音效",
