@@ -80,7 +80,7 @@ namespace MajdataPlay.Scenes.Result.Components
             {
                 _ = SendLikeAsync();
             }
-            if (!_isScorePosted && !MajInstances.GameManager.Settings.Mod.IsAnyModActive() && 
+            if (!_isScorePosted && !MajInstances.GameManager.Settings.IsAnyModActive() && 
                 (InputManager.IsSensorPressedInThisFrame(SensorArea.E4) ||
                 InputManager.IsSensorPressedInThisFrame(SensorArea.D4) ||
                 InputManager.IsSensorPressedInThisFrame(SensorArea.A3))

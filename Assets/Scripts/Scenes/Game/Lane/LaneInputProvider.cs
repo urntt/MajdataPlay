@@ -39,6 +39,11 @@ namespace MajdataPlay.Scenes.Game.Lane
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
         public ReadOnlySpan<int> FloatSensorClickedCount => _floatSensorClickedCount;
         /// <summary>
+        /// 地雷 Touch 用：按在 Touch 本身上（不放大）的悬空区，以及本帧手指进入的次数
+        /// </summary>
+        public ReadOnlySpan<bool> MineSensorHeld => _mineSensorHeld;
+        public ReadOnlySpan<int> MineSensorClickedCount => _mineSensorClickedCount;
+        /// <summary>
         /// Slide 保持原样时：按标准圆形传感器划分被按住的传感器
         /// </summary>
         public ReadOnlySpan<bool> CircleSensorHeld => _circleSensorHeld;
@@ -65,6 +70,8 @@ namespace MajdataPlay.Scenes.Game.Lane
         int _nextFlickId = 0;
         readonly bool[] _floatSensorHeld = new bool[33];
         readonly int[] _floatSensorClickedCount = new int[33];
+        readonly bool[] _mineSensorHeld = new bool[33];
+        readonly int[] _mineSensorClickedCount = new int[33];
         readonly bool[] _circleSensorHeld = new bool[33];
         readonly int[] _circleSensorClickedCount = new int[33];
 
@@ -91,6 +98,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// 上一帧所在的悬空区（33 位）
             /// </summary>
             public ulong LastFloatSensors;
+            /// <summary>
+            /// 上一帧按在其上的地雷 Touch 区（33 位）
+            /// </summary>
+            public ulong LastMineSensors;
             public bool IsFlickArmed;
             /// <summary>
             /// 从 HUD 按钮上开始、或恢复游戏时已按住的手指，在抬起前都不参与判定
@@ -117,6 +128,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             _dragCount = 0;
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+            Array.Clear(_mineSensorHeld, 0, _mineSensorHeld.Length);
+            Array.Clear(_mineSensorClickedCount, 0, _mineSensorClickedCount.Length);
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
             Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
             for (var i = 0; i < _flickLatch.Length; i++)
@@ -243,6 +256,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
+            Array.Clear(_mineSensorHeld, 0, _mineSensorHeld.Length);
+            Array.Clear(_mineSensorClickedCount, 0, _mineSensorClickedCount.Length);
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
             Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
         }
@@ -402,26 +417,37 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 record.IsFlickArmed = true;
             }
-            // 悬空 Touch：进入某个悬空区即视为点击
+            // 悬空 Touch：进入某个悬空区即视为点击；地雷 Touch 另按 Touch 本身的范围计算
             var floatSensors = 0UL;
+            var mineSensors = 0UL;
             if (!isInSubScreen)
             {
                 for (var i = 0; i < _floatSensorHeld.Length; i++)
                 {
                     var area = (SensorArea)i;
-                    if (!LaneLayout.IsInFloatHitArea(area, position))
+                    var bit = 1UL << i;
+                    if (LaneLayout.IsInFloatHitArea(area, position))
                     {
-                        continue;
+                        floatSensors |= bit;
+                        _floatSensorHeld[i] = true;
+                        if ((record.LastFloatSensors & bit) == 0)
+                        {
+                            _floatSensorClickedCount[i]++;
+                        }
                     }
-                    floatSensors |= 1UL << i;
-                    _floatSensorHeld[i] = true;
-                    if ((record.LastFloatSensors & (1UL << i)) == 0)
+                    if (LaneLayout.IsInFloatMineArea(area, position))
                     {
-                        _floatSensorClickedCount[i]++;
+                        mineSensors |= bit;
+                        _mineSensorHeld[i] = true;
+                        if ((record.LastMineSensors & bit) == 0)
+                        {
+                            _mineSensorClickedCount[i]++;
+                        }
                     }
                 }
             }
             record.LastFloatSensors = floatSensors;
+            record.LastMineSensors = mineSensors;
             record.LastPosition = position;
             _records[id] = record;
         }

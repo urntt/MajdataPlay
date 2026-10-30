@@ -9,6 +9,7 @@ namespace MajdataPlay.Scenes.Game.Lane
     /// 下落式 Slide 的 Drag 式判定：沿箭头路径每隔一小段时间取一个点，相当于一串隐形的 Drag。
     /// 点到达判定线前后一小段时间内，有手指的横坐标离箭头位置不超过一列半宽即算命中；
     /// 提前命中不会让后面的点提前结算。全部点结算后，按命中情况以及首、尾点是否命中给出评级。
+    /// 星星尾转 Flick 时改为只有一个点，需要在所在列划动（见 <see cref="CreateFlick"/>）。
     /// </summary>
     internal sealed class LaneSlideJudge
     {
@@ -54,6 +55,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly int _pathCount;
         // 第一个尚未结算的点
         int _next = 0;
+        readonly bool _isFlick;
 
         public int HitCount { get; private set; } = 0;
         public int TotalCount => _samples.Length;
@@ -69,6 +71,18 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 最后一个点（星星的终点）是否命中
         /// </summary>
         public bool IsLastHit => _samples.Length != 0 && _samples[^1].IsHit;
+        /// <summary>
+        /// 星星尾转 Flick：唯一的点需要在 <see cref="FlickLane"/> 划动才算命中
+        /// </summary>
+        public bool IsFlick => _isFlick;
+        /// <summary>
+        /// Flick 所在的列（1~8）
+        /// </summary>
+        public int FlickLane { get; }
+        /// <summary>
+        /// Flick 命中时与判定时刻的差（秒，晚为正）；未命中为 null
+        /// </summary>
+        public float? FlickDiffSec { get; private set; }
 
         /// <param name="paths">由 <see cref="LaneSlidePath.BuildPaths"/> 生成的路径，与箭头共用</param>
         /// <param name="startTiming">星星开始移动的时刻</param>
@@ -114,6 +128,58 @@ namespace MajdataPlay.Scenes.Game.Lane
             _samples = samples.ToArray();
             _sampleXs = sampleXs.ToArray();
         }
+        LaneSlideJudge(float flickTiming, int lane)
+        {
+            _paths = Array.Empty<LanePathVertex[]>();
+            _pathCount = 0;
+            _sampleXs = Array.Empty<float>();
+            _samples = new[] { new Sample() { Timing = flickTiming, LateSec = LATE_SEC } };
+            _isFlick = true;
+            FlickLane = lane;
+        }
+        /// <summary>
+        /// 星星尾转 Flick：整条箭头换成一个 Flick。前后 <see cref="EARLY_SEC"/>、<see cref="LATE_SEC"/>（与 Tap 的判定范围相同）内
+        /// 在 <paramref name="lane"/> 划动即命中，由 <see cref="HitFlick"/> 记录时间差，过晚则记为漏掉
+        /// </summary>
+        /// <param name="timing">含判定偏移的判定时刻</param>
+        public static LaneSlideJudge CreateFlick(float timing, int lane)
+        {
+            return new LaneSlideJudge(timing, lane);
+        }
+        /// <summary>
+        /// 星星尾转 Flick 时连接 Slide 的后续各段：没有自己的点，跟随持有 Flick 的第一段结算
+        /// </summary>
+        public static LaneSlideJudge CreateFlickFollower()
+        {
+            return new LaneSlideJudge(Array.Empty<LanePathVertex[]>(), 0f, 0f);
+        }
+        /// <summary>
+        /// 星星尾转 Flick：现在是否可以用一次划动命中
+        /// </summary>
+        public bool IsFlickJudgeable(float now)
+        {
+            if (!_isFlick || IsResolved)
+            {
+                return false;
+            }
+            ref readonly var sample = ref _samples[0];
+            return now >= sample.Timing - EARLY_SEC && now <= sample.Timing + sample.LateSec;
+        }
+        /// <summary>
+        /// 星星尾转 Flick：在 <paramref name="now"/> 划动命中，立即结算
+        /// </summary>
+        public void HitFlick(float now)
+        {
+            if (!IsFlickJudgeable(now))
+            {
+                return;
+            }
+            ref var sample = ref _samples[0];
+            sample.IsHit = true;
+            FlickDiffSec = now - sample.Timing;
+            HitCount = 1;
+            _next = 1;
+        }
         /// <summary>
         /// 每帧调用，按顺序结算各点
         /// </summary>
@@ -129,7 +195,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 {
                     break;
                 }
-                if (!sample.IsHit && thisFrameSec <= sample.Timing + sample.LateSec && IsAnyFingerNear(i, fingerXs))
+                // Flick 只能由 HitFlick 命中
+                if (!_isFlick && !sample.IsHit && thisFrameSec <= sample.Timing + sample.LateSec && IsAnyFingerNear(i, fingerXs))
                 {
                     sample.IsHit = true;
                     isNewlyHit = true;

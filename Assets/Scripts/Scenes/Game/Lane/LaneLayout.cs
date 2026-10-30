@@ -25,15 +25,26 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// Slide 保持标准游玩的样式与判定：不转成下落的箭头，按标准圆形传感器判定
         /// </summary>
         public static bool IsSlideOriginal { get; private set; } = false;
+        /// <summary>
+        /// 悬空 Touch 在所在列的任意高度都能按（与 <see cref="IsVerticalJudge"/> 互不影响，地雷 Touch 不受影响）
+        /// </summary>
+        public static bool IsTouchVerticalJudge { get; private set; } = false;
+        /// <summary>
+        /// 星星尾转 Flick：整条箭头换成一个 Flick；Slide 保持原样时无效
+        /// </summary>
+        public static bool IsSlideTailToFlick { get; private set; } = false;
 
         public static void Enable(GameSetting settings)
         {
+            var falling = settings.Falling;
             IsEnabled = true;
-            IsVerticalJudge = settings.Mod.FallingVerticalJudge;
-            IsBreakToFlick = settings.Mod.FallingBreakToFlick;
-            IsLaneDividerVisible = settings.Game.FallingLaneDividers;
-            IsSweepEnabled = settings.Game.FallingSweep;
-            IsSlideOriginal = settings.Mod.FallingSlideOriginal;
+            IsVerticalJudge = falling.FallingVerticalJudge;
+            IsBreakToFlick = falling.FallingBreakToFlick;
+            IsLaneDividerVisible = falling.FallingLaneDividers;
+            IsSweepEnabled = falling.FallingSweep;
+            IsSlideOriginal = falling.FallingSlideOriginal;
+            IsTouchVerticalJudge = falling.FallingTouchVerticalJudge;
+            IsSlideTailToFlick = falling.FallingSlideTailToFlick && !falling.FallingSlideOriginal;
         }
         public static void Disable()
         {
@@ -43,6 +54,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsLaneDividerVisible = true;
             IsSweepEnabled = false;
             IsSlideOriginal = false;
+            IsTouchVerticalJudge = false;
+            IsSlideTailToFlick = false;
         }
     }
     /// <summary>
@@ -227,14 +240,26 @@ namespace MajdataPlay.Scenes.Game.Lane
             return new Vector3(GetSensorX(area), GetSensorFloatY(area), 0);
         }
         /// <summary>
-        /// 世界坐标 <paramref name="position"/> 是否落在悬空 Touch 的可按区域内：所在列（C 为中间两列）加左右各 <see cref="FLOAT_HIT_EXTRA_LANES"/> 列，上下各 <see cref="FLOAT_HIT_HALF_HEIGHT"/>
+        /// 世界坐标 <paramref name="position"/> 是否落在悬空 Touch 的可按区域内：所在列（C 为中间两列）加左右各 <see cref="FLOAT_HIT_EXTRA_LANES"/> 列，上下各 <see cref="FLOAT_HIT_HALF_HEIGHT"/>；
+        /// 开启 Touch 垂直判定时不限高度
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsInFloatHitArea(SensorArea area, Vector2 position)
         {
             var halfWidth = (GetSensorLane(area) == 0 ? LANE_WIDTH : LANE_WIDTH / 2f) + LANE_WIDTH * FLOAT_HIT_EXTRA_LANES;
             return Mathf.Abs(position.x - GetSensorX(area)) <= halfWidth &&
-                   Mathf.Abs(position.y - GetSensorFloatY(area)) <= FLOAT_HIT_HALF_HEIGHT;
+                   (LaneMode.IsTouchVerticalJudge || Mathf.Abs(position.y - GetSensorFloatY(area)) <= FLOAT_HIT_HALF_HEIGHT);
+        }
+        /// <summary>
+        /// 世界坐标 <paramref name="position"/> 是否按在地雷 Touch 本身上：只有所在列（C 为中间两列），上下各半列宽，与 Touch 图形相当；
+        /// 不放大，也不受 Touch 垂直判定影响
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsInFloatMineArea(SensorArea area, Vector2 position)
+        {
+            var halfWidth = GetSensorLane(area) == 0 ? LANE_WIDTH : LANE_WIDTH / 2f;
+            return Mathf.Abs(position.x - GetSensorX(area)) <= halfWidth &&
+                   Mathf.Abs(position.y - GetSensorFloatY(area)) <= LANE_WIDTH / 2f;
         }
     }
 }

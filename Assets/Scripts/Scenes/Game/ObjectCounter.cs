@@ -308,7 +308,7 @@ namespace MajdataPlay.Scenes.Game
         {
             Majdata<ObjectCounter>.Instance = this;
             // 直接读设置：本组件与 GamePlayManager 的 Awake 先后不确定，此时 LaneMode 可能尚未启用
-            _topInfoOption = MajEnv.Settings.Mod.PlayStyle == PlayStyleOption.Falling ? TopInfoDisplayOption.None : MajEnv.Settings.Game.TopInfo;
+            _topInfoOption = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling ? TopInfoDisplayOption.None : MajEnv.Settings.Game.TopInfo;
             _rate = GameObject.Find("ObjectRate").GetComponent<TextMeshProUGUI>();
 
             _centerInfoDisplayerObject = _centerInfoDisplayerText.gameObject;
@@ -338,9 +338,9 @@ namespace MajdataPlay.Scenes.Game
             _secondaryInfoDisplayOption = MajEnv.Settings.Game.SecondaryBGInfo;
             _subScreenInfoDisplayOption = MajEnv.Settings.Game.SubScreenBGInfo;
             _isJudgeTimingGaugeEnabled = MajEnv.Settings.Game.EnableJudgeTimingGauge;
-            if (MajEnv.Settings.Mod.PlayStyle == PlayStyleOption.Falling)
+            if (MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling)
             {
-                if (!MajEnv.Settings.Game.FallingInfoFollowDisplay)
+                if (!MajEnv.Settings.Falling.FallingInfoFollowDisplay)
                 {
                     // 下落式默认布局：顶部中间连击，右上分数（达成率从 0% 往上涨）
                     _centerInfoDisplayOption = BGInfoOption.Combo;
@@ -348,7 +348,7 @@ namespace MajdataPlay.Scenes.Game
                     _subScreenInfoDisplayOption = BGInfoOption.Achievement;
                     _isJudgeTimingGaugeEnabled = false;
                 }
-                _isScoreColorEnabled = MajEnv.Settings.Game.FallingScoreColor;
+                _isScoreColorEnabled = MajEnv.Settings.Falling.FallingScoreColor;
             }
 
             if (_isJudgeTimingGaugeEnabled)
@@ -749,8 +749,8 @@ namespace MajdataPlay.Scenes.Game
             UpdateComboCount(grade, multiple);
             UpdateJudgeCount(note, judgeResult, multiple);
             UpdateNoteScoreCount(note, judgeResult, multiple);
-            // 下落式的星星按检查点评级，没有快慢，不计入 Fast/Late；保持原样时与标准游玩相同
-            if (!(isSlide && LaneMode.IsEnabled && !LaneMode.IsSlideOriginal))
+            // 下落式的星星按检查点评级，没有快慢，不计入 Fast/Late；保持原样时与标准游玩相同，星星尾转 Flick 时按 Flick 的快慢计入
+            if (!(isSlide && LaneMode.IsEnabled && !LaneMode.IsSlideOriginal && !LaneMode.IsSlideTailToFlick))
             {
                 UpdateFastLateCount(judgeResult, multiple);
             }

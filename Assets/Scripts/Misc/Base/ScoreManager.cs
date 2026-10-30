@@ -124,7 +124,7 @@ namespace MajdataPlay
 
         
 
-        static bool IsFallingStore => MajEnv.Settings?.Mod.PlayStyle == PlayStyleOption.Falling;
+        static bool IsFallingStore => MajEnv.Settings?.Falling.PlayStyle == PlayStyleOption.Falling;
         /// <summary>
         /// 当前游玩模式对应的分区 Hash：Mod 里开启下落式时读写下落式的成绩
         /// </summary>

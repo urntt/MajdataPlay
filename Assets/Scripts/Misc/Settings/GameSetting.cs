@@ -53,6 +53,22 @@ namespace MajdataPlay.Settings
             get => Debug.SaveModSettings ? _mod : null;
             set => _savedMod = value;
         }
+
+        private FallingOptions _falling = new();
+        private bool _hasFallingSettings;
+        /// <summary>
+        /// 下落式的全部设置（含游玩模式），随设置文件保存
+        /// </summary>
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public FallingOptions Falling
+        {
+            get => _falling;
+            init
+            {
+                _falling = value ?? new();
+                _hasFallingSettings = value is not null;
+            }
+        }
         
         public DebugOptions Debug { get; init; } = new();
         [HideInSettingUI]
@@ -67,10 +83,24 @@ namespace MajdataPlay.Settings
             if (!_hasRenderingSettings)
                 _rendering = Display.ReadLegacyRenderingSettings();
             _rendering.MigrateFramePacing(Display.LegacyFPSLimit, Display.LegacyVSync);
+            // 旧版的下落式设置分散在 Game 与 Mod（Mod 仅在保存 Mod 设置时存在）；只在没有新分类时迁移
+            if (!_hasFallingSettings)
+            {
+                Game.LegacyFalling?.ForEach(apply => apply(_falling));
+                if (Debug.SaveModSettings)
+                    _savedMod?.LegacyFalling?.ForEach(apply => apply(_falling));
+            }
             // 读取时 Debug 可能晚于 Mod 出现，所以先暂存，全部读完再按开关决定是否恢复
             if (Debug.SaveModSettings && _savedMod is not null)
                 _mod = _savedMod;
             _savedMod = null;
+        }
+        /// <summary>
+        /// 是否启用了 Mod；下落式也视为 Mod：成绩不上传，只保存到本地的下落式分区
+        /// </summary>
+        public bool IsAnyModActive()
+        {
+            return Mod.IsAnyModActiveExceptPlayStyle() || Falling.PlayStyle != PlayStyleOption.Standard;
         }
     }
     
@@ -90,33 +120,26 @@ namespace MajdataPlay.Settings
         [Range(HasMax = false, HasMin = false)]
         public float TouchSpeed { get; set; } = 7.5f;
 
-        /// <summary>
-        /// 下落式：代替 TapSpeed 决定音符下落快慢，数值含义与 TapSpeed 相同
-        /// </summary>
-        [Step("0.25")]
-        [Range("1", null, HasMax = false, HasMin = true)]
-        public float FallingSpeed { get; set; } = 7.5f;
-
-        public bool FallingLaneDividers { get; set; } = true;
-
-        /// <summary>
-        /// 下落式扫键：按住的手指划进某一列也算点击这一列，像机台上手划过按键也能打到；关闭时只有新按下才算
-        /// </summary>
-        public bool FallingSweep { get; set; } = false;
-
-        /// <summary>
-        /// 下落式的信息显示是否跟随“连击/第二信息/副屏信息”等显示设置；不跟随时右上显示分数与达成率、顶部中间显示连击
-        /// </summary>
-        public bool FallingInfoFollowDisplay { get; set; } = false;
-
-        public bool FallingDifficultyColor { get; set; } = true;
-
-        public bool FallingScoreColor { get; set; } = false;
-
-        public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
-        
         [OptionEnumerator(typeof(GameOffsetEnumerator))]
         public float SlideFadeInOffset { get; set; } = 0f;
+
+        // 下落式设置已移到 GameSetting.Falling：以下只接收旧 settings.json 的键，读取后迁移，不再保存
+        [JsonIgnore]
+        internal List<System.Action<FallingOptions>>? LegacyFalling { get; private set; }
+        [Preserve, JsonProperty("FallingSpeed")]
+        private float ReadLegacyFallingSpeed { set => (LegacyFalling ??= new()).Add(o => o.FallingSpeed = value); }
+        [Preserve, JsonProperty("FallingLaneDividers")]
+        private bool ReadLegacyFallingLaneDividers { set => (LegacyFalling ??= new()).Add(o => o.FallingLaneDividers = value); }
+        [Preserve, JsonProperty("FallingSweep")]
+        private bool ReadLegacyFallingSweep { set => (LegacyFalling ??= new()).Add(o => o.FallingSweep = value); }
+        [Preserve, JsonProperty("FallingInfoFollowDisplay")]
+        private bool ReadLegacyFallingInfoFollowDisplay { set => (LegacyFalling ??= new()).Add(o => o.FallingInfoFollowDisplay = value); }
+        [Preserve, JsonProperty("FallingDifficultyColor")]
+        private bool ReadLegacyFallingDifficultyColor { set => (LegacyFalling ??= new()).Add(o => o.FallingDifficultyColor = value); }
+        [Preserve, JsonProperty("FallingScoreColor")]
+        private bool ReadLegacyFallingScoreColor { set => (LegacyFalling ??= new()).Add(o => o.FallingScoreColor = value); }
+        [Preserve, JsonProperty("FallingJudgeLineColor")]
+        private FallingJudgeLineColorOption ReadLegacyFallingJudgeLineColor { set => (LegacyFalling ??= new()).Add(o => o.FallingJudgeLineColor = value); }
         
         [Step("0.05")]
         [Range("0", "1" ,HasMax = true, HasMin = true)]
@@ -417,28 +440,22 @@ namespace MajdataPlay.Settings
         [OptionEnumerator(typeof(NoteMaskEnumerator))]
         public string NoteMask { get; set; } = "Disable";
 
-        public PlayStyleOption PlayStyle { get; set; } = PlayStyleOption.Standard;
-        /// <summary>
-        /// 下落式：开启时 Tap/Hold/Break/Flick/Slide 在正确的列上任意高度都算，关闭时需按在判定线附近。
-        /// 悬空 Touch 无论开关都要按在其所在高度。
-        /// </summary>
-        public bool FallingVerticalJudge { get; set; } = true;
+        // 游玩模式与下落式 Mod 已移到 GameSetting.Falling：以下只接收开启“保存 Mod 设置”时旧 settings.json 的键，读取后迁移，不再保存
+        [JsonIgnore]
+        internal List<System.Action<FallingOptions>>? LegacyFalling { get; private set; }
+        [Preserve, JsonProperty("PlayStyle")]
+        private PlayStyleOption ReadLegacyPlayStyle { set => (LegacyFalling ??= new()).Add(o => o.PlayStyle = value); }
+        [Preserve, JsonProperty("FallingVerticalJudge")]
+        private bool ReadLegacyFallingVerticalJudge { set => (LegacyFalling ??= new()).Add(o => o.FallingVerticalJudge = value); }
+        [Preserve, JsonProperty("FallingBreakToFlick")]
+        private bool ReadLegacyFallingBreakToFlick { set => (LegacyFalling ??= new()).Add(o => o.FallingBreakToFlick = value); }
+        [Preserve, JsonProperty("FallingTouchToTap")]
+        private bool ReadLegacyFallingTouchToTap { set => (LegacyFalling ??= new()).Add(o => o.FallingTouchToTap = value); }
+        [Preserve, JsonProperty("FallingSlideOriginal")]
+        private bool ReadLegacyFallingSlideOriginal { set => (LegacyFalling ??= new()).Add(o => o.FallingSlideOriginal = value); }
 
-        public bool FallingBreakToFlick { get; set; } = false;
-
-        public bool FallingTouchToTap { get; set; } = false;
         /// <summary>
-        /// 下落式：星星保持标准游玩的样式与判定。星星头回到圆形外圈并按外圈判定，Slide 悬空显示在画面中央
-        /// </summary>
-        public bool FallingSlideOriginal { get; set; } = false;
-
-        public bool IsAnyModActive()
-        {
-            // 下落式也视为 Mod：成绩不上传，只保存到本地的下落式分区
-            return IsAnyModActiveExceptPlayStyle() || PlayStyle != PlayStyleOption.Standard;
-        }
-        /// <summary>
-        /// 除游玩模式外是否还启用了其他 Mod；只开下落式时仍保存本地成绩
+        /// 除游玩模式外是否还启用了其他 Mod；只开下落式时仍保存本地成绩。含游玩模式的判断见 <see cref="GameSetting.IsAnyModActive"/>
         /// </summary>
         public bool IsAnyModActiveExceptPlayStyle()
         {
@@ -446,6 +463,59 @@ namespace MajdataPlay.Settings
                 !AllBreak && !AllEx && !AllTouch && AutoPlay == AutoplayModeOption.Disable && JudgeStyle == JudgeStyleOption.DEFAULT);
         }
 
+    }
+    
+    /// <summary>
+    /// 下落式的全部设置，属性声明顺序即设置界面中的顺序。属性名沿用旧版，语言文件的键不变
+    /// </summary>
+    public class FallingOptions
+    {
+        /// <summary>
+        /// 标准或下落式。下落式成绩单独保存在本地，不上传
+        /// </summary>
+        public PlayStyleOption PlayStyle { get; set; } = PlayStyleOption.Standard;
+        /// <summary>
+        /// 代替 TapSpeed 决定音符下落快慢，数值含义与 TapSpeed 相同
+        /// </summary>
+        [Step("0.25")]
+        [Range("1", null, HasMax = false, HasMin = true)]
+        public float FallingSpeed { get; set; } = 7.5f;
+        /// <summary>
+        /// 开启时 Tap/Hold/Break/Flick/Slide 在正确的列上任意高度都算，关闭时需按在判定线附近。悬空 Touch 另见 <see cref="FallingTouchVerticalJudge"/>
+        /// </summary>
+        public bool FallingVerticalJudge { get; set; } = true;
+        /// <summary>
+        /// 悬空 Touch 在所在列（左右各多一列）的任意高度都能按；与 <see cref="FallingVerticalJudge"/> 互不影响，地雷 Touch 不受影响
+        /// </summary>
+        public bool FallingTouchVerticalJudge { get; set; } = false;
+        /// <summary>
+        /// 扫键：按住的手指划进某一列也算点击这一列，像机台上手划过按键也能打到；关闭时只有新按下才算
+        /// </summary>
+        public bool FallingSweep { get; set; } = false;
+
+        public bool FallingBreakToFlick { get; set; } = false;
+        /// <summary>
+        /// 星星尾转 Flick：整条箭头换成一个红色 Flick，在箭头开始移动的时刻落在起点所在的列；<see cref="FallingSlideOriginal"/> 开启时无效
+        /// </summary>
+        public bool FallingSlideTailToFlick { get; set; } = false;
+
+        public bool FallingTouchToTap { get; set; } = false;
+        /// <summary>
+        /// 星星保持标准游玩的样式与判定。星星头回到圆形外圈并按外圈判定，Slide 悬空显示在画面中央
+        /// </summary>
+        public bool FallingSlideOriginal { get; set; } = false;
+
+        public bool FallingLaneDividers { get; set; } = true;
+        /// <summary>
+        /// 信息显示是否跟随“连击/第二信息/副屏信息”等显示设置；不跟随时右上显示分数与达成率、顶部中间显示连击
+        /// </summary>
+        public bool FallingInfoFollowDisplay { get; set; } = false;
+
+        public bool FallingDifficultyColor { get; set; } = true;
+
+        public bool FallingScoreColor { get; set; } = false;
+
+        public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
     }
     
     public class OnlineOptions

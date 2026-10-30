@@ -61,6 +61,12 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly Sprite _sprite;
         readonly Material _material;
         readonly int _sortingOrder;
+        readonly Color _color = Color.white;
+        readonly float _scale = 1f;
+        /// <summary>
+        /// 低于该高度的箭头不显示：箭头到判定线即隐藏，Flick 标记则继续落到画面下方，直到结算
+        /// </summary>
+        readonly float _bottomY = LaneLayout.JUDGE_LINE_Y;
         // 只为同屏可见的箭头创建渲染器，结束后销毁
         readonly List<SpriteRenderer> _renderers = new();
         int _enabledCount = 0;
@@ -85,6 +91,26 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _paths[i] = BuildArrows(paths[i], _heightPerSec);
             }
             _firstVisible = new int[_paths.Length];
+        }
+        /// <summary>
+        /// 星星尾转 Flick：不画箭头，只画一个 Flick 标记，在 <paramref name="timing"/> 时落到判定线
+        /// </summary>
+        /// <param name="sprite">星星贴图，前进方向与下落式的音符相同</param>
+        LaneSlidePath(float x, float timing, float speed, Sprite? sprite, Material material, Color color, float scale, int sortingOrder)
+        {
+            _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
+            _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
+            _material = material;
+            _sortingOrder = sortingOrder;
+            _color = color;
+            _scale = scale;
+            _bottomY = LaneLayout.BOTTOM_Y - TOP_MARGIN;
+            _paths = new[] { new[] { new Arrow(x, timing * _heightPerSec, LaneLayout.NoteRotation) } };
+            _firstVisible = new int[1];
+        }
+        internal static LaneSlidePath CreateFlickMarker(float x, float timing, float speed, Sprite? sprite, Material material, Color color, float scale, int sortingOrder)
+        {
+            return new LaneSlidePath(x, timing, speed, sprite, material, color, scale, sortingOrder);
         }
         /// <summary>
         /// 每条判定队列（Wifi 为左、中、右三条）生成一条路径：判定区按到达判定线的时刻排列的折线
@@ -120,8 +146,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 var arrows = _paths[i];
                 var j = _firstVisible[i];
-                // 相对高度单调不减，越过判定线的箭头之后不会再出现
-                while (j < arrows.Length && arrows[j].Y + offset < LaneLayout.JUDGE_LINE_Y)
+                // 相对高度单调不减，越过判定线（Flick 标记为画面底部）的箭头之后不会再出现
+                while (j < arrows.Length && arrows[j].Y + offset < _bottomY)
                 {
                     j++;
                 }
@@ -176,6 +202,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 return renderer;
             }
             var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, LaneVisuals.SlidePathSortingLayerId, _sortingOrder);
+            created.color = _color;
+            created.transform.localScale = new Vector3(_scale, _scale, 1f);
             _renderers.Add(created);
             return created;
         }

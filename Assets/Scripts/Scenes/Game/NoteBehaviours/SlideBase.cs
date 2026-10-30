@@ -217,6 +217,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         private LaneSlidePath? _lanePath;
         private LaneSlideJudge? _laneJudge;
         /// <summary>
+        /// 星星尾转 Flick：整组只有第一段持有 Flick（<see cref="LaneSlideJudge.IsFlick"/>），其余段跟随第一段结算
+        /// </summary>
+        private bool _isLaneFlick;
+        private SlideBase? _laneFlickOwner;
+        /// <summary>
         /// 下落式 Slide 保持原样时，星星开始移动前多久开始报告位置（与下落式 Slide 的判定提前量相同）
         /// </summary>
         const float FALLING_STAR_REPORT_EARLY_SEC = 0.15f;
@@ -420,8 +425,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _lanePath?.End();
             _lanePath = null;
             _laneJudge = null;
+            _isLaneFlick = false;
+            _laneFlickOwner = null;
             if (!LaneMode.IsEnabled || LaneMode.IsSlideOriginal)
             {
+                return;
+            }
+            if (LaneMode.IsSlideTailToFlick && !IsMine)
+            {
+                InitLaneFlick();
                 return;
             }
             // 与 SingleSlideBase.LoadSkin 选择箭头的规则一致；Wifi 也使用 Slide 箭头
@@ -446,6 +458,73 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
         }
         /// <summary>
+        /// 星星尾转 Flick：整组只在第一段放一个 Flick，落在起点所在的列，在箭头开始移动的时刻到达判定线；
+        /// 其余段不显示，等第一段的 Flick 结算后一起结束
+        /// </summary>
+        void InitLaneFlick()
+        {
+            _isLaneFlick = true;
+            var isOwner = !ConnectInfo.IsConnSlide || ConnectInfo.IsGroupPartHead;
+            var paths = isOwner ? LaneSlidePath.BuildPaths(JudgeQueues, StartTiming, Length) : Array.Empty<LanePathVertex[]>();
+            if (paths.Length == 0)
+            {
+                // 跟随段：判定状态由第一段决定，这里只占位以走下落式的判定流程
+                _laneJudge = LaneSlideJudge.CreateFlickFollower();
+                return;
+            }
+            var lane = Mathf.Clamp(LaneLayout.GetLaneAt(paths[0][0].X), 1, LaneLayout.LANE_COUNT);
+            var skin = MajInstances.SkinManager.GetStarSkin();
+            _lanePath = LaneSlidePath.CreateFlickMarker(LaneLayout.GetLaneX(lane),
+                                                        StartTiming,
+                                                        Speed,
+                                                        skin.Normal,
+                                                        DefaultMaterial,
+                                                        LaneVisuals.FlickColor,
+                                                        USERSETTING_TAP_SCALE,
+                                                        1);
+            _laneJudge = LaneSlideJudge.CreateFlick(StartTiming + USERSETTING_JUDGE_OFFSET_SEC, lane);
+        }
+        /// <summary>
+        /// 星星尾转 Flick：持有 Flick 的那一段（整组的第一段）
+        /// </summary>
+        SlideBase GetLaneFlickOwner()
+        {
+            if (_laneFlickOwner is not null)
+            {
+                return _laneFlickOwner;
+            }
+            var owner = this;
+            while (owner._laneJudge is not { IsFlick: true } && owner.Parent?.GameObject.GetComponent<SlideBase>() is SlideBase parent)
+            {
+                owner = parent;
+            }
+            _laneFlickOwner = owner;
+            return owner;
+        }
+        /// <summary>
+        /// 星星尾转 Flick：第一段在判定范围内检查所在列的划动；Flick 结算后各段清空判定队列，由最后一段评级
+        /// </summary>
+        void LaneFlickCheck(LaneSlideJudge laneJudge)
+        {
+            if (laneJudge.IsFlick)
+            {
+                var now = ThisFrameSec;
+                var lane = laneJudge.FlickLane;
+                if (laneJudge.IsFlickJudgeable(now) && NoteManager.IsLaneFlickedInThisFrame(lane) && NoteManager.TryUseLaneFlick(lane))
+                {
+                    laneJudge.HitFlick(now);
+                    PlaySFX();
+                }
+                laneJudge.Update(now, ReadOnlySpan<float>.Empty);
+            }
+            var flick = GetLaneFlickOwner()._laneJudge;
+            if (flick is not { IsFlick: true } || flick.IsResolved)
+            {
+                _lanePath?.End();
+                ClearAllJudgeQueue();
+            }
+        }
+        /// <summary>
         /// 下落式：结算路径上的取样点；全部结算后清空判定队列，由 SlideCheck 调用 Judge 评级
         /// </summary>
         void LaneCheckpointCheck()
@@ -455,6 +534,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var laneJudge = _laneJudge!;
+            if (_isLaneFlick)
+            {
+                LaneFlickCheck(laneJudge);
+                return;
+            }
             var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
             var isNewlyHit = laneJudge.Update(judgeSec, NoteManager.LaneDragXs);
             if (LaneMode.IsSweepEnabled)
@@ -481,6 +565,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         /// </summary>
         void JudgeLane()
         {
+            if (_isLaneFlick)
+            {
+                JudgeLaneFlick();
+                return;
+            }
             var hitCount = 0;
             var totalCount = 0;
             var isFirstHit = false;
@@ -509,20 +598,61 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             IsJudged = true;
             LastWaitTimeSec = 0;
         }
+        /// <summary>
+        /// 星星尾转 Flick：按 Flick 与判定时刻的差，用 Tap 的判定范围评级（与 Break 转 Flick 相同）；没划到为 Miss
+        /// </summary>
+        void JudgeLaneFlick()
+        {
+            var flick = GetLaneFlickOwner()._laneJudge;
+            JudgeGrade result;
+            if (flick is not { IsFlick: true })
+            {
+                // 没有可判定的 Flick（如判定队列为空），与没有取样点的 Slide 相同
+                result = JudgeGrade.Perfect;
+                JudgeDiff = 0;
+            }
+            else if (flick.FlickDiffSec is float diffSec)
+            {
+                var isFast = diffSec < 0;
+                var diffMSec = MathF.Abs(diffSec * 1000);
+                JudgeDiff = diffSec * 1000;
+                result = diffMSec switch
+                {
+                    <= TAP_JUDGE_SEG_1ST_PERFECT_MSEC => JudgeGrade.Perfect,
+                    <= TAP_JUDGE_SEG_2ND_PERFECT_MSEC => isFast ? JudgeGrade.FastPerfect2nd : JudgeGrade.LatePerfect2nd,
+                    <= TAP_JUDGE_SEG_3RD_PERFECT_MSEC => isFast ? JudgeGrade.FastPerfect3rd : JudgeGrade.LatePerfect3rd,
+                    <= TAP_JUDGE_SEG_1ST_GREAT_MSEC => isFast ? JudgeGrade.FastGreat : JudgeGrade.LateGreat,
+                    <= TAP_JUDGE_SEG_2ND_GREAT_MSEC => isFast ? JudgeGrade.FastGreat2nd : JudgeGrade.LateGreat2nd,
+                    <= TAP_JUDGE_SEG_3RD_GREAT_MSEC => isFast ? JudgeGrade.FastGreat3rd : JudgeGrade.LateGreat3rd,
+                    _ => isFast ? JudgeGrade.FastGood : JudgeGrade.LateGood
+                };
+            }
+            else
+            {
+                result = JudgeGrade.Miss;
+                JudgeDiff = 0;
+            }
+            ConvertJudgeGrade(ref result);
+            JudgeResult = result;
+            IsJudged = true;
+            LastWaitTimeSec = 0;
+        }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         protected void UpdateLanePath()
         {
             _lanePath?.Update(ThisFrameSec);
         }
         /// <summary>
-        /// 下落式：Slide 判定文字显示在终点轨道的判定线上方
+        /// 下落式：Slide 判定文字显示在终点轨道（星星尾转 Flick 时为 Flick 所在的列）的判定线上方
         /// </summary>
         void PlaceSlideOKInLane(SlideOK slideOK)
         {
             var okTransform = slideOK.transform;
             slideOK.Shape = SlideOKShape.Str;
             slideOK.SetR();
-            okTransform.SetPositionAndRotation(LaneLayout.GetJudgePosition(EndPos) + new Vector3(0, 1f, 0), Quaternion.identity);
+            // 星星尾转 Flick 时显示在 Flick 所在的列
+            var lane = _isLaneFlick && GetLaneFlickOwner()._laneJudge is { IsFlick: true } flick ? flick.FlickLane : EndPos;
+            okTransform.SetPositionAndRotation(LaneLayout.GetJudgePosition(lane) + new Vector3(0, 1f, 0), Quaternion.identity);
             okTransform.localScale = Vector3.one;
             LaneVisuals.SetLayerRecursively(okTransform, MajEnv.DEFAULT_LAYER);
         }

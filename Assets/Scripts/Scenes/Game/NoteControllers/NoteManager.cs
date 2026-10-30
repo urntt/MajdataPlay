@@ -82,6 +82,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly bool[] _isPhysicalBtnOnInThisFrame = new bool[8];
         readonly bool[] _isPhysicalBtnClickedInThisFrame = new bool[8];
         readonly bool[] _isPhysicalSensorOnInThisFrame = new bool[33];
+        readonly bool[] _isPhysicalSensorClickedInThisFrame = new bool[33];
         // Slide 保持原样：外圈星星头可用的圆形传感器点击（触摸进入加实体传感器按下）及本帧已用次数
         readonly int[] _laneCircleClickedCount = new int[33];
         readonly int[] _laneCircleUsedCount = new int[33];
@@ -453,6 +454,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 
                 _sensorStatusInPreviousFrame[i] = _sensorStatusInThisFrame[i];
                 _isPhysicalSensorOnInThisFrame[i] = isPhysicalOn;
+                _isPhysicalSensorClickedInThisFrame[i] = physicalClickedCount != 0;
                 _laneCircleClickedCount[i] = physicalClickedCount + _laneInput.CircleSensorClickedCount[i];
                 _laneCircleUsedCount[i] = 0;
                 _sensorStatusInThisFrame[i] = isPhysicalOn || floatSensorHeld[i] ? SwitchStatus.On : SwitchStatus.Off;
@@ -623,6 +625,22 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 return SwitchStatus.Off;
             }
             return _isPhysicalSensorOnInThisFrame[index] || _laneInput.CircleSensorHeld[index] ? SwitchStatus.On : SwitchStatus.Off;
+        }
+        /// <summary>
+        /// 下落式地雷 Touch（原版判定）：本帧有手指按进或划进 Touch 本身（不放大的范围），或实体传感器按下
+        /// </summary>
+        public bool IsLaneMineSensorClickedInThisFrame(SensorArea area)
+        {
+            var index = (int)area;
+            return _isPhysicalSensorClickedInThisFrame[index] || _laneInput.MineSensorClickedCount[index] != 0;
+        }
+        /// <summary>
+        /// 下落式地雷 Touch（原版判定）：有手指按在 Touch 本身上，或实体传感器按住
+        /// </summary>
+        public bool IsLaneMineSensorOnInThisFrame(SensorArea area)
+        {
+            var index = (int)area;
+            return _isPhysicalSensorOnInThisFrame[index] || _laneInput.MineSensorHeld[index];
         }
         /// <summary>
         /// 下落式 Slide 保持原样：外圈的星星头使用一次圆形传感器点击（手指进入该传感器，或实体传感器按下）

@@ -80,6 +80,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 当前游戏的判定线，颜色由 LaneHud 按设置更新；离开游戏场景后随场景销毁
         /// </summary>
         public static SpriteRenderer? JudgeLine { get; private set; }
+        /// <summary>
+        /// Break 转 Flick、星星尾转 Flick 的染色
+        /// </summary>
+        public static readonly Color FlickColor = new Color(1f, 0.22f, 0.22f);
         public static int BackgroundSortingLayerId => SortingLayer.NameToID(BACKGROUND_SORTING_LAYER);
         public static int SlidePathSortingLayerId => SortingLayer.NameToID(SLIDE_PATH_SORTING_LAYER);
 

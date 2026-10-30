@@ -269,7 +269,16 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             {
                 return;
             }
-            if (LaneMode.IsEnabled)
+            if (LaneMode.IsEnabled && IsMine)
+            {
+                // 下落式地雷 Touch 用原版判定：只有按进或划进 Touch 本身（不放大的范围）才算踩到，提前停着的手指不算
+                if (!NoteManager.IsLaneMineSensorClickedInThisFrame(SensorPos))
+                {
+                    return;
+                }
+                Judge(ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC);
+            }
+            else if (LaneMode.IsEnabled)
             {
                 // 下落式：可按范围内有手指就算命中，不需要新按下。
                 // 手指本帧刚进入范围（新按下或划进来）时立即判定；早就停在范围里的手指等到判定时刻再判定，不会提前打掉

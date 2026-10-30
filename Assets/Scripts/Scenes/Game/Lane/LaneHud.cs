@@ -218,7 +218,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 
             // 右上：分数（副屏信息；跟随显示设置时内容由“副屏信息显示”决定，否则为从 0% 往上涨的达成率）
             // 与左上的暂停键对称：同样的边距，竖直方向与暂停键居中对齐
-            var gameOptions = MajEnv.Settings.Game;
+            var fallingOptions = MajEnv.Settings.Falling;
             var score = objectCounter.SubScreenInfoDisplayerText;
             var scoreRect = score.rectTransform;
             scoreRect.SetParent(_root, false);
@@ -229,7 +229,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                     new Vector2(800f, BUTTON_SIZE));
             // 按数字（大写字母）高度居中，数字与暂停键的两道竖线水平对齐
             SetHudTextStyle(score, SCORE_FONT_SIZE, TextAlignmentOptions.CaplineRight);
-            if (!gameOptions.FallingInfoFollowDisplay)
+            if (!fallingOptions.FallingInfoFollowDisplay)
             {
                 // 分数下方小字：从 101% 往下掉的达成率，紧贴分数数字下方
                 var achievement = CreateText("Achievement", _root, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
@@ -245,7 +245,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 objectCounter.SetFallingAchievementText(achievement);
             }
             _objectCounter = objectCounter;
-            _judgeLineColorOption = gameOptions.FallingJudgeLineColor;
+            _judgeLineColorOption = fallingOptions.FallingJudgeLineColor;
 
             // 顶部中间：连击数、第二信息、判定时机条，保留它们之间的相对位置
             var topCenter = CreateRect("TopCenter", _root, layer);
@@ -258,7 +258,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 左下曲名、右下难度
             var titleText = CreateText("Title", _root, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
             SetRect(titleText.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(EDGE_MARGIN, 24f), new Vector2(1100f, 60f));
-            var difficultyText = CreateText("Difficulty", _root, layer, font, 40f, gameOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
+            var difficultyText = CreateText("Difficulty", _root, layer, font, 40f, fallingOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
             SetRect(difficultyText.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-EDGE_MARGIN, 24f), new Vector2(600f, 60f));
 
             BuildPauseOverlay(font);

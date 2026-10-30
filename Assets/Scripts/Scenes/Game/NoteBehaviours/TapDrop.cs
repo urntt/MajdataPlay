@@ -69,7 +69,6 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         const int TAP_SPRITE_SORT_ORDER = 1;
         const int TAP_EX_SORT_ORDER = 0;
-        static readonly Color FLICK_COLOR = new Color(1f, 0.22f, 0.22f);
 
         protected override void Awake()
         {
@@ -479,7 +478,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 _thisRenderer.sprite = skin.Normal;
             }
             _thisRenderer.sharedMaterial = DefaultMaterial;
-            _thisRenderer.color = FLICK_COLOR;
+            _thisRenderer.color = LaneVisuals.FlickColor;
         }
         public override void SetActive(bool state)
         {

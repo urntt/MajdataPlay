@@ -247,7 +247,7 @@ namespace MajdataPlay.Scenes.Game
             }
             //print(MajInstances.GameManager.SelectedIndex);
             _screenRotationAngle = _gameSettings.Display.GameplayScreenRotationAngle;
-            if (_gameSettings.Mod.PlayStyle == PlayStyleOption.Falling)
+            if (_gameSettings.Falling.PlayStyle == PlayStyleOption.Falling)
             {
                 LaneMode.Enable(_gameSettings);
                 // 下落式的轨道不随画面旋转
@@ -904,7 +904,7 @@ namespace MajdataPlay.Scenes.Game
             {
                 _chart = _chart.ConvertToTouch();
             }
-            if (LaneMode.IsEnabled && _gameSettings.Mod.FallingTouchToTap)
+            if (LaneMode.IsEnabled && _gameSettings.Falling.FallingTouchToTap)
             {
                 // 在统计音符总数和加载音符之前转换，两者保持一致
                 _chart = _chart.ConvertTouchToLaneTap();
@@ -973,7 +973,7 @@ namespace MajdataPlay.Scenes.Game
             await UniTask.Yield(PlayerLoopTiming.LastPostLateUpdate);
 
             // 下落式使用单独的下落速度，换算公式与 Tap 速度相同
-            var tapSpeedSetting = LaneMode.IsEnabled ? _gameSettings.Game.FallingSpeed : _gameSettings.Game.TapSpeed;
+            var tapSpeedSetting = LaneMode.IsEnabled ? _gameSettings.Falling.FallingSpeed : _gameSettings.Game.TapSpeed;
             var tapSpeed = Math.Abs(tapSpeedSetting);
 
             if(tapSpeedSetting < 0)
