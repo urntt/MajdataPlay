@@ -100,7 +100,16 @@ namespace MajdataPlay.Settings
         /// </summary>
         public bool IsAnyModActive()
         {
-            return Mod.IsAnyModActiveExceptPlayStyle() || Falling.PlayStyle != PlayStyleOption.Standard;
+            return IsAnyModActiveExceptPlayStyle() || Falling.PlayStyle != PlayStyleOption.Standard;
+        }
+        /// <summary>
+        /// 除游玩模式外是否还启用了其他 Mod，启用时不保存成绩。
+        /// 下落式中改变谱面的选项（见 <see cref="FallingOptions.IsChartModActive"/>）也算在内；只调手感的下落式选项不算
+        /// </summary>
+        public bool IsAnyModActiveExceptPlayStyle()
+        {
+            return Mod.IsAnyModActiveExceptPlayStyle() ||
+                   (Falling.PlayStyle == PlayStyleOption.Falling && Falling.IsChartModActive());
         }
     }
     
@@ -455,7 +464,7 @@ namespace MajdataPlay.Settings
         private bool ReadLegacyFallingSlideOriginal { set => (LegacyFalling ??= new()).Add(o => o.FallingSlideOriginal = value); }
 
         /// <summary>
-        /// 除游玩模式外是否还启用了其他 Mod；只开下落式时仍保存本地成绩。含游玩模式的判断见 <see cref="GameSetting.IsAnyModActive"/>
+        /// 除游玩模式外是否还启用了其他 Mod。含游玩模式与下落式选项的判断见 <see cref="GameSetting.IsAnyModActive"/>、<see cref="GameSetting.IsAnyModActiveExceptPlayStyle"/>
         /// </summary>
         public bool IsAnyModActiveExceptPlayStyle()
         {
@@ -516,6 +525,14 @@ namespace MajdataPlay.Settings
         public bool FallingScoreColor { get; set; } = false;
 
         public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
+        /// <summary>
+        /// 是否开启了改变谱面的选项（Touch 转 Tap、星星尾转 Flick、Slide 保持原样）：与其他 Mod 一样，开启时不保存成绩。
+        /// 垂直判定、扫键、Break 转 Flick 等只调手感的选项不算
+        /// </summary>
+        public bool IsChartModActive()
+        {
+            return FallingTouchToTap || FallingSlideTailToFlick || FallingSlideOriginal;
+        }
     }
     
     public class OnlineOptions

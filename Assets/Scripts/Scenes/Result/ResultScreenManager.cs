@@ -270,7 +270,6 @@ namespace MajdataPlay.Scenes.Result
                 totalJudgeRecord.IsFullCombo, 
                 gameObject.GetCancellationTokenOnDestroy()).Forget();
             var settings = MajInstances.GameManager.Settings;
-            var modOptions = settings.Mod;
             if (!settings.IsAnyModActive())
             {
                 var localScoreSaveTask = ScoreManager.SaveScore(result, result.Level);
@@ -284,9 +283,9 @@ namespace MajdataPlay.Scenes.Result
                     _scoreSaveTask = localScoreSaveTask;
                 }
             }
-            else if (!modOptions.IsAnyModActiveExceptPlayStyle())
+            else if (!settings.IsAnyModActiveExceptPlayStyle())
             {
-                // 只开了下落式：保存到本地的下落式分区，不上传
+                // 只开了下落式（没有改变谱面的选项）：保存到本地的下落式分区，不上传
                 _scoreSaveTask = ScoreManager.SaveScore(result, result.Level);
             }
             WaitForTaskAsync().Forget();

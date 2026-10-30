@@ -37,11 +37,11 @@ To turn it on: Settings → Falling → Play Style, choose "Falling".
   - Touch notes hover above their lane, from low to high in the order A, D, E, B, C.
   - The hit range extends one extra lane on each side. A finger entering or resting in the range counts as a hit. A finger already resting there is judged at the exact judge time.
   - Mine Touches use the original judging: only pressing or sliding into the Touch itself (its own lane, about the size of the graphic) during the 150 ms before it sets it off. A finger already resting there doesn't.
-- **Scores**: Falling mode scores are saved locally, separately from normal scores, and are not uploaded. When falling mode is the only mod on, the result screen saves the score as usual.
+- **Scores**: Falling mode scores are saved locally, separately from normal scores, and are not uploaded. When falling mode is the only mod on, the result screen saves the score as usual. Options that change the chart (Touch to Tap, Slide Tail to Flick, Keep Slides Original) count as mods: scores are not saved while any of them is on. Options that only change the feel (Vertical Judge, Touch Vertical Judge, Sweep Taps, Break to Flick, and so on) don't affect saving.
 
 #### Falling settings (Settings → Falling)
 
-Every falling-mode setting is in its own **Falling** category and is saved with your settings, so nothing resets when the game restarts. Settings from older versions (in Game Settings and Mod) carry over automatically. Scores are handled the same way as before.
+Every falling-mode setting is in its own **Falling** category and is saved with your settings, so nothing resets when the game restarts. Settings from older versions (in Game Settings and Mod) carry over automatically.
 
 | Setting | Description |
 |---|---|
@@ -51,9 +51,9 @@ Every falling-mode setting is in its own **Falling** category and is saved with 
 | Touch Vertical Judge | Off by default. A floating Touch can be hit at any height in its range (its lane plus one on each side). Independent of Vertical Judge; mine Touches are not affected. |
 | Sweep Taps | A held finger sliding into a lane also counts as a tap, so you can sweep fast staircases. A finger following a slide doesn't sweep. |
 | Break to Flick | A Break is judged only when you flick on the lane. |
-| Slide Tail to Flick | Off by default. Slide arrows are replaced by one red Flick that reaches the judge line in the lane where the slide starts, at the moment it starts moving. Flick there to hit it; it's graded by Tap timing and counts toward Fast/Late. No effect when Keep Slides Original is on. |
-| Touch to Tap | Touch and TouchHold notes become Tap and Hold notes falling in their lane. |
-| Keep Slides Original | Off by default. Stars play as in standard mode: star heads go back to the outer ring and are judged there, and slides float in the middle of the screen, looking and judged as in standard play. |
+| Slide Tail to Flick | Off by default. Slide arrows are replaced by one red Flick that reaches the judge line in the lane where the slide starts, at the moment it starts moving. Flick there to hit it; it's graded by Tap timing and counts toward Fast/Late. No effect when Keep Slides Original is on. Scores are not saved while this is on. |
+| Touch to Tap | Touch and TouchHold notes become Tap and Hold notes falling in their lane. Scores are not saved while this is on. |
+| Keep Slides Original | Off by default. Stars play as in standard mode: star heads go back to the outer ring and are judged there, and slides float in the middle of the screen, looking and judged as in standard play. Scores are not saved while this is on. |
 | Lane Dividers | Show the vertical lines between lanes. |
 | Follow Info Display | Off: use the HUD layout above. On: combo and other info follow the display settings. |
 | Difficulty Color / Score Color | Color the difficulty (bottom right) and the score (top right) by grade. |
