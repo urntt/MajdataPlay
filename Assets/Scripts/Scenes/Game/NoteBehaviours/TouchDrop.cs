@@ -25,6 +25,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         bool _isFirework = false;
         /// <summary>
+        /// 下落式：判定范围内已有手指停在可按范围里、正等待判定时刻
+        /// </summary>
+        bool _isLaneFingerResting = false;
+        /// <summary>
         /// Undefined
         /// </summary>
         float _displayDuration;
@@ -120,6 +124,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             IsMine = poolingInfo.IsMine;
             QueueInfo = poolingInfo.QueueInfo;
             IsJudged = false;
+            _isLaneFingerResting = false;
             _isFirework = poolingInfo.IsFirework;
             GroupInfo = poolingInfo.GroupInfo;
             SensorPos = poolingInfo.SensorPos;
@@ -281,14 +286,20 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             else if (LaneMode.IsEnabled)
             {
                 // 下落式：可按范围内有手指就算命中，不需要新按下。
-                // 手指本帧刚进入范围（新按下或划进来）时立即判定；早就停在范围里的手指等到判定时刻再判定，不会提前打掉
+                // 手指本帧刚进入范围（新按下或划进来）时立即判定；早就停在范围里的手指等到判定时刻再判定，不会提前打掉。
+                // 停着的手指在判定时刻之前离开时，按离开的这一刻判定（仍在提前的判定范围内即命中），不会因此漏掉
+                var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
                 if (!NoteManager.CheckSensorStatusInThisFrame(SensorPos, SwitchStatus.On))
                 {
-                    return;
+                    if (!_isLaneFingerResting)
+                    {
+                        return;
+                    }
+                    _isLaneFingerResting = false;
                 }
-                var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
-                if (!NoteManager.IsSensorClickedInThisFrame(SensorPos) && judgeSec < JudgeTimingWithOffset)
+                else if (!NoteManager.IsSensorClickedInThisFrame(SensorPos) && judgeSec < JudgeTimingWithOffset)
                 {
+                    _isLaneFingerResting = true;
                     return;
                 }
                 Judge(judgeSec);
