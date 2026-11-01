@@ -29,6 +29,8 @@ namespace MajdataPlay.Scenes.List
         CanvasGroup _detailGroup = null!;
         Button _detailPlayButton = null!;
         Image? _detailHeart;
+        TextMeshProUGUI _detailLevelText = null!;
+        Button? _detailPickButton;
 
         ISongDetail? _detailSong;
         ChartLevel _detailLevel;
@@ -64,6 +66,11 @@ namespace MajdataPlay.Scenes.List
             // 固定在左上角的返回与右下角的游玩，不随内容滚动
             var back = CreateButton(_detailView, "<  " + "MAJTEXT_LIST_BACK".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, CloseDetail);
             PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, 24f, 150f, 56f);
+
+            // 右上角与列表相同的一组控件（位置相同）；这里的 −/+ 只切换当前谱面的难度，不改全局难度
+            var topControls = CreateRect("TopControls", _detailView);
+            PlaceTopRight(topControls, MAIN_RIGHT_PADDING, TOP_PADDING, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
+            _detailLevelText = BuildTopControls(topControls, SwitchToCover, () => ChangeDetailLevel(-1), () => ChangeDetailLevel(1), EnterSetting);
 
             // 柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
             var playHolder = LightUi.CreateShadowHolder(_detailView, 10f, 16f, 0.2f);
@@ -139,8 +146,14 @@ namespace MajdataPlay.Scenes.List
                                    .WithOnComplete(FinishCloseDetail)
                                    .Bind(x => _detailView.anchoredPosition = new Vector2(x, 0f));
         }
+        void UpdateDetailLevelText()
+        {
+            _detailLevelText.text = ScoreExchange.GetDifficultyName(_detailLevel);
+            _detailLevelText.color = GetDifficultyColor(_detailLevel);
+        }
         void FinishCloseDetail()
         {
+            _detailPickButton = null;
             _isDetailClosing = false;
             _detailSong = null;
             _detailHeart = null;
@@ -238,6 +251,53 @@ namespace MajdataPlay.Scenes.List
                                 .WithEase(Ease.OutQuad)
                                 .Bind(x => selectSound.Volume = x);
         }
+        /// <summary>
+        /// 详情页的 −/+：只在这首歌已有的难度之间切换，到头循环
+        /// </summary>
+        void ChangeDetailLevel(int direction)
+        {
+            var song = _detailSong;
+            if (song is null || _isDetailClosing)
+            {
+                return;
+            }
+            var count = LEVEL_SHORT_NAMES.Length;
+            var index = (int)_detailLevel;
+            for (var step = 1; step <= count; step++)
+            {
+                var candidate = ((index + direction * step) % count + count) % count;
+                if (HasLevel(song, (ChartLevel)candidate))
+                {
+                    SetDetailLevel((ChartLevel)candidate);
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// “加入自选 / 移出自选”：作用于详情页当前显示的难度
+        /// </summary>
+        void ToggleDetailPick()
+        {
+            var song = _detailSong;
+            if (song is null || _isDetailClosing || !HasLevel(song, _detailLevel))
+            {
+                return;
+            }
+            TogglePick(song, _detailLevel);
+        }
+        void UpdateDetailPickButton()
+        {
+            if (_detailPickButton == null || _detailSong is null)
+            {
+                return;
+            }
+            var isPicked = ScoreExchange.IsSelected(_detailSong.Hash, _detailLevel);
+            var label = _detailPickButton.GetComponentInChildren<TextMeshProUGUI>();
+            label.text = (isPicked ? "MAJTEXT_LIST_REMOVE_PICK" : "MAJTEXT_LIST_ADD_PICK").i18n();
+            label.color = isPicked ? Color.white : TEXT_COLOR;
+            ((Image)_detailPickButton.targetGraphic).color = isPicked ? ACCENT_COLOR : PAPER_COLOR;
+            _detailPickButton.interactable = HasLevel(_detailSong, _detailLevel);
+        }
         void SetDetailLevel(ChartLevel level)
         {
             if (level == _detailLevel || _isDetailClosing)
@@ -289,11 +349,16 @@ namespace MajdataPlay.Scenes.List
             PlaceTopLeft(heartRect, DETAIL_MARGIN + leftWidth - 74f, DETAIL_TOP + 14f, 60f, 60f);
 
             var leftY = DETAIL_TOP + leftWidth + 18f;
-            var buttonWidth = (leftWidth - 12f) / 2f;
-            var share = CreateButton(_detailContent, "MAJTEXT_LIST_SHARE".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, () => ShowShareModal(false));
+            // 分享成绩、导出成绩、加入自选三个并排
+            var buttonWidth = (leftWidth - 20f) / 3f;
+            var share = CreateButton(_detailContent, "MAJTEXT_LIST_SHARE".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, () => ShowShareModal(false));
             PlaceTopLeft((RectTransform)share.transform, DETAIL_MARGIN, leftY, buttonWidth, 56f);
-            var export = CreateButton(_detailContent, "MAJTEXT_LIST_EXPORT".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, () => ShowShareModal(true));
-            PlaceTopLeft((RectTransform)export.transform, DETAIL_MARGIN + buttonWidth + 12f, leftY, buttonWidth, 56f);
+            var export = CreateButton(_detailContent, "MAJTEXT_LIST_EXPORT".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, () => ShowShareModal(true));
+            PlaceTopLeft((RectTransform)export.transform, DETAIL_MARGIN + buttonWidth + 10f, leftY, buttonWidth, 56f);
+            _detailPickButton = CreateButton(_detailContent, string.Empty, PAPER_COLOR, TEXT_COLOR, 19f, ToggleDetailPick);
+            PlaceTopLeft((RectTransform)_detailPickButton.transform, DETAIL_MARGIN + (buttonWidth + 10f) * 2f, leftY, buttonWidth, 56f);
+            UpdateDetailPickButton();
+            UpdateDetailLevelText();
             leftY += 56f + 18f;
 
             var onlineSong = song as OnlineSongDetail;

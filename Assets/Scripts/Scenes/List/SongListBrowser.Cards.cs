@@ -131,7 +131,10 @@ namespace MajdataPlay.Scenes.List
             columnLayout.childForceExpandWidth = true;
             columnLayout.childForceExpandHeight = false;
 
-            var tag = CreateLevelTag(column, level, $"{ScoreExchange.GetDifficultyName(level)} {levelText}", isCurrent, 15f, () => SetGlobalLevel(level));
+            // 已加入自选的难度：难度色实底、白色粗体字
+            var isPicked = ScoreExchange.IsSelected(song.Hash, level);
+            var tag = CreateLevelTag(column, level, $"{ScoreExchange.GetDifficultyName(level)} {levelText}", isCurrent, 15f,
+                                     () => OnLevelTagClicked(song, level), isPicked);
             tag.gameObject.AddComponent<LayoutElement>().preferredHeight = LEVEL_TAG_HEIGHT;
             var label = tag.GetComponentInChildren<TextMeshProUGUI>();
             label.enableAutoSizing = true;

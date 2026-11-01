@@ -571,6 +571,19 @@ namespace MajdataPlay.Settings
         [Step("5")]
         [Range("5", "200", HasMax = true, HasMin = true)]
         public int ShareBestCount { get; set; } = 50;
+        /// <summary>
+        /// “最好的若干个”与“全部”的排序（先排序，再取前若干个）
+        /// </summary>
+        public ScoreShareSortOption ShareSort { get; set; } = ScoreShareSortOption.LevelAchievementDx;
+        /// <summary>
+        /// 自选谱面的排序：按勾选顺序，或跟随“分享排序”
+        /// </summary>
+        public ScoreShareCustomSortOption ShareCustomSort { get; set; } = ScoreShareCustomSortOption.SelectionOrder;
+        /// <summary>
+        /// 自选的谱面，按勾选顺序，每项为“哈希|难度”；在列表式选歌里勾选
+        /// </summary>
+        [HideInSettingUI]
+        public List<string> ShareSelection { get; set; } = new();
 
         public ScoreShareFormatOption ShareFormat { get; set; } = ScoreShareFormatOption.Image;
 

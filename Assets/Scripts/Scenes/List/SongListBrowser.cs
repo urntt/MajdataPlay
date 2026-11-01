@@ -122,6 +122,15 @@ namespace MajdataPlay.Scenes.List
         Button _previousPageButton = null!;
         Button _nextPageButton = null!;
         RectTransform _pager = null!;
+        Button _selectButton = null!;
+        TextMeshProUGUI _selectButtonLabel = null!;
+        RectTransform _selectionBar = null!;
+        TextMeshProUGUI _selectionCountText = null!;
+        /// <summary>
+        /// 选择模式：点难度标签勾选或取消自选谱面（不切换全局难度）
+        /// </summary>
+        bool _isSelecting = false;
+        bool _isSelectionDirty = false;
 
         RectTransform _modal = null!;
         RectTransform _toast = null!;
@@ -302,6 +311,7 @@ namespace MajdataPlay.Scenes.List
             CancelDetailMotions();
             CancelAudioMotions();
             ResetPreviewVolume();
+            SaveSelectionIfNeeded();
             DestroyCreatedTextures();
             DestroySprite(_heartFilledSprite);
             DestroySprite(_heartOutlineSprite);
@@ -378,19 +388,15 @@ namespace MajdataPlay.Scenes.List
             var searchButton = CreateButton(topRow, "MAJTEXT_LIST_SEARCH".i18n(), ACCENT_COLOR, Color.white, 19f, ApplySearch);
             PlaceTopLeft((RectTransform)searchButton.transform, 432f, 0f, 96f, TOPBAR_HEIGHT);
 
-            var coverButton = CreateButton(topRow, "MAJTEXT_LIST_COVER".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, SwitchToCover);
-            PlaceTopRight((RectTransform)coverButton.transform, 0f, 0f, 96f, TOPBAR_HEIGHT);
-            var settingButton = CreateButton(topRow, "MAJTEXT_LIST_SETTING".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, EnterSetting);
-            PlaceTopRight((RectTransform)settingButton.transform, 108f, 0f, 96f, TOPBAR_HEIGHT);
-            var upButton = CreateButton(topRow, "+", PAPER_COLOR, TEXT_COLOR, 28f, () => ChangeGlobalLevel(1));
-            PlaceTopRight((RectTransform)upButton.transform, 228f, 0f, 60f, TOPBAR_HEIGHT);
-            _difficultyText = CreateText(topRow, string.Empty, 21f, ACCENT_COLOR, TextAlignmentOptions.Center, FontStyles.Bold);
-            PlaceTopRight(_difficultyText.rectTransform, 294f, 0f, 150f, TOPBAR_HEIGHT);
-            var downButton = CreateButton(topRow, "−", PAPER_COLOR, TEXT_COLOR, 28f, () => ChangeGlobalLevel(-1));
-            PlaceTopRight((RectTransform)downButton.transform, 450f, 0f, 60f, TOPBAR_HEIGHT);
+            // 右侧从左到右：封面　−　难度　+　设置（详情页右上角是同一组控件，位置相同）
+            _difficultyText = BuildTopControls(topRow, SwitchToCover, () => ChangeGlobalLevel(-1), () => ChangeGlobalLevel(1), EnterSetting);
 
             _captionText = CreateText(main, string.Empty, 17f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(_captionText.rectTransform, 2f, CAPTION_TOP, 0f, 30f);
+            PlaceRow(_captionText.rectTransform, 2f, CAPTION_TOP, 180f, 30f);
+            // 自选分享：进入选择模式后点难度标签勾选谱面
+            _selectButton = CreateButton(main, "MAJTEXT_LIST_SELECT_MODE".i18n(), PAPER_COLOR, TEXT_COLOR, 16f, ToggleSelectMode);
+            PlaceTopRight((RectTransform)_selectButton.transform, SCROLLBAR_WIDTH + 14f, CAPTION_TOP - 4f, 150f, 38f);
+            _selectButtonLabel = _selectButton.GetComponentInChildren<TextMeshProUGUI>();
 
             // 曲目列表：每行一张卡片，右侧可拖动的滚动条，底部给浮窗留出空间
             _listPane = CreateRect("ListPane", main);
@@ -429,7 +435,52 @@ namespace MajdataPlay.Scenes.List
             Stretch(_pageText.rectTransform);
             _pageText.rectTransform.offsetMin = new Vector2(76f, 0f);
             _pageText.rectTransform.offsetMax = new Vector2(-76f, 0f);
+
+            // 底部右侧浮窗（选择模式）：已选 N 张　清空　分享
+            _selectionBar = LightUi.CreateShadowHolder(main, 20f, 14f, 0.12f);
+            _selectionBar.anchorMin = new Vector2(1f, 0f);
+            _selectionBar.anchorMax = new Vector2(1f, 0f);
+            _selectionBar.pivot = new Vector2(1f, 0f);
+            _selectionBar.sizeDelta = new Vector2(420f, PAGER_HEIGHT);
+            _selectionBar.anchoredPosition = new Vector2(-(SCROLLBAR_WIDTH + 14f), PAGER_BOTTOM);
+            var selectionInner = CreatePanel(_selectionBar, PAPER_COLOR, 20f);
+            Stretch(selectionInner.rectTransform);
+            LightUi.AddRing(selectionInner.transform, ACCENT_COLOR, 20f, 2f);
+            selectionInner.raycastTarget = true;
+            _selectionCountText = CreateText(selectionInner.rectTransform, string.Empty, 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            Stretch(_selectionCountText.rectTransform);
+            _selectionCountText.rectTransform.offsetMin = new Vector2(22f, 0f);
+            _selectionCountText.rectTransform.offsetMax = new Vector2(-220f, 0f);
+            var shareSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SHARE_SELECTED".i18n(), ACCENT_COLOR, Color.white, 18f, ShowSelectionShareModal);
+            PlaceMiddleRight((RectTransform)shareSelected.transform, 10f, 96f, 46f);
+            var clearSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_CLEAR".i18n(), PAGE_COLOR, TEXT_COLOR, 18f, ClearSelection);
+            PlaceMiddleRight((RectTransform)clearSelected.transform, 114f, 96f, 46f);
+            _selectionBar.gameObject.SetActive(false);
         }
+        /// <summary>
+        /// 顶部右侧的一组控件：封面　−　难度　+　设置；返回中间显示难度名的文字
+        /// </summary>
+        TextMeshProUGUI BuildTopControls(RectTransform parent, UnityAction onCover, UnityAction onDown, UnityAction onUp, UnityAction onSetting)
+        {
+            var settingButton = CreateButton(parent, "MAJTEXT_LIST_SETTING".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onSetting);
+            PlaceTopRight((RectTransform)settingButton.transform, 0f, 0f, 96f, TOPBAR_HEIGHT);
+            var upButton = CreateButton(parent, "+", PAPER_COLOR, TEXT_COLOR, 28f, onUp);
+            PlaceTopRight((RectTransform)upButton.transform, 108f, 0f, 60f, TOPBAR_HEIGHT);
+            var difficultyText = CreateText(parent, string.Empty, 21f, ACCENT_COLOR, TextAlignmentOptions.Center, FontStyles.Bold);
+            PlaceTopRight(difficultyText.rectTransform, 174f, 0f, 150f, TOPBAR_HEIGHT);
+            difficultyText.enableAutoSizing = true;
+            difficultyText.fontSizeMin = 14f;
+            difficultyText.fontSizeMax = 21f;
+            var downButton = CreateButton(parent, "−", PAPER_COLOR, TEXT_COLOR, 28f, onDown);
+            PlaceTopRight((RectTransform)downButton.transform, 330f, 0f, 60f, TOPBAR_HEIGHT);
+            var coverButton = CreateButton(parent, "MAJTEXT_LIST_COVER".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onCover);
+            PlaceTopRight((RectTransform)coverButton.transform, 402f, 0f, 96f, TOPBAR_HEIGHT);
+            return difficultyText;
+        }
+        /// <summary>
+        /// 顶部右侧控件组的总宽度（封面左缘到设置右缘）
+        /// </summary>
+        const float TOP_CONTROLS_WIDTH = 498f;
         void AddScrollbar(ScrollRect scrollRect)
         {
             var bar = CreateRect("Scrollbar", scrollRect.transform);
@@ -721,6 +772,79 @@ namespace MajdataPlay.Scenes.List
             }
             RenderSidebar();
         }
+        #region Selection
+        void ToggleSelectMode()
+        {
+            _isSelecting = !_isSelecting;
+            if (!_isSelecting)
+            {
+                SaveSelectionIfNeeded();
+            }
+            UpdateSelectionUi();
+        }
+        /// <summary>
+        /// 卡片上的难度标签：选择模式下勾选或取消这张谱面的这个难度，否则切换全局难度
+        /// </summary>
+        void OnLevelTagClicked(ISongDetail song, ChartLevel level)
+        {
+            if (!_isSelecting)
+            {
+                SetGlobalLevel(level);
+                return;
+            }
+            TogglePick(song, level);
+        }
+        void TogglePick(ISongDetail song, ChartLevel level)
+        {
+            ScoreExchange.ToggleSelection(song.Hash, level);
+            _isSelectionDirty = true;
+            var globalLevel = GlobalLevel;
+            foreach (var card in _cards)
+            {
+                if (ReferenceEquals(card.Song, song))
+                {
+                    UpdateCardLevel(card, globalLevel);
+                }
+            }
+            UpdateSelectionUi();
+        }
+        void ClearSelection()
+        {
+            if (ScoreExchange.SelectionCount == 0)
+            {
+                return;
+            }
+            ScoreExchange.ClearSelection();
+            _isSelectionDirty = true;
+            var level = GlobalLevel;
+            foreach (var card in _cards)
+            {
+                UpdateCardLevel(card, level);
+            }
+            UpdateSelectionUi();
+        }
+        void UpdateSelectionUi()
+        {
+            _selectButtonLabel.text = (_isSelecting ? "MAJTEXT_LIST_SELECT_DONE" : "MAJTEXT_LIST_SELECT_MODE").i18n();
+            _selectButtonLabel.color = _isSelecting ? Color.white : TEXT_COLOR;
+            ((Image)_selectButton.targetGraphic).color = _isSelecting ? ACCENT_COLOR : PAPER_COLOR;
+            _selectionBar.gameObject.SetActive(_isSelecting);
+            _selectionCountText.text = "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount);
+            UpdateDetailPickButton();
+        }
+        /// <summary>
+        /// 自选列表保存在设置文件里：退出选择模式、分享前或离开选歌时写入
+        /// </summary>
+        void SaveSelectionIfNeeded()
+        {
+            if (!_isSelectionDirty)
+            {
+                return;
+            }
+            _isSelectionDirty = false;
+            GameManager.RequestSave(this);
+        }
+        #endregion
         void SetHeart(Image heart, bool isFavorite)
         {
             heart.sprite = isFavorite ? _heartFilledSprite : _heartOutlineSprite;
@@ -728,7 +852,9 @@ namespace MajdataPlay.Scenes.List
         }
         void EnterSetting()
         {
-            SaveState(null, default);
+            // 从详情页进设置：回来后重新打开这首歌的详情
+            var isFromDetail = _detailSong is not null && !_isDetailClosing;
+            SaveState(isFromDetail ? _detailSong : null, _detailLevel);
             LeaveList();
             _listManager.EnterSetting();
         }
@@ -818,10 +944,32 @@ namespace MajdataPlay.Scenes.List
             {
                 return;
             }
-            ClearChildren(_modal);
+            var level = _detailLevel;
             var formats = isExport
                 ? new[] { ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json }
                 : new[] { ScoreShareFormatOption.Image, ScoreShareFormatOption.Text, ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json };
+            ShowFormatModal(isExport ? "MAJTEXT_LIST_CHOOSE_EXPORT" : "MAJTEXT_LIST_CHOOSE_SHARE", formats,
+                            format => ScoreExchange.StartShareChart(song, level, format));
+        }
+        /// <summary>
+        /// 选择模式的“分享”：按设置里的“自选排序”分享已选谱面
+        /// </summary>
+        void ShowSelectionShareModal()
+        {
+            if (ScoreExchange.SelectionCount == 0)
+            {
+                return;
+            }
+            SaveSelectionIfNeeded();
+            var formats = new[] { ScoreShareFormatOption.Image, ScoreShareFormatOption.Text, ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json };
+            ShowFormatModal("MAJTEXT_LIST_CHOOSE_SHARE", formats, ScoreExchange.StartShareSelection);
+        }
+        /// <summary>
+        /// 选择分享或导出格式的弹窗
+        /// </summary>
+        void ShowFormatModal(string titleKey, ScoreShareFormatOption[] formats, Action<ScoreShareFormatOption> onPick)
+        {
+            ClearChildren(_modal);
             var height = 100f + formats.Length * 64f + 74f;
             var panel = CreatePanel(_modal, PAPER_COLOR, 18f);
             var panelRect = panel.rectTransform;
@@ -832,9 +980,8 @@ namespace MajdataPlay.Scenes.List
             // 拦截面板上的点击，免得冒泡到背后的遮罩把弹窗关掉
             panel.raycastTarget = true;
             panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
-            var title = CreateText(panelRect, (isExport ? "MAJTEXT_LIST_CHOOSE_EXPORT" : "MAJTEXT_LIST_CHOOSE_SHARE").i18n(), 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            var title = CreateText(panelRect, titleKey.i18n(), 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
-            var level = _detailLevel;
             for (var i = 0; i < formats.Length; i++)
             {
                 var format = formats[i];
@@ -842,7 +989,7 @@ namespace MajdataPlay.Scenes.List
                 {
                     HideModal();
                     _isWaitingShare = true;
-                    ScoreExchange.StartShareChart(song, level, format);
+                    onPick(format);
                 });
                 PlaceRow((RectTransform)option.transform, 28f, 86f + i * 64f, 28f, 54f);
             }

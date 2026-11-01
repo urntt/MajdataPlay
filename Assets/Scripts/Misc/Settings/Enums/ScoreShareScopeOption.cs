@@ -11,4 +11,8 @@ public enum ScoreShareScopeOption
     /// </summary>
     Best,
     All,
+    /// <summary>
+    /// 在列表式选歌里勾选的谱面（ScoreOptions.ShareSelection）
+    /// </summary>
+    Custom,
 }

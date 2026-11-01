@@ -48,11 +48,16 @@ namespace MajdataPlay.Scenes.List
         /// <summary>
         /// 难度标签：非当前难度为白底、难度色文字、难度色细边框；当前难度为难度色 12% 透明度的底、难度色粗体文字
         /// </summary>
-        Button CreateLevelTag(Transform parent, ChartLevel level, string label, bool isCurrent, float fontSize, UnityAction onClick)
+        /// <param name="isPicked">已加入自选：难度色实底、白色粗体字</param>
+        Button CreateLevelTag(Transform parent, ChartLevel level, string label, bool isCurrent, float fontSize, UnityAction onClick, bool isPicked = false)
         {
             var color = GetDifficultyColor(level);
             Image background;
-            if (isCurrent)
+            if (isPicked)
+            {
+                background = CreatePanel(parent, color, 10f);
+            }
+            else if (isCurrent)
             {
                 background = CreatePanel(parent, WithAlpha(color, 0.12f), 10f);
             }
@@ -67,7 +72,8 @@ namespace MajdataPlay.Scenes.List
             button.targetGraphic = background;
             SetButtonColors(button);
             button.onClick.AddListener(onClick);
-            var text = CreateText(background.transform, label, fontSize, color, TextAlignmentOptions.Center, isCurrent ? FontStyles.Bold : FontStyles.Normal);
+            var text = CreateText(background.transform, label, fontSize, isPicked ? Color.white : color, TextAlignmentOptions.Center,
+                                  isCurrent || isPicked ? FontStyles.Bold : FontStyles.Normal);
             Stretch(text.rectTransform, 3f);
             return button;
         }

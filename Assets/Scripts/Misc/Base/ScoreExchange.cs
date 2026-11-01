@@ -261,6 +261,7 @@ namespace MajdataPlay
                     ScoreShareScopeOption.CurrentChart => string.Empty,
                     // 不随语言变化；X 为设置里“最好的若干个”的数量
                     ScoreShareScopeOption.Best => $"Best {options.ShareBestCount}",
+                    ScoreShareScopeOption.Custom => $"Selected {entries.Count}",
                     _ => $"All {entries.Count}",
                 };
                 var header = BuildHeader(label, options.ShareScope == ScoreShareScopeOption.CurrentChart ? entries[0].Title : null);
@@ -478,11 +479,15 @@ namespace MajdataPlay
                 }
                 return entries;
             }
+            if (options.ShareScope == ScoreShareScopeOption.Custom)
+            {
+                return CollectSelectionEntries(options, isFalling, songs);
+            }
             foreach (var score in ScoreManager.GetAllScores(isFalling))
             {
                 entries.Add(CreateEntry(score, ScoreManager.GetSongHash(score), songs));
             }
-            entries.Sort(CompareEntries);
+            entries.Sort(GetComparison(options.ShareSort));
             if (options.ShareScope == ScoreShareScopeOption.Best && entries.Count > options.ShareBestCount)
             {
                 entries.RemoveRange(options.ShareBestCount, entries.Count - options.ShareBestCount);
@@ -526,30 +531,152 @@ namespace MajdataPlay
                 LevelValue = ParseLevel(levelText),
             };
         }
-        static int CompareEntries(ScoreEntry x, ScoreEntry y)
+        /// <summary>
+        /// 按“分享排序”依次比较难度（等级数值，相同时按难度类别）、达成率、DX 分，都从大到小；都相同时按曲名
+        /// </summary>
+        static Comparison<ScoreEntry> GetComparison(ScoreShareSortOption sort)
+        {
+            Comparison<ScoreEntry>[] keys = sort switch
+            {
+                ScoreShareSortOption.LevelDxAchievement => new Comparison<ScoreEntry>[] { CompareLevel, CompareDxScore, CompareAchievement },
+                ScoreShareSortOption.AchievementLevelDx => new Comparison<ScoreEntry>[] { CompareAchievement, CompareLevel, CompareDxScore },
+                ScoreShareSortOption.AchievementDxLevel => new Comparison<ScoreEntry>[] { CompareAchievement, CompareDxScore, CompareLevel },
+                ScoreShareSortOption.DxLevelAchievement => new Comparison<ScoreEntry>[] { CompareDxScore, CompareLevel, CompareAchievement },
+                ScoreShareSortOption.DxAchievementLevel => new Comparison<ScoreEntry>[] { CompareDxScore, CompareAchievement, CompareLevel },
+                _ => new Comparison<ScoreEntry>[] { CompareLevel, CompareAchievement, CompareDxScore },
+            };
+            return (x, y) =>
+            {
+                foreach (var key in keys)
+                {
+                    var result = key(x, y);
+                    if (result != 0)
+                    {
+                        return result;
+                    }
+                }
+                return string.Compare(x.Title, y.Title, StringComparison.Ordinal);
+            };
+        }
+        static int CompareLevel(ScoreEntry x, ScoreEntry y)
         {
             var result = y.LevelValue.CompareTo(x.LevelValue);
-            if (result != 0)
-            {
-                return result;
-            }
-            result = y.Level.CompareTo(x.Level);
-            if (result != 0)
-            {
-                return result;
-            }
-            result = y.Score.Acc.DX.CompareTo(x.Score.Acc.DX);
-            if (result != 0)
-            {
-                return result;
-            }
-            result = y.Score.DXScore.CompareTo(x.Score.DXScore);
-            if (result != 0)
-            {
-                return result;
-            }
-            return string.Compare(x.Title, y.Title, StringComparison.Ordinal);
+            return result != 0 ? result : y.Level.CompareTo(x.Level);
         }
+        static int CompareAchievement(ScoreEntry x, ScoreEntry y)
+        {
+            return y.Score.Acc.DX.CompareTo(x.Score.Acc.DX);
+        }
+        static int CompareDxScore(ScoreEntry x, ScoreEntry y)
+        {
+            return y.Score.DXScore.CompareTo(x.Score.DXScore);
+        }
+
+        #region Selection
+        /// <summary>
+        /// 自选谱面：列表式选歌里勾选，保存在 ScoreOptions.ShareSelection（每项为“哈希|难度”，按勾选顺序）
+        /// </summary>
+        static List<string> Selection => MajEnv.Settings.Score.ShareSelection ??= new List<string>();
+        static string GetSelectionKey(string hash, ChartLevel level) => $"{hash}|{level}";
+        public static int SelectionCount => Selection.Count;
+        public static bool IsSelected(string hash, ChartLevel level)
+        {
+            return !string.IsNullOrEmpty(hash) && Selection.Contains(GetSelectionKey(hash, level));
+        }
+        /// <summary>
+        /// 勾选或取消一张谱面的一个难度；返回勾选后的状态
+        /// </summary>
+        public static bool ToggleSelection(string hash, ChartLevel level)
+        {
+            if (string.IsNullOrEmpty(hash))
+            {
+                return false;
+            }
+            var key = GetSelectionKey(hash, level);
+            if (Selection.Remove(key))
+            {
+                return false;
+            }
+            Selection.Add(key);
+            return true;
+        }
+        public static void ClearSelection()
+        {
+            Selection.Clear();
+        }
+        /// <summary>
+        /// 按已选列表取成绩（没玩过的也列出），再按“自选排序”排列
+        /// </summary>
+        static List<ScoreEntry> CollectSelectionEntries(ScoreOptions options, bool isFalling, Dictionary<string, ISongDetail> songs)
+        {
+            var entries = new List<ScoreEntry>();
+            foreach (var item in Selection)
+            {
+                var separator = item.LastIndexOf('|');
+                if (separator <= 0 || !Enum.TryParse<ChartLevel>(item.Substring(separator + 1), out var level))
+                {
+                    continue;
+                }
+                var hash = item.Substring(0, separator);
+                var score = ScoreManager.FindScore(hash, level, isFalling) ?? new MaiScore()
+                {
+                    Hash = hash,
+                    ChartLevel = level,
+                };
+                entries.Add(CreateEntry(score, hash, songs));
+            }
+            if (options.ShareCustomSort == ScoreShareCustomSortOption.FollowSort)
+            {
+                // List.Sort 不稳定：先记下勾选顺序作为最后的比较
+                var order = new Dictionary<ScoreEntry, int>();
+                for (var i = 0; i < entries.Count; i++)
+                {
+                    order[entries[i]] = i;
+                }
+                var comparison = GetComparison(options.ShareSort);
+                entries.Sort((x, y) =>
+                {
+                    var result = comparison(x, y);
+                    return result != 0 ? result : order[x].CompareTo(order[y]);
+                });
+            }
+            return entries;
+        }
+        /// <summary>
+        /// 列表式选歌的“分享”：按设置里的“自选排序”分享已选谱面
+        /// </summary>
+        public static void StartShareSelection(ScoreShareFormatOption format)
+        {
+            if (ShareState == ScoreActionState.Running)
+            {
+                return;
+            }
+            ShareState = ScoreActionState.Running;
+            ShareSelectionAsync(format).Forget();
+        }
+        static async UniTaskVoid ShareSelectionAsync(ScoreShareFormatOption format)
+        {
+            try
+            {
+                var options = MajEnv.Settings.Score;
+                var isFalling = IsFallingStore(options);
+                var entries = CollectSelectionEntries(options, isFalling, BuildSongLookup());
+                if (entries.Count == 0)
+                {
+                    ShareState = ScoreActionState.Failed;
+                    return;
+                }
+                var header = BuildHeader($"Selected {entries.Count}", null);
+                await ShareEntriesAsync(entries, header, format, isFalling);
+                ShareState = ScoreActionState.Done;
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(e);
+                ShareState = ScoreActionState.Failed;
+            }
+        }
+        #endregion
         /// <summary>
         /// 等级文字转数值：小数按原值，“13+”按 13.7，无法识别（如“?”）为 -1
         /// </summary>
