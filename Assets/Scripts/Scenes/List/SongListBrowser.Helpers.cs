@@ -284,36 +284,6 @@ namespace MajdataPlay.Scenes.List
             return TMP_Settings.defaultFontAsset;
         }
         /// <summary>
-        /// 白色圆角贴图，九宫格拉伸；Image 的 pixelsPerUnitMultiplier 控制圆角大小
-        /// </summary>
-        static Sprite CreateRoundedSprite()
-        {
-            const int SIZE = 64;
-            const float RADIUS = 24f;
-            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, false)
-            {
-                name = "SongListRounded",
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear
-            };
-            var pixels = new Color32[SIZE * SIZE];
-            for (var y = 0; y < SIZE; y++)
-            {
-                for (var x = 0; x < SIZE; x++)
-                {
-                    var cx = Mathf.Clamp(x + 0.5f, RADIUS, SIZE - RADIUS);
-                    var cy = Mathf.Clamp(y + 0.5f, RADIUS, SIZE - RADIUS);
-                    var distance = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(cx, cy));
-                    var alpha = Mathf.Clamp01(RADIUS - distance + 0.5f);
-                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
-                }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply(false, true);
-            return Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect,
-                                 new Vector4(RADIUS, RADIUS, RADIUS, RADIUS));
-        }
-        /// <summary>
         /// 白色爱心贴图（实心或空心），4×4 超采样抗锯齿；不依赖字体里有没有 ♥
         /// </summary>
         static Sprite CreateHeartSprite(bool isFilled)
@@ -381,12 +351,7 @@ namespace MajdataPlay.Scenes.List
             var image = rect.gameObject.AddComponent<Image>();
             image.color = color;
             image.raycastTarget = false;
-            if (radius > 0f)
-            {
-                image.sprite = _roundedSprite;
-                image.type = Image.Type.Sliced;
-                image.pixelsPerUnitMultiplier = 24f / radius;
-            }
+            UiSprites.ApplyRounded(image, radius);
             return image;
         }
         Image CreatePanel(Transform parent, Color color, float radius)

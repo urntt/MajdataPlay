@@ -312,6 +312,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         static RectTransform CreateMenuButton(string name, RectTransform parent, int layer, TMP_FontAsset? font, string label, float x)
         {
             var button = CreateImage(name, parent, layer, new Color(1f, 1f, 1f, 0.15f));
+            UiSprites.ApplyRounded(button, 24f);
             SetRect(button.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, -40f), new Vector2(300f, 120f));
             var text = CreateText("Label", button.rectTransform, layer, font, 48f, Color.white, TextAlignmentOptions.Center, label);
             text.rectTransform.anchorMin = Vector2.zero;

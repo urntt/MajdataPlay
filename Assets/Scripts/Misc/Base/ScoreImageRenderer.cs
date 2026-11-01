@@ -44,59 +44,24 @@ namespace MajdataPlay
             var font = FindFont();
             var paths = new List<string>();
             var pageCount = (entries.Count + ENTRIES_PER_IMAGE - 1) / ENTRIES_PER_IMAGE;
-            var circle = CreateCircleSprite();
-            try
+            var circle = UiSprites.Circle;
+            for (var page = 0; page < pageCount; page++)
             {
-                for (var page = 0; page < pageCount; page++)
+                var start = page * ENTRIES_PER_IMAGE;
+                var count = Math.Min(ENTRIES_PER_IMAGE, entries.Count - start);
+                var covers = new Sprite?[count];
+                for (var i = 0; i < count; i++)
                 {
-                    var start = page * ENTRIES_PER_IMAGE;
-                    var count = Math.Min(ENTRIES_PER_IMAGE, entries.Count - start);
-                    var covers = new Sprite?[count];
-                    for (var i = 0; i < count; i++)
-                    {
-                        covers[i] = await LoadCoverAsync(entries[start + i].Song);
-                    }
-                    var pageText = pageCount > 1 ? $"{page + 1}/{pageCount}" : string.Empty;
-                    var png = RenderPage(entries, start, count, covers, header, pageText, circle, font);
-                    var path = Path.Combine(directory, pageCount > 1 ? $"{baseName}-{page + 1}.png" : $"{baseName}.png");
-                    File.WriteAllBytes(path, png);
-                    paths.Add(path);
-                    await UniTask.Yield();
+                    covers[i] = await LoadCoverAsync(entries[start + i].Song);
                 }
-            }
-            finally
-            {
-                UnityEngine.Object.Destroy(circle.texture);
-                UnityEngine.Object.Destroy(circle);
+                var pageText = pageCount > 1 ? $"{page + 1}/{pageCount}" : string.Empty;
+                var png = RenderPage(entries, start, count, covers, header, pageText, circle, font);
+                var path = Path.Combine(directory, pageCount > 1 ? $"{baseName}-{page + 1}.png" : $"{baseName}.png");
+                File.WriteAllBytes(path, png);
+                paths.Add(path);
+                await UniTask.Yield();
             }
             return paths;
-        }
-        /// <summary>
-        /// 抗锯齿的白色实心圆，用作头像的圆形遮罩与占位底
-        /// </summary>
-        static Sprite CreateCircleSprite()
-        {
-            const int SIZE = 128;
-            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, false)
-            {
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
-            };
-            var pixels = new Color32[SIZE * SIZE];
-            var radius = SIZE / 2f;
-            for (var y = 0; y < SIZE; y++)
-            {
-                for (var x = 0; x < SIZE; x++)
-                {
-                    var dx = x + 0.5f - radius;
-                    var dy = y + 0.5f - radius;
-                    var alpha = Mathf.Clamp01(radius - Mathf.Sqrt(dx * dx + dy * dy));
-                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)(alpha * 255));
-                }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply(false);
-            return Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f);
         }
         static async UniTask<Sprite?> LoadCoverAsync(ISongDetail? song)
         {

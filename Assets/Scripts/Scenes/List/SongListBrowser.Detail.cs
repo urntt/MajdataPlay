@@ -638,6 +638,9 @@ namespace MajdataPlay.Scenes.List
             }
             // 打完回到选歌时重新打开这首歌的详情，列表回到现在的分类、页码和滚动位置
             SaveState(song, _detailLevel);
+            // 新的加载界面盖在最上面，转场和场景切换都在它下面进行
+            var cover = _detailCoverHash == song.Hash ? _detailCover : null;
+            ListLoadingScreen.Show(song, _detailLevel, GetDifficultyColor(_detailLevel), cover, _font);
             LeaveList();
             _listManager.EnterGame(song, _detailLevel);
         }

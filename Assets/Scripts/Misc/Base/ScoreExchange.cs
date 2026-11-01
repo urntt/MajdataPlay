@@ -26,9 +26,32 @@ namespace MajdataPlay
         const string BACKUP_FORMAT = "MajdataPlay.Scores";
         const int BACKUP_VERSION = 1;
 
-        public static ScoreActionState ShareState { get; private set; } = ScoreActionState.Ready;
-        public static ScoreActionState ExportState { get; private set; } = ScoreActionState.Ready;
-        public static ScoreActionState ImportState { get; private set; } = ScoreActionState.Ready;
+        /// <summary>
+        /// 完成或失败后过这么久回到 Ready，设置里重新显示“按 + …”
+        /// </summary>
+        const float STATE_RESET_DELAY_SEC = 3f;
+
+        public static ScoreActionState ShareState
+        {
+            get => _shareState;
+            private set => SetState(ref _shareState, ref _shareVersion, value, () => _shareVersion, () => _shareState = ScoreActionState.Ready);
+        }
+        public static ScoreActionState ExportState
+        {
+            get => _exportState;
+            private set => SetState(ref _exportState, ref _exportVersion, value, () => _exportVersion, () => _exportState = ScoreActionState.Ready);
+        }
+        public static ScoreActionState ImportState
+        {
+            get => _importState;
+            private set => SetState(ref _importState, ref _importVersion, value, () => _importVersion, () => _importState = ScoreActionState.Ready);
+        }
+        static ScoreActionState _shareState = ScoreActionState.Ready;
+        static ScoreActionState _exportState = ScoreActionState.Ready;
+        static ScoreActionState _importState = ScoreActionState.Ready;
+        static int _shareVersion = 0;
+        static int _exportVersion = 0;
+        static int _importVersion = 0;
         /// <summary>
         /// 备份文件夹：iOS 可在“文件”App 中看到，Android 在 /sdcard/Documents/MajdataPlay 下
         /// </summary>
@@ -106,6 +129,27 @@ namespace MajdataPlay
             public string Caption => string.Join(" · ", new[] { PlayerName, Label, Date }.Where(x => !string.IsNullOrEmpty(x)));
         }
 
+        /// <summary>
+        /// 记下新状态；完成或失败时在 <see cref="STATE_RESET_DELAY_SEC"/> 秒后回到 Ready（期间又有新操作则不回）
+        /// </summary>
+        static void SetState(ref ScoreActionState state, ref int version, ScoreActionState value, Func<int> getVersion, Action reset)
+        {
+            state = value;
+            var current = ++version;
+            if (value is ScoreActionState.Done or ScoreActionState.Failed)
+            {
+                ResetStateLaterAsync(current, getVersion, reset).Forget();
+            }
+        }
+        static async UniTaskVoid ResetStateLaterAsync(int version, Func<int> getVersion, Action reset)
+        {
+            await UniTask.SwitchToMainThread();
+            await UniTask.Delay(TimeSpan.FromSeconds(STATE_RESET_DELAY_SEC), ignoreTimeScale: true);
+            if (getVersion() == version)
+            {
+                reset();
+            }
+        }
         public static void StartShare(ScoreOptions options)
         {
             if (ShareState == ScoreActionState.Running)

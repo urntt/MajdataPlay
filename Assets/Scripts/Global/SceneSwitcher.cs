@@ -197,6 +197,14 @@ namespace MajdataPlay
             CabinetLed.SetAllLight(_loadingLightColor);
             CabinetLed.SetCabinetLight(0.5f);
         }
+        /// <summary>
+        /// 转场上当前显示的加载文字（列表式选歌的加载界面照抄它）
+        /// </summary>
+        public string LoadingText => _loadingText != null ? _loadingText.text : string.Empty;
+        /// <summary>
+        /// 加载文字的颜色：平时为白色，出错时为红色
+        /// </summary>
+        public Color LoadingTextColor => _loadingText != null ? _loadingText.color : Color.white;
         public void SetLoadingText(string text , Color color)
         {
             _loadingText.text = text;

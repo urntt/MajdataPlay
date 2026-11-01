@@ -73,17 +73,18 @@ Settings → Display Settings → Screen Orientation, choose "Landscape". Every 
 | Share Range | Current Chart (the chart selected on the song list before opening settings), Best, or All. Best and All are sorted by difficulty level first (e.g. 14+ > 14 > 13+; same level: Re:MASTER > MASTER > …), then achievement, then DX score; each difficulty of a song is its own entry. |
 | Share Count | How many to share for Best (5–200, default 50). |
 | Share Format | Image, Text, Spreadsheet (CSV) or Data (JSON). The image shows your avatar and nickname at the top left (from the logged-in account, otherwise "Guest") and "Best X" or "All N" with the date at the top right, then score cards with cover art, achievement, grade, FC/AP, DX score and play count ("3 PC"), up to 50 per image. Text, CSV and JSON carry the same header (nickname, Best X / All N, date) and DX score and play count for every entry; files are named like `Nickname-Best50-2026-11-01.csv`. |
-| Share | Press left/right on this row to open the system share sheet (iOS/Android). |
+| Share | Press + or − on this row to open the system share sheet (iOS/Android). Share, Export Backup and Import Backup show "Done" or "Failed" for a few seconds, then return to "Press +". |
 | Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). |
 | Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
 
 ### Other
 
 - **List-style song select**: Settings → Game Settings → Song List Style, choose "List" (default is the original cover carousel). A touch-friendly page:
-  - Categories take the left quarter of the screen; on the right, one song card per row with the cover, title (scrolls when too long), artist and charter, length and BPM (plus ID, plays, likes and comments for online charts), colored difficulty tags, a heart to favorite, and the best score with a colored grade, FC/AP, DX score and "X PC · last played".
-  - "−" / "+" switch the global difficulty without losing your scroll position; a draggable scrollbar on the right; a floating pager at the bottom. Songs per page is a setting (Game Settings → Songs per List Page, default 20).
+  - Categories take the left quarter of the screen; on the right, one song card per row with the cover, title (scrolls when too long), artist and charter, length and BPM (plus plays, likes and comments for online charts), difficulty tags with full names and each difficulty's achievement underneath, a heart to favorite, and the best score with a colored grade, FC/AP, DX score and "X PC · last played".
+  - "−" / "+" switch the global difficulty without losing your scroll position; a draggable scrollbar on the right; a floating pager at the bottom. Difficulty and pages wrap around at either end. Songs per page is a setting (Game Settings → Songs per List Page, default 20).
   - Tap a card for chart details: big cover with a heart, share/export buttons and an info card on the left; title, difficulty bar, score card, chart radar and note density on the right; "Back" at the top left and a floating "Play" button at the bottom right. Opening and closing details slides and fades, and the preview and background music fade in and out.
-  - After playing a chart started from its detail page, you come back to that detail page, with the list where you left it.
+  - Pressing Play shows a new loading screen (cover, difficulty, title, artist and charter, best score and loading progress) that fades out as the game opens. After playing a chart started from its detail page, you come back to that detail page, with the list where you left it.
+  - The list fades out and in together with the game's scene transition when entering settings or coming back.
   - "Cover" switches back to the carousel for this visit.
 - **Instant Song Preview**: Settings → Game Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
 - **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.

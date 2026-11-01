@@ -59,10 +59,13 @@ namespace MajdataPlay.Scenes.List
         const float CARD_HEIGHT = 210f;
         const float CARD_SPACING = 14f;
         const float COVER_SIZE = 180f;
-        const float CARD_RIGHT_WIDTH = 300f;
-        const float LEVEL_TAG_WIDTH = 104f;
+        const float CARD_RIGHT_WIDTH = 270f;
+        const float LEVEL_TAG_MIN_WIDTH = 92f;
+        const float LEVEL_TAG_PREFERRED_WIDTH = 140f;
+        const float LEVEL_TAG_HEIGHT = 38f;
+        const float LEVEL_SCORE_HEIGHT = 22f;
         const float PAGER_HEIGHT = 64f;
-        const float PAGER_BOTTOM = 24f;
+        const float PAGER_BOTTOM = 52f;
         const float SCROLLBAR_WIDTH = 16f;
         const float TOAST_DURATION_SEC = 2.4f;
 
@@ -93,11 +96,19 @@ namespace MajdataPlay.Scenes.List
         CollectionListManager _collections = null!;
         PreviewSoundPlayer? _previewPlayer;
         TMP_FontAsset? _font;
-        Sprite _roundedSprite = null!;
         Sprite _heartFilledSprite = null!;
         Sprite _heartOutlineSprite = null!;
 
         RectTransform _root = null!;
+        /// <summary>
+        /// 整个列表页的透明度跟着游戏的转场走：转场合上时淡出，打开时淡入
+        /// </summary>
+        CanvasGroup _rootGroup = null!;
+        /// <summary>
+        /// List 场景自己的画布（封面轮播等）：列表页打开期间停止渲染，淡入淡出时不会透出来
+        /// </summary>
+        readonly List<Canvas> _hiddenSceneCanvases = new();
+        bool _isLeaving = false;
         RectTransform _listView = null!;
         RectTransform _sidebarContent = null!;
         RectTransform _listPane = null!;
@@ -164,7 +175,6 @@ namespace MajdataPlay.Scenes.List
             _collections = collections;
             _previewPlayer = FindFirstObjectByType<PreviewSoundPlayer>();
             _font = FindFont();
-            _roundedSprite = CreateRoundedSprite();
             _heartFilledSprite = CreateHeartSprite(true);
             _heartOutlineSprite = CreateHeartSprite(false);
             EnsureEventSystem();
@@ -181,6 +191,8 @@ namespace MajdataPlay.Scenes.List
             scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
             _root = (RectTransform)canvasObject.transform;
+            _rootGroup = canvasObject.AddComponent<CanvasGroup>();
+            UpdateTransitionFade();
 
             BuildListView();
             BuildDetailView();
@@ -189,6 +201,7 @@ namespace MajdataPlay.Scenes.List
 
             IsOpen = true;
             InputManager.SuppressTouchPanelSimulation = true;
+            HideSceneCanvases();
             RestoreState();
         }
         /// <summary>
@@ -260,6 +273,7 @@ namespace MajdataPlay.Scenes.List
         }
         void LateUpdate()
         {
+            UpdateTransitionFade();
             if (_pendingScrollY is float scrollY)
             {
                 _pendingScrollY = null;
@@ -289,7 +303,6 @@ namespace MajdataPlay.Scenes.List
             CancelAudioMotions();
             ResetPreviewVolume();
             DestroyCreatedTextures();
-            DestroySprite(_roundedSprite);
             DestroySprite(_heartFilledSprite);
             DestroySprite(_heartOutlineSprite);
         }
@@ -428,9 +441,7 @@ namespace MajdataPlay.Scenes.List
             bar.offsetMin = new Vector2(-SCROLLBAR_WIDTH, 8f);
             bar.offsetMax = new Vector2(0f, -4f);
             var track = bar.gameObject.AddComponent<Image>();
-            track.sprite = _roundedSprite;
-            track.type = Image.Type.Sliced;
-            track.pixelsPerUnitMultiplier = 24f / (SCROLLBAR_WIDTH * 0.5f);
+            UiSprites.ApplyRounded(track, SCROLLBAR_WIDTH * 0.5f);
             track.color = new Color(LINE_COLOR.r, LINE_COLOR.g, LINE_COLOR.b, 0.7f);
             var slidingArea = CreateRect("SlidingArea", bar);
             Stretch(slidingArea);
@@ -551,8 +562,9 @@ namespace MajdataPlay.Scenes.List
             var pageCount = Math.Max(1, (_filteredSongs.Count + PageSize - 1) / PageSize);
             _page = Mathf.Clamp(_page, 0, pageCount - 1);
             _pageText.text = $"{_page + 1} / {pageCount}";
-            _previousPageButton.interactable = _page > 0;
-            _nextPageButton.interactable = _page < pageCount - 1;
+            // 到头循环，只有一页时不能翻
+            _previousPageButton.interactable = pageCount > 1;
+            _nextPageButton.interactable = pageCount > 1;
             _captionText.text = $"{_collections.SelectedCollection.Name} · {"MAJTEXT_LIST_SONG_COUNT".i18n(_filteredSongs.Count)}";
             var level = GlobalLevel;
             UpdateDifficultyText(level);
@@ -640,7 +652,9 @@ namespace MajdataPlay.Scenes.List
         }
         void ChangeGlobalLevel(int delta)
         {
-            var level = Mathf.Clamp((int)GlobalLevel + delta, 0, (int)ChartLevel.UTAGE);
+            // 到头循环：EASY 往下是 UTAGE，UTAGE 往上是 EASY
+            const int LEVEL_COUNT = (int)ChartLevel.UTAGE + 1;
+            var level = (((int)GlobalLevel + delta) % LEVEL_COUNT + LEVEL_COUNT) % LEVEL_COUNT;
             SetGlobalLevel((ChartLevel)level);
         }
         /// <summary>
@@ -665,7 +679,13 @@ namespace MajdataPlay.Scenes.List
         }
         void ChangePage(int delta)
         {
-            _page += delta;
+            var pageCount = Math.Max(1, (_filteredSongs.Count + PageSize - 1) / PageSize);
+            if (pageCount <= 1)
+            {
+                return;
+            }
+            // 到头循环：第一页往前是最后一页
+            _page = ((_page + delta) % pageCount + pageCount) % pageCount;
             RenderPage(true);
         }
         void ApplySearch()
@@ -719,6 +739,7 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         void LeaveList()
         {
+            _isLeaving = true;
             _detailCts.Cancel();
             _previewCts.Cancel();
             CancelDetailMotions();
@@ -742,7 +763,40 @@ namespace MajdataPlay.Scenes.List
             CancelAudioMotions();
             ResetPreviewVolume();
             _root.gameObject.SetActive(false);
+            RestoreSceneCanvases();
             MajInstances.AudioManager.GetSFX("bgm_select.mp3").SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+        }
+        /// <summary>
+        /// 列表页跟着游戏转场淡入淡出（转场画在 GlobalCanvas 上，被 Overlay 画布挡住，只能这样配合）；转场进行中或正在离开时不接受点击
+        /// </summary>
+        void UpdateTransitionFade()
+        {
+            var progress = SceneSwitcher.TransitionProgress;
+            _rootGroup.alpha = 1f - progress;
+            _rootGroup.blocksRaycasts = !_isLeaving && progress < 0.05f;
+        }
+        void HideSceneCanvases()
+        {
+            foreach (var canvas in FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (canvas.gameObject.scene != gameObject.scene || canvas.transform.IsChildOf(transform) || !canvas.enabled)
+                {
+                    continue;
+                }
+                canvas.enabled = false;
+                _hiddenSceneCanvases.Add(canvas);
+            }
+        }
+        void RestoreSceneCanvases()
+        {
+            foreach (var canvas in _hiddenSceneCanvases)
+            {
+                if (canvas != null)
+                {
+                    canvas.enabled = true;
+                }
+            }
+            _hiddenSceneCanvases.Clear();
         }
         #endregion
 

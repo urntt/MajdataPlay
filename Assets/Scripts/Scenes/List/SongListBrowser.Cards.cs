@@ -50,21 +50,22 @@ namespace MajdataPlay.Scenes.List
             const float LEFT = 15f + COVER_SIZE + 24f;
             const float RIGHT = CARD_RIGHT_WIDTH + 28f;
             var title = CreateText(root, song.Title, 28f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
-            PlaceRow(title.rectTransform, LEFT, 14f, RIGHT, 44f);
+            PlaceRow(title.rectTransform, LEFT, 12f, RIGHT, 44f);
             AddMarquee(title);
             var credits = CreateText(root, string.Empty, 18f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(credits.rectTransform, LEFT, 60f, RIGHT, 30f);
+            PlaceRow(credits.rectTransform, LEFT, 56f, RIGHT, 29f);
             var info = CreateText(root, string.Empty, 17f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(info.rectTransform, LEFT, 94f, RIGHT, 28f);
+            PlaceRow(info.rectTransform, LEFT, 86f, RIGHT, 27f);
+            // 难度：每个难度一列，上面是标签，下面是这个难度的达成率
             var levels = CreateRect("Levels", root);
-            PlaceRow(levels, LEFT, 142f, RIGHT, 44f);
+            PlaceRow(levels, LEFT, 120f, RIGHT, LEVEL_TAG_HEIGHT + LEVEL_SCORE_HEIGHT + 4f);
             var levelLayout = levels.gameObject.AddComponent<HorizontalLayoutGroup>();
             levelLayout.spacing = 8f;
-            levelLayout.childAlignment = TextAnchor.MiddleLeft;
+            levelLayout.childAlignment = TextAnchor.UpperLeft;
             levelLayout.childControlWidth = true;
             levelLayout.childControlHeight = true;
             levelLayout.childForceExpandWidth = false;
-            levelLayout.childForceExpandHeight = false;
+            levelLayout.childForceExpandHeight = true;
 
             // 右侧：爱心收藏、成绩
             var right = CreateRect("Right", root);
@@ -104,10 +105,7 @@ namespace MajdataPlay.Scenes.List
                     continue;
                 }
                 var target = (ChartLevel)i;
-                var tag = CreateLevelTag(card.Levels, target, $"{LEVEL_SHORT_NAMES[i]} {songLevels[i]}", target == level, 16f, () => SetGlobalLevel(target));
-                var element = tag.gameObject.AddComponent<LayoutElement>();
-                element.preferredWidth = LEVEL_TAG_WIDTH;
-                element.preferredHeight = 40f;
+                CreateLevelColumn(card.Levels, song, target, songLevels[i], target == level);
             }
 
             ClearChildren(card.ScoreArea);
@@ -116,6 +114,37 @@ namespace MajdataPlay.Scenes.List
 
             card.ChartInfo = _chartInfoCache.TryGetValue((song.Hash, level), out var info) ? info : null;
             RefreshCardInfo(card);
+        }
+        /// <summary>
+        /// 卡片上的一个难度：全称加等级的标签，下方小字是这个难度的达成率（按评级着色，没玩过为灰色“—”）
+        /// </summary>
+        void CreateLevelColumn(RectTransform parent, ISongDetail song, ChartLevel level, string levelText, bool isCurrent)
+        {
+            var column = CreateRect("Level", parent);
+            var columnElement = column.gameObject.AddComponent<LayoutElement>();
+            columnElement.minWidth = LEVEL_TAG_MIN_WIDTH;
+            columnElement.preferredWidth = LEVEL_TAG_PREFERRED_WIDTH;
+            var columnLayout = column.gameObject.AddComponent<VerticalLayoutGroup>();
+            columnLayout.spacing = 4f;
+            columnLayout.childAlignment = TextAnchor.UpperCenter;
+            columnLayout.childControlWidth = true;
+            columnLayout.childControlHeight = true;
+            columnLayout.childForceExpandWidth = true;
+            columnLayout.childForceExpandHeight = false;
+
+            var tag = CreateLevelTag(column, level, $"{ScoreExchange.GetDifficultyName(level)} {levelText}", isCurrent, 15f, () => SetGlobalLevel(level));
+            tag.gameObject.AddComponent<LayoutElement>().preferredHeight = LEVEL_TAG_HEIGHT;
+            var label = tag.GetComponentInChildren<TextMeshProUGUI>();
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 11f;
+            label.fontSizeMax = 15f;
+
+            var score = ScoreManager.GetScore(song, level);
+            var isPlayed = score is not null && score.PlayCount > 0;
+            var achievementText = isPlayed ? FormatAchievement(score!.Acc.DX) : "—";
+            var achievementColor = isPlayed ? GetGradeColor(GetGrade(score!.Acc.DX)) : MUTED_COLOR;
+            var achievement = CreateText(column, achievementText, 14f, achievementColor, TextAlignmentOptions.Center, isPlayed ? FontStyles.Bold : FontStyles.Normal);
+            achievement.gameObject.AddComponent<LayoutElement>().preferredHeight = LEVEL_SCORE_HEIGHT;
         }
         string BuildCredits(ISongDetail song, ChartLevel level)
         {
@@ -164,7 +193,7 @@ namespace MajdataPlay.Scenes.List
             return row;
         }
         /// <summary>
-        /// 信息行：时长、BPM；网络谱面另加 ID、游玩、赞、评论
+        /// 信息行：时长、BPM；网络谱面另加游玩、赞、评论（ID 只在详情页显示）
         /// </summary>
         void RefreshCardInfo(CardView card)
         {
@@ -174,13 +203,9 @@ namespace MajdataPlay.Scenes.List
                 parts.Add($"{"MAJTEXT_LIST_LABEL_LENGTH".i18n()} {FormatLength(info.Length)}");
                 parts.Add($"BPM {FormatBpm(info.MinBPM, info.MaxBPM)}");
             }
-            if (card.Song is OnlineSongDetail onlineSong)
+            if (card.Song is OnlineSongDetail && _interactCache.TryGetValue(card.Song.Hash, out var interact))
             {
-                parts.Add($"ID {onlineSong.Id}");
-                if (_interactCache.TryGetValue(card.Song.Hash, out var interact))
-                {
-                    AddInteractParts(parts, interact);
-                }
+                AddInteractParts(parts, interact);
             }
             card.Info.text = string.Join("  ·  ", parts);
         }
