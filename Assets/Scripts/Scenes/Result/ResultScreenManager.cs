@@ -100,6 +100,13 @@ namespace MajdataPlay.Scenes.Result
         bool _isAllTaskFinished = false;
         bool _isInited = false;
         bool _isExited = false;
+        /// <summary>
+        /// 新结算界面用：已过开场 3 秒（可收藏）、保存与上传已完成（可继续）、已离开
+        /// </summary>
+        internal bool IsInited => _isInited;
+        internal bool IsAllTaskFinished => _isAllTaskFinished;
+        internal bool IsExited => _isExited;
+        internal OnlineInteractionSender OnlineSender => _onlineInteractionSender;
 #if UNITY_EDITOR
         bool _hasAchievementRollTarget = false;
         bool _achievementRollIsClassic = false;
@@ -163,6 +170,10 @@ namespace MajdataPlay.Scenes.Result
             var song = result.SongDetail;
             var historyResult = ScoreManager.GetScore(song, listConfig.SelectedDiff);
             var score = MaiScore.CreateFromResult(result, result.Level);
+            // 新结算界面：在保存成绩之前记下这个难度的历史最佳（保存会直接改掉缓存里的这条记录）
+            var overlayHistory = ScoreManager.GetScore(song, result.Level);
+            var overlayHistoryAchievement = isClassic ? overlayHistory.Acc.Classic : overlayHistory.Acc.DX;
+            var overlayHistoryPlayCount = overlayHistory.PlayCount;
             var diffColor = RuntimeDatabase.DifficultyColors[(int)_gameInfo.CurrentLevel];
             _levelCircleDisplayer.color = diffColor;
             _levelBGDisplayer.color = diffColor;
@@ -289,6 +300,41 @@ namespace MajdataPlay.Scenes.Result
                 _scoreSaveTask = ScoreManager.SaveScore(result, result.Level);
             }
             WaitForTaskAsync().Forget();
+            // 列表式选歌时使用新的结算界面（段位、练习不使用），本组件照常负责保存、上传、语音和 BGM
+            if (MajEnv.Settings.Game.ListStyle == ListStyleOption.List && !_gameInfo.IsDanMode && !_gameInfo.IsPracticeMode)
+            {
+                var viewData = ResultViewData.Create(result, isClassic, overlayHistoryAchievement, overlayHistoryPlayCount,
+                                                     settings.IsAnyModActiveExceptPlayStyle());
+                ResultBrowser.Create(this, viewData);
+            }
+        }
+        /// <summary>
+        /// 离开结算（A4 或新结算界面的“继续”）：开场 3 秒内或保存、上传未完成时不响应，只会执行一次
+        /// </summary>
+        internal bool TryExit()
+        {
+            if (!_isInited || !_isAllTaskFinished || _isExited)
+            {
+                return false;
+            }
+            var canNextRound = _gameInfo.NextRound();
+            if (_gameInfo.IsDanMode)
+            {
+                if (!canNextRound)
+                {
+                    _isExited = true;
+                    MajInstances.SceneSwitcher.SwitchScene("TotalResult");
+                    return true;
+                }
+                MajInstances.AudioManager.StopSFX("bgm_result.mp3");
+                _isExited = true;
+                MajInstances.SceneSwitcher.SwitchScene("Game", false);
+                return true;
+            }
+            _isExited = true;
+            MajInstances.AudioManager.StopSFX("bgm_result.mp3");
+            MajInstances.SceneSwitcher.SwitchScene("List", false);
+            return true;
         }
         void PlayResultAnimation(double targetAchievement, bool isClassic)
         {
@@ -557,30 +603,7 @@ namespace MajdataPlay.Scenes.Result
             }
             if(InputManager.IsButtonClickCompletedInThisFrame(ButtonZone.A4))
             {
-                var canNextRound = _gameInfo.NextRound();
-                if (_gameInfo.IsDanMode)
-                {
-                    if (!canNextRound)
-                    {
-                        _isExited = true;
-                        MajInstances.SceneSwitcher.SwitchScene("TotalResult");
-                        return;
-                    }
-                    else
-                    {
-                        MajInstances.AudioManager.StopSFX("bgm_result.mp3");
-
-                        //TODO: Add Animation to show that
-                        //SongStorage.WorkingCollection.Index++;
-                        //MajInstances.GameManager.DanHP += SongStorage.WorkingCollection.DanInfo.RestoreHP;
-                        _isExited = true;
-                        MajInstances.SceneSwitcher.SwitchScene("Game", false);
-                        return;
-                    }
-                }
-                _isExited = true;
-                MajInstances.AudioManager.StopSFX("bgm_result.mp3");
-                MajInstances.SceneSwitcher.SwitchScene("List", false);
+                TryExit();
             }
         }
         void OnDestroy()
@@ -591,7 +614,7 @@ namespace MajdataPlay.Scenes.Result
             InputManager.TouchButtonRingEdge = 5.4f;
             DestroyImmediate(_noteJudgeDiffGraph.texture, true);
         }
-        Texture DrawNoteJudgeDiffGraph(ReadOnlySpan<float> dataset,
+        internal Texture DrawNoteJudgeDiffGraph(ReadOnlySpan<float> dataset,
                                int height,
                                int width)
         {

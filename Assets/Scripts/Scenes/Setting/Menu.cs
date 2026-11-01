@@ -45,6 +45,10 @@ namespace MajdataPlay.Scenes.Setting
 
         PropertyInfo[] _properties = Array.Empty<PropertyInfo>();
         OptionData[] _optionData = Array.Empty<OptionData>();
+        /// <summary>
+        /// 这个分类的全部选项（新设置界面直接使用）
+        /// </summary>
+        internal IReadOnlyList<OptionData> Options => _optionData;
         int[] _displayedPropertyIndices = Array.Empty<int>();
         int _displayedOptionCount;
         RenderingOptions? _renderingOptions;

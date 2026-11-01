@@ -347,9 +347,11 @@ namespace MajdataPlay.Scenes.List
             sidebarLine.rectTransform.anchorMax = new Vector2(1f, 1f);
             sidebarLine.rectTransform.offsetMin = new Vector2(-1f, 0f);
             sidebarLine.rectTransform.offsetMax = Vector2.zero;
-            var heading = CreateText(sidebar, "MAJTEXT_LIST_CATEGORY".i18n(), 20f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
-            PlaceRow(heading.rectTransform, 30f, 26f, 20f, 34f);
-            _sidebarContent = CreateScroll(sidebar, 0f, 76f, 0f, 0f, out _);
+            // 标题栏：应用图标、“MajdataPlay”和“urntt edition”
+            var headerHeight = new LightUi(_font).CreateSidebarHeader(sidebar, "MajdataPlay", "urntt edition");
+            var heading = CreateText(sidebar, "MAJTEXT_LIST_CATEGORY".i18n(), 18f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceRow(heading.rectTransform, 30f, headerHeight + 14f, 20f, 30f);
+            _sidebarContent = CreateScroll(sidebar, 0f, headerHeight + 52f, 0f, 0f, out _);
             var sidebarLayout = _sidebarContent.gameObject.AddComponent<VerticalLayoutGroup>();
             sidebarLayout.padding = new RectOffset(16, 16, 0, 24);
             sidebarLayout.spacing = 4f;

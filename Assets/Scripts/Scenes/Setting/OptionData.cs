@@ -23,6 +23,10 @@ namespace MajdataPlay.Scenes.Setting
         internal string DescriptionKey { get; }
         internal string LocalizedName { get; private set; }
         internal string LocalizedValueText => _enumerator.LocalizedValueText;
+        /// <summary>
+        /// 只读选项（渲染诊断等）：新设置界面不显示 −/+
+        /// </summary>
+        internal bool IsReadOnly => _enumerator is OptionEnumeratorBase enumeratorBase && enumeratorBase.IsReadOnlyOption;
 
         readonly object _menuInstance;
         readonly string _nameKey;

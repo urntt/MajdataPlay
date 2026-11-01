@@ -42,6 +42,11 @@ namespace MajdataPlay.Scenes.List
         CanvasGroup _group = null!;
         RectTransform _content = null!;
         Image _coverImage = null!;
+        /// <summary>
+        /// 全局摄像机会画的 layer（与原加载界面相同）；用 Overlay 时为 -1，不改 layer
+        /// </summary>
+        int _layer = -1;
+        bool _isRevealing = false;
         TextMeshProUGUI _loadingText = null!;
         RectTransform _barTrack = null!;
         RectTransform _barSegment = null!;
@@ -85,9 +90,25 @@ namespace MajdataPlay.Scenes.List
             var canvasObject = new GameObject("ListLoadingCanvas", typeof(RectTransform));
             canvasObject.transform.SetParent(transform, false);
             var canvas = canvasObject.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            // 在列表页（30）之上，暂停菜单（1000）之下；不加 GraphicRaycaster，不拦截触摸
-            canvas.sortingOrder = 40;
+            // 由全局摄像机渲染，和原加载界面（GlobalCanvas，GlobalMask 层）在同一次渲染里，盖在它上面。
+            // 用 Overlay 时，着色器预热前后有几帧只有摄像机画面，会闪出原加载界面。不加 GraphicRaycaster，不拦截触摸
+            var camera = SceneSwitcher.MainCamera;
+            var switcher = MajInstances.SceneSwitcher;
+            if (camera != null && switcher != null)
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = camera;
+                canvas.planeDistance = 50f;
+                canvas.sortingLayerName = "Debug";
+                canvas.sortingOrder = 100;
+                _layer = switcher.gameObject.layer;
+            }
+            else
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                // 在列表页（30）之上，暂停菜单（1000）之下
+                canvas.sortingOrder = 40;
+            }
             var scaler = canvasObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
@@ -103,6 +124,7 @@ namespace MajdataPlay.Scenes.List
             Stretch(background.rectTransform);
             _content = CreateRect("Content", _root);
             Stretch(_content);
+            ApplyLayer(transform);
 
             if (_cover == null)
             {
@@ -149,9 +171,11 @@ namespace MajdataPlay.Scenes.List
                 {
                     _hasSeenClosedInGame = true;
                 }
-                else if (_hasSeenClosedInGame)
+                else if (_hasSeenClosedInGame && (_isRevealing || IsLoadingTextEmpty()))
                 {
-                    // 游戏开始打开转场：随转场淡出，露出游戏画面
+                    // 游戏清空加载文字、开始打开转场：随转场淡出，露出游戏画面。
+                    // 加载途中转场进度即使短暂变化，也不会提前变透明
+                    _isRevealing = true;
                     revealAlpha = progress;
                     if (progress <= 0.001f)
                     {
@@ -192,6 +216,8 @@ namespace MajdataPlay.Scenes.List
                 _lastSize = size;
                 Layout(size.x, size.y);
             }
+            // 曲名滚动时会新建子对象，同样要放到摄像机会画的 layer 上
+            ApplyLayer(_root);
         }
         void OnDestroy()
         {
@@ -284,9 +310,8 @@ namespace MajdataPlay.Scenes.List
 
             var coverShadow = CreateImage(_content, new Color(0.1f, 0.13f, 0.2f, 0.08f), 26f);
             PlaceTopLeft(coverShadow.rectTransform, coverX - 4f, coverY + 6f, coverSize + 8f, coverSize + 8f);
-            _coverImage = CreateImage(_content, LINE_COLOR, 22f);
-            _coverImage.preserveAspect = true;
-            PlaceTopLeft(_coverImage.rectTransform, coverX, coverY, coverSize, coverSize);
+            _coverImage = LightUi.CreateRoundedCover(_content, 22f, out var coverFrame);
+            PlaceTopLeft(coverFrame, coverX, coverY, coverSize, coverSize);
             if (_cover != null)
             {
                 SetCover(_coverImage, _cover);
@@ -356,8 +381,29 @@ namespace MajdataPlay.Scenes.List
             _barSegment.anchorMax = new Vector2(0f, 1f);
             _barSegment.pivot = new Vector2(0f, 0.5f);
             _barSegment.sizeDelta = new Vector2(barWidth * 0.28f, 0f);
+            ApplyLayer(transform);
             UpdateLoadingText();
             UpdateProgressBar();
+        }
+        static bool IsLoadingTextEmpty()
+        {
+            var switcher = MajInstances.SceneSwitcher;
+            return switcher == null || string.IsNullOrWhiteSpace(switcher.LoadingText);
+        }
+        /// <summary>
+        /// 由摄像机渲染时，所有节点都要放在摄像机会画的 layer 上（新建的对象默认在 Default 层）
+        /// </summary>
+        void ApplyLayer(Transform node)
+        {
+            if (_layer < 0)
+            {
+                return;
+            }
+            node.gameObject.layer = _layer;
+            for (var i = 0; i < node.childCount; i++)
+            {
+                ApplyLayer(node.GetChild(i));
+            }
         }
 
         #region Helpers

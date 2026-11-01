@@ -42,9 +42,8 @@ namespace MajdataPlay.Scenes.List
             cardButton.onClick.AddListener(() => OpenDetail(song, null, true));
             var root = inner.rectTransform;
 
-            var cover = CreateImage(root, LINE_COLOR, 12f);
-            cover.preserveAspect = true;
-            PlaceMiddleLeft(cover.rectTransform, 15f, COVER_SIZE, COVER_SIZE);
+            var cover = LightUi.CreateRoundedCover(root, 14f, out var coverFrame);
+            PlaceMiddleLeft(coverFrame, 15f, COVER_SIZE, COVER_SIZE);
             LoadCoverAsync(song, cover, true, token).Forget();
 
             const float LEFT = 15f + COVER_SIZE + 24f;

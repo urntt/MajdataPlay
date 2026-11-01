@@ -63,6 +63,15 @@ namespace MajdataPlay.Scenes.Setting
         bool _advancedInputHeld;
 
         readonly SettingConfig _settingConfig = MajEnv.RuntimeConfig?.Setting ?? new();
+        /// <summary>
+        /// 全部分类（第一个可能是谱面设置），新设置界面直接使用
+        /// </summary>
+        internal IReadOnlyList<Menu> Menus => menus;
+        internal SettingConfig Config => _settingConfig;
+        /// <summary>
+        /// 转场已打开、可以接受输入且尚未离开
+        /// </summary>
+        internal bool IsReady => _isInited && !_isExited;
         void Awake()
         {
             InputManager.TouchButtonRingEdge = 4.8f;
@@ -128,6 +137,11 @@ namespace MajdataPlay.Scenes.Setting
             Localization.OnLanguageChanged += OnLanguageChanged;
             UpdateMenuTitleDisplayerPosition();
             InitializeCurrentMenu().Forget();
+            // 列表式选歌时使用新的设置界面（盖在原界面上，原界面停止渲染和响应输入）
+            if (MajEnv.Settings.Game.ListStyle == ListStyleOption.List)
+            {
+                SettingBrowser.Create(this, Index);
+            }
         }
         void OnLanguageChanged(object sender, Language language)
         {
@@ -201,7 +215,7 @@ namespace MajdataPlay.Scenes.Setting
         }
         void Update()
         {
-            if(_isExited || !_isInited)
+            if(_isExited || !_isInited || SettingBrowser.IsOpen)
             {
                 return;
             }
@@ -211,9 +225,7 @@ namespace MajdataPlay.Scenes.Setting
             if (isCalibratorRequested)
             {
                 currentMenu.ResetRenderingAdvancedInput();
-                MajInstances.AudioManager.ReadVolumeFromSettings();
-                _isExited = true;
-                MajInstances.SceneSwitcher.SwitchScene("Calibrator");
+                RequestCalibrator();
                 return;
             }
             var advancedPressedThisFrame = InputManager.IsButtonPressedInThisFrame(ButtonZone.A8) ||
@@ -258,16 +270,7 @@ namespace MajdataPlay.Scenes.Setting
             currentMenu.TryHandleRenderingAdvancedInput(isAdvancedClicked && !interruptsAdvancedInput);
             if (isExitRequested)
             {
-                MajInstances.AudioManager.ReadVolumeFromSettings();
-                _isExited = true;
-                if (MajEnv.Mode == RunningMode.View)
-                {
-                    MajInstances.SceneSwitcher.SwitchScene("View");
-                }
-                else
-                {
-                    MajInstances.SceneSwitcher.SwitchScene("List", false);
-                }
+                RequestExit();
                 return;
             }
             currentMenu.HandleInput();
@@ -309,6 +312,39 @@ namespace MajdataPlay.Scenes.Setting
             _optionInput.Reset();
         }
 
+        /// <summary>
+        /// 离开设置（回到选歌或 View）；保存由场景销毁时的 GameManager.RequestSave 负责
+        /// </summary>
+        internal void RequestExit()
+        {
+            if (_isExited)
+            {
+                return;
+            }
+            MajInstances.AudioManager.ReadVolumeFromSettings();
+            _isExited = true;
+            if (MajEnv.Mode == RunningMode.View)
+            {
+                MajInstances.SceneSwitcher.SwitchScene("View");
+            }
+            else
+            {
+                MajInstances.SceneSwitcher.SwitchScene("List", false);
+            }
+        }
+        /// <summary>
+        /// 进入校准页（从校准页按 A5 回到设置）
+        /// </summary>
+        internal void RequestCalibrator()
+        {
+            if (_isExited)
+            {
+                return;
+            }
+            MajInstances.AudioManager.ReadVolumeFromSettings();
+            _isExited = true;
+            MajInstances.SceneSwitcher.SwitchScene("Calibrator");
+        }
         void SwitchOption(int direction)
         {
             menus[Index].SwitchOption(direction);
@@ -490,7 +526,7 @@ namespace MajdataPlay.Scenes.Setting
             _listCursorTarget = Index;
             UpdateMenuTitleDisplayerPosition();
         }
-        bool UpdateOffsetUnitIfNeeded()
+        internal bool UpdateOffsetUnitIfNeeded()
         {
             var currentOffsetUnit = Setting.Debug.OffsetUnit;
             if (currentOffsetUnit == _lastOffsetUnit)

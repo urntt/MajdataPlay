@@ -43,6 +43,36 @@ namespace MajdataPlay.Scenes.Result.Components
         readonly AsyncLock _thumbUpLock = new();
         readonly CancellationTokenSource _cts = new();
         readonly string[] SFX_LIST = new string[] { "dianzan_comment.wav", "dianzan_comment_2.wav", "dianzan_comment_3.wav" };
+        /// <summary>
+        /// 网络谱面且已登录：可以点赞和上传（新结算界面用来决定是否显示按钮）
+        /// </summary>
+        internal bool CanInteract => _isInited && !_isLocalOrGuest && _onlineDetail is not null;
+        internal bool IsAlreadyThumbUp => _isAlreadyThumbUp;
+        internal bool IsScorePosted => _isScorePosted;
+        internal string InfoText => infotext != null ? infotext.text : string.Empty;
+        internal string UploadText => _scoreUploadIndicator != null ? _scoreUploadIndicator.Text : string.Empty;
+        /// <summary>
+        /// 新结算界面的“点赞”按钮
+        /// </summary>
+        internal void RequestLike()
+        {
+            if (!CanInteract || _isAlreadyThumbUp)
+            {
+                return;
+            }
+            _ = SendLikeAsync();
+        }
+        /// <summary>
+        /// 新结算界面的“上传成绩 / 重新上传”按钮：与机台按键相同，开启了 Mod 时不上传
+        /// </summary>
+        internal void RequestUpload()
+        {
+            if (!CanInteract || _isScorePosted || MajInstances.GameManager.Settings.IsAnyModActive())
+            {
+                return;
+            }
+            _ = SendScoreAsync();
+        }
 
         public void Init(ISongDetail song, MaiScore score)
         {
@@ -135,6 +165,7 @@ namespace MajdataPlay.Scenes.Result.Components
                     await UniTask.SwitchToMainThread();
                     if(rsp.IsSuccessfully)
                     {
+                        _isAlreadyThumbUp = true;
                         infotext.text = "MAJTEXT_THUMBUP_SENDED".i18n();
                         MajInstances.AudioManager.PlaySFX(SFX_LIST[UnityEngine.Random.Range(0, SFX_LIST.Length)]);
                     }

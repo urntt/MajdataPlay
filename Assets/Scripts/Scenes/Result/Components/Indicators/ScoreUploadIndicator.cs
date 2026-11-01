@@ -48,6 +48,10 @@ namespace MajdataPlay.Scenes.Result.Components.Indicators
                                      });
         }
 
+        /// <summary>
+        /// 当前的上传状态文字（新结算界面照抄）
+        /// </summary>
+        internal string Text => _textDisplayer != null ? _textDisplayer.text : string.Empty;
         public void SetText(string text)
         {
             _textDisplayer.text = text;

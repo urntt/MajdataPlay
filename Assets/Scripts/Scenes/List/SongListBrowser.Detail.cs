@@ -280,9 +280,8 @@ namespace MajdataPlay.Scenes.List
             var rightWidth = Mathf.Max(360f, width - rightX - DETAIL_MARGIN);
 
             // 左栏：曲绘（右上角爱心）、分享与导出、信息卡
-            var cover = CreateImage(_detailContent, LINE_COLOR, 16f);
-            cover.preserveAspect = true;
-            PlaceTopLeft(cover.rectTransform, DETAIL_MARGIN, DETAIL_TOP, leftWidth, leftWidth);
+            var cover = LightUi.CreateRoundedCover(_detailContent, 20f, out var coverFrame);
+            PlaceTopLeft(coverFrame, DETAIL_MARGIN, DETAIL_TOP, leftWidth, leftWidth);
             if (_detailCover != null && _detailCoverHash == song.Hash)
             {
                 SetCover(cover, _detailCover);

@@ -214,11 +214,20 @@ namespace MajdataPlay
             Place(card.rectTransform, x, y, CARD_WIDTH, CARD_HEIGHT);
             var cardRoot = card.transform;
 
-            var coverImage = CreateImage(cardRoot, cover, cover != null ? Color.white : COVER_PLACEHOLDER_COLOR);
-            coverImage.preserveAspect = true;
-            Place(coverImage.rectTransform, 12, 12, COVER_SIZE, COVER_SIZE);
+            // 圆角曲绘：外层圆角底作遮罩，里面放曲绘
+            var coverFrame = CreateImage(cardRoot, null, COVER_PLACEHOLDER_COLOR);
+            UiSprites.ApplyRounded(coverFrame, 14f);
+            coverFrame.gameObject.AddComponent<Mask>().showMaskGraphic = true;
+            Place(coverFrame.rectTransform, 12, 12, COVER_SIZE, COVER_SIZE);
+            if (cover != null)
+            {
+                var coverImage = CreateImage(coverFrame.transform, cover, Color.white);
+                coverImage.preserveAspect = true;
+                Fill(coverImage.rectTransform);
+            }
 
             var rankBack = CreateImage(cardRoot, null, new Color(0f, 0f, 0f, 0.6f));
+            UiSprites.ApplyRounded(rankBack, 8f);
             Place(rankBack.rectTransform, 12, 12, 56, 30);
             var rankText = CreateText(rankBack.transform, font, $"#{rank}", 18f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
             Fill(rankText.rectTransform);

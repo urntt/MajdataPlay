@@ -84,6 +84,10 @@ namespace MajdataPlay.Settings.OptionEnumerators
         protected bool IsFloatType { get; private set; }
         protected bool IsOptional { get; private set; }
         protected bool IsReadOnly { get; set; }
+        /// <summary>
+        /// 供新设置界面判断是否显示 −/+
+        /// </summary>
+        internal bool IsReadOnlyOption => IsReadOnly;
 
         protected object[] OptionValues = Array.Empty<object>();
         protected string[] ValueTexts = Array.Empty<string>();
