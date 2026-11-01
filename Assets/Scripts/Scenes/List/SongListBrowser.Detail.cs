@@ -65,20 +65,15 @@ namespace MajdataPlay.Scenes.List
             var back = CreateButton(_detailView, "<  " + "MAJTEXT_LIST_BACK".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, CloseDetail);
             PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, 24f, 150f, 56f);
 
-            var playShadow = CreatePanel(_detailView, new Color(0.2f, 0.25f, 0.55f, 0.18f), 24f);
-            var playShadowRect = playShadow.rectTransform;
-            playShadowRect.anchorMin = new Vector2(1f, 0f);
-            playShadowRect.anchorMax = new Vector2(1f, 0f);
-            playShadowRect.pivot = new Vector2(1f, 0f);
-            playShadowRect.sizeDelta = new Vector2(252f, 88f);
-            playShadowRect.anchoredPosition = new Vector2(-DETAIL_MARGIN + 6f, 30f);
-            _detailPlayButton = CreateButton(_detailView, "▶  " + "MAJTEXT_LIST_PLAY".i18n(), ACCENT_COLOR, Color.white, 28f, PlaySelected);
-            var playRect = (RectTransform)_detailPlayButton.transform;
-            playRect.anchorMin = new Vector2(1f, 0f);
-            playRect.anchorMax = new Vector2(1f, 0f);
-            playRect.pivot = new Vector2(1f, 0f);
-            playRect.sizeDelta = new Vector2(240f, 80f);
-            playRect.anchoredPosition = new Vector2(-DETAIL_MARGIN, 36f);
+            // 柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
+            var playHolder = LightUi.CreateShadowHolder(_detailView, 10f, 16f, 0.2f);
+            playHolder.anchorMin = new Vector2(1f, 0f);
+            playHolder.anchorMax = new Vector2(1f, 0f);
+            playHolder.pivot = new Vector2(1f, 0f);
+            playHolder.sizeDelta = new Vector2(240f, 80f);
+            playHolder.anchoredPosition = new Vector2(-DETAIL_MARGIN, 36f);
+            _detailPlayButton = CreateButton(playHolder, "▶  " + "MAJTEXT_LIST_PLAY".i18n(), ACCENT_COLOR, Color.white, 28f, PlaySelected);
+            Stretch((RectTransform)_detailPlayButton.transform);
             _detailPlayButton.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
             _detailView.gameObject.SetActive(false);
         }
@@ -280,7 +275,7 @@ namespace MajdataPlay.Scenes.List
             var rightWidth = Mathf.Max(360f, width - rightX - DETAIL_MARGIN);
 
             // 左栏：曲绘（右上角爱心）、分享与导出、信息卡
-            var cover = LightUi.CreateRoundedCover(_detailContent, 20f, out var coverFrame);
+            var cover = LightUi.CreateRoundedCover(_detailContent, 20f, PAGE_COLOR, out var coverFrame);
             PlaceTopLeft(coverFrame, DETAIL_MARGIN, DETAIL_TOP, leftWidth, leftWidth);
             if (_detailCover != null && _detailCoverHash == song.Hash)
             {
@@ -572,8 +567,13 @@ namespace MajdataPlay.Scenes.List
                     return;
                 }
                 var chart = simaiFile.Charts[(int)level];
+                // 按屏幕上的实际像素尺寸生成，避免放大后出锯齿
                 var rect = views.DensityImage.rectTransform.rect;
-                var graphResult = ChartAnalyzer.AnalyzeMaidataWithGraph(chart, Math.Max(64, (int)rect.height), Math.Max(64, (int)rect.width));
+                var canvas = _root.GetComponent<Canvas>();
+                var pixelScale = canvas != null ? Mathf.Max(1f, canvas.scaleFactor) : 1f;
+                var graphHeight = Mathf.Clamp(Mathf.RoundToInt(rect.height * pixelScale), 64, 2048);
+                var graphWidth = Mathf.Clamp(Mathf.RoundToInt(rect.width * pixelScale), 64, 4096);
+                var graphResult = ChartAnalyzer.AnalyzeMaidataWithGraph(chart, graphHeight, graphWidth);
                 views.DensityInfo.text = string.Empty;
                 if (graphResult.Length > TimeSpan.Zero)
                 {

@@ -54,20 +54,55 @@ namespace MajdataPlay
             UiSprites.ApplyRounded(image, radius);
             return image;
         }
+        public const string REPOSITORY_URL = "https://github.com/urntt/MajdataPlay";
+        static readonly Color COVER_OUTLINE = new Color(0f, 0f, 0f, 0.12f);
+
         /// <summary>
-        /// 圆角曲绘：外层是圆角底（未加载时显示为占位色）并作遮罩，返回里面放曲绘的 Image（加载前透明）
+        /// 圆角曲绘：圆角占位底、方形曲绘、盖在四角的“角帽”（背后底色 <paramref name="backgroundColor"/>）和一圈描边。
+        /// 不用遮罩，圆角边缘抗锯齿；返回放曲绘的 Image（加载前透明），<paramref name="frame"/> 用来摆放
         /// </summary>
-        public static Image CreateRoundedCover(Transform parent, float radius, out RectTransform frame)
+        public static Image CreateRoundedCover(Transform parent, float radius, Color backgroundColor, out RectTransform frame)
         {
-            var mask = CreateImage(parent, LINE, radius);
-            mask.gameObject.name = "Cover";
-            mask.gameObject.AddComponent<Mask>().showMaskGraphic = true;
-            var cover = CreateImage(mask.transform, new Color(1f, 1f, 1f, 0f), 0f);
+            frame = CreateRect("Cover", parent);
+            var placeholder = CreateImage(frame, LINE, radius);
+            placeholder.gameObject.name = "Placeholder";
+            Stretch(placeholder.rectTransform);
+            var cover = CreateImage(frame, new Color(1f, 1f, 1f, 0f), 0f);
             cover.gameObject.name = "CoverImage";
             cover.preserveAspect = true;
             Stretch(cover.rectTransform);
-            frame = mask.rectTransform;
+            var caps = CreateImage(frame, backgroundColor, 0f);
+            caps.gameObject.name = "Corners";
+            UiSprites.ApplyInverseRounded(caps, radius);
+            Stretch(caps.rectTransform);
+            AddRing(frame, COVER_OUTLINE, radius, 2f);
             return cover;
+        }
+        /// <summary>
+        /// 圆角描边：铺满父节点（不参与布局），与父节点同一圆角，直边与拐角一样粗
+        /// </summary>
+        public static Image AddRing(Transform parent, Color color, float radius, float stroke)
+        {
+            var rect = CreateRect("Ring", parent);
+            var ring = rect.gameObject.AddComponent<Image>();
+            ring.color = color;
+            ring.raycastTarget = false;
+            UiSprites.ApplyRing(ring, radius, stroke);
+            Stretch(rect);
+            rect.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+            return ring;
+        }
+        /// <summary>
+        /// 带柔和投影的容器：投影与容器同一圆角、中心对齐、四周等宽外扩 <paramref name="blur"/>；按钮等放进容器里铺满
+        /// </summary>
+        public static RectTransform CreateShadowHolder(Transform parent, float radius, float blur, float opacity = 0.16f)
+        {
+            var holder = CreateRect("ShadowHolder", parent);
+            var shadow = CreateImage(holder, new Color(0.1f, 0.13f, 0.25f, opacity), 0f);
+            shadow.gameObject.name = "Shadow";
+            UiSprites.ApplySoftShadow(shadow, radius, blur);
+            Stretch(shadow.rectTransform, -blur);
+            return holder;
         }
         public static void SetCover(Image image, Sprite? sprite)
         {
@@ -227,7 +262,7 @@ namespace MajdataPlay
             const float ICON = 64f;
             const float LEFT = 26f;
             const float TOP = 24f;
-            var icon = CreateRoundedCover(parent, 15f, out var iconFrame);
+            var icon = CreateRoundedCover(parent, 15f, PAPER, out var iconFrame);
             PlaceTopLeft(iconFrame, LEFT, TOP, ICON, ICON);
             var iconSprite = AppIcon;
             if (iconSprite != null)
@@ -236,8 +271,15 @@ namespace MajdataPlay
             }
             else
             {
-                iconFrame.GetComponent<Image>().color = ACCENT;
+                icon.color = ACCENT;
             }
+            // 点图标打开本项目的 GitHub 仓库
+            var hit = iconFrame.gameObject.AddComponent<Image>();
+            hit.color = new Color(0f, 0f, 0f, 0f);
+            hit.raycastTarget = true;
+            var iconButton = iconFrame.gameObject.AddComponent<Button>();
+            iconButton.transition = Selectable.Transition.None;
+            iconButton.onClick.AddListener(() => Application.OpenURL(REPOSITORY_URL));
             var titleText = CreateText(parent, title, 26f, TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(titleText.rectTransform, LEFT + ICON + 16f, TOP - 2f, 16f, 40f);
             var subtitleText = CreateText(parent, subtitle, 16f, MUTED, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);

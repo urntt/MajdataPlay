@@ -171,6 +171,37 @@ namespace MajdataPlay
             ShareState = ScoreActionState.Running;
             ShareChartAsync(song, level, format).Forget();
         }
+        /// <summary>
+        /// 新结算界面：分享本局成绩（达成率、评级、FC/AP、DX 为本局，游玩次数由调用方填好）
+        /// </summary>
+        public static void StartShareResult(ISongDetail song, MaiScore score, ScoreShareFormatOption format)
+        {
+            if (ShareState == ScoreActionState.Running)
+            {
+                return;
+            }
+            ShareState = ScoreActionState.Running;
+            ShareResultAsync(song, score, format).Forget();
+        }
+        static async UniTaskVoid ShareResultAsync(ISongDetail song, MaiScore score, ScoreShareFormatOption format)
+        {
+            try
+            {
+                var isFalling = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling;
+                var entries = new List<ScoreEntry>
+                {
+                    CreateEntry(score, song.Hash, new Dictionary<string, ISongDetail> { [song.Hash] = song })
+                };
+                var header = BuildHeader(string.Empty, song.Title);
+                await ShareEntriesAsync(entries, header, format, isFalling);
+                ShareState = ScoreActionState.Done;
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(e);
+                ShareState = ScoreActionState.Failed;
+            }
+        }
         public static void StartExport(ScoreOptions options)
         {
             if (ExportState == ScoreActionState.Running)

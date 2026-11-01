@@ -249,6 +249,7 @@
     "MAJTEXT_RESULT_LIKE": "いいね",
     "MAJTEXT_RESULT_UPLOAD": "スコア送信",
     "MAJTEXT_RESULT_NOT_SAVED": "Mod が有効なため、今回のスコアは保存されません",
+    "MAJTEXT_RESULT_CLASSIC": "従来の画面",
     "MAJTEXT_LIST_LABEL_ARTIST": "曲",
     "MAJTEXT_LIST_LABEL_DESIGNER": "譜面",
     "MAJTEXT_LIST_LABEL_LENGTH": "長さ",

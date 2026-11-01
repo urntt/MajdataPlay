@@ -1,80 +1,54 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 #nullable enable
 namespace MajdataPlay
 {
     /// <summary>
-    /// 运行时生成的通用 UI 贴图：九宫格圆角矩形与抗锯齿圆形。整个程序只生成一份，供代码搭建的界面共用
+    /// 运行时生成的通用 UI 贴图（整个程序各生成一份，供代码搭建的界面共用）：
+    /// 九宫格圆角矩形、等宽圆角描边、圆角外的“角帽”、柔和投影、圆形与爱心。
+    /// 都由圆角矩形的距离场生成，开启 mipmap，缩放到任意大小都不出锯齿
     /// </summary>
     internal static class UiSprites
     {
         /// <summary>
-        /// 圆角贴图的源半径（像素）；<see cref="ApplyRounded"/> 用 pixelsPerUnitMultiplier 换算成想要的半径
+        /// 九宫格贴图的源半径（像素）；用 pixelsPerUnitMultiplier = 源半径 / 目标半径 换算到想要的圆角
         /// </summary>
-        const float ROUNDED_SOURCE_RADIUS = 24f;
+        const float SOURCE_RADIUS = 64f;
+        /// <summary>
+        /// 九宫格中间可拉伸部分的宽度（像素）
+        /// </summary>
+        const int CENTER = 4;
 
         static Sprite? _rounded;
+        static Sprite? _inverseRounded;
         static Sprite? _circle;
         static Sprite? _heartFilled;
         static Sprite? _heartOutline;
-
-        /// <summary>
-        /// 白色实心爱心（收藏）
-        /// </summary>
-        public static Sprite HeartFilled
-        {
-            get
-            {
-                if (_heartFilled == null)
-                {
-                    _heartFilled = CreateHeartSprite(true);
-                }
-                return _heartFilled;
-            }
-        }
-        /// <summary>
-        /// 白色空心爱心（未收藏）
-        /// </summary>
-        public static Sprite HeartOutline
-        {
-            get
-            {
-                if (_heartOutline == null)
-                {
-                    _heartOutline = CreateHeartSprite(false);
-                }
-                return _heartOutline;
-            }
-        }
+        static readonly Dictionary<int, Sprite> _rings = new();
+        static readonly Dictionary<int, Sprite> _shadows = new();
 
         /// <summary>
         /// 白色圆角矩形，九宫格拉伸
         /// </summary>
-        public static Sprite Rounded
-        {
-            get
-            {
-                if (_rounded == null)
-                {
-                    _rounded = CreateRoundedSprite();
-                }
-                return _rounded;
-            }
-        }
+        public static Sprite Rounded => _rounded != null ? _rounded : (_rounded = CreateRoundedSprite(false));
         /// <summary>
-        /// 白色实心圆（128 像素，抗锯齿）
+        /// 圆角矩形以外的部分（四个角帽）：盖在方形图片上并设为背景色，得到抗锯齿的圆角，不需要遮罩
         /// </summary>
-        public static Sprite Circle
-        {
-            get
-            {
-                if (_circle == null)
-                {
-                    _circle = CreateCircleSprite();
-                }
-                return _circle;
-            }
-        }
+        public static Sprite InverseRounded => _inverseRounded != null ? _inverseRounded : (_inverseRounded = CreateRoundedSprite(true));
+        /// <summary>
+        /// 白色实心圆（256 像素，抗锯齿，带 mipmap）
+        /// </summary>
+        public static Sprite Circle => _circle != null ? _circle : (_circle = CreateCircleSprite());
+        /// <summary>
+        /// 白色实心爱心（收藏）
+        /// </summary>
+        public static Sprite HeartFilled => _heartFilled != null ? _heartFilled : (_heartFilled = CreateHeartSprite(true));
+        /// <summary>
+        /// 白色空心爱心（未收藏）
+        /// </summary>
+        public static Sprite HeartOutline => _heartOutline != null ? _heartOutline : (_heartOutline = CreateHeartSprite(false));
+
         /// <summary>
         /// 把 Image 变成半径为 <paramref name="radius"/> 的圆角矩形
         /// </summary>
@@ -86,37 +60,135 @@ namespace MajdataPlay
             }
             image.sprite = Rounded;
             image.type = Image.Type.Sliced;
-            image.pixelsPerUnitMultiplier = ROUNDED_SOURCE_RADIUS / radius;
+            image.pixelsPerUnitMultiplier = SOURCE_RADIUS / radius;
         }
-        static Sprite CreateRoundedSprite()
+        /// <summary>
+        /// 圆角外的角帽（颜色设为背后的底色），盖在方形内容上得到圆角
+        /// </summary>
+        public static void ApplyInverseRounded(Image image, float radius)
         {
-            const int SIZE = 64;
-            const float RADIUS = ROUNDED_SOURCE_RADIUS;
-            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, false)
+            image.sprite = InverseRounded;
+            image.type = Image.Type.Sliced;
+            image.fillCenter = false;
+            image.pixelsPerUnitMultiplier = SOURCE_RADIUS / Mathf.Max(0.5f, radius);
+        }
+        /// <summary>
+        /// 圆角描边：与同一矩形、同一半径的圆角底板对齐，直边与拐角一样粗
+        /// </summary>
+        public static void ApplyRing(Image image, float radius, float stroke)
+        {
+            radius = Mathf.Max(0.5f, radius);
+            var ratio = Mathf.Clamp(stroke / radius, 0.01f, 0.95f);
+            image.sprite = GetRing(ratio);
+            image.type = Image.Type.Sliced;
+            image.fillCenter = false;
+            image.pixelsPerUnitMultiplier = SOURCE_RADIUS / radius;
+        }
+        /// <summary>
+        /// 柔和投影：Image 的矩形应比目标四周各大 <paramref name="blur"/>，圆角与目标相同
+        /// </summary>
+        public static void ApplySoftShadow(Image image, float radius, float blur)
+        {
+            radius = Mathf.Max(1f, radius);
+            var ratio = Mathf.Clamp(blur / radius, 0.1f, 3f);
+            image.sprite = GetShadow(ratio);
+            image.type = Image.Type.Sliced;
+            image.pixelsPerUnitMultiplier = SOURCE_RADIUS / radius;
+        }
+
+        static Sprite GetRing(float ratio)
+        {
+            var key = Mathf.RoundToInt(ratio * 200f);
+            if (_rings.TryGetValue(key, out var sprite) && sprite != null)
             {
-                name = "UiRounded",
+                return sprite;
+            }
+            var stroke = key / 200f * SOURCE_RADIUS;
+            sprite = CreateSlicedSprite($"UiRing{key}", 0f, distance =>
+            {
+                // 外缘到内缘之间：外圆角覆盖率减去内收 stroke 后的覆盖率
+                return Coverage(distance) - Coverage(distance + stroke);
+            });
+            _rings[key] = sprite;
+            return sprite;
+        }
+        static Sprite GetShadow(float ratio)
+        {
+            var key = Mathf.RoundToInt(ratio * 20f);
+            if (_shadows.TryGetValue(key, out var sprite) && sprite != null)
+            {
+                return sprite;
+            }
+            var blur = key / 20f * SOURCE_RADIUS;
+            // 形状本身内收 blur，外面一圈平滑衰减到 0
+            sprite = CreateSlicedSprite($"UiShadow{key}", blur, distance =>
+            {
+                if (distance <= 0f)
+                {
+                    return 1f;
+                }
+                var t = distance / blur;
+                return Mathf.Exp(-t * t * 4f);
+            });
+            _shadows[key] = sprite;
+            return sprite;
+        }
+        static Sprite CreateRoundedSprite(bool isInverse)
+        {
+            return CreateSlicedSprite(isInverse ? "UiRoundedInverse" : "UiRounded", 0f,
+                                      distance => isInverse ? 1f - Coverage(distance) : Coverage(distance));
+        }
+        /// <summary>
+        /// 1 像素抗锯齿的覆盖率（距离为到圆角矩形边界的有向距离，内部为负）
+        /// </summary>
+        static float Coverage(float distance)
+        {
+            return Mathf.Clamp01(0.5f - distance);
+        }
+        /// <summary>
+        /// 按圆角矩形（源半径 64，外侧留 <paramref name="padding"/>）的有向距离生成九宫格贴图，带 mipmap
+        /// </summary>
+        static Sprite CreateSlicedSprite(string name, float padding, System.Func<float, float> alphaFromDistance)
+        {
+            var pad = Mathf.CeilToInt(padding);
+            var border = Mathf.CeilToInt(SOURCE_RADIUS) + pad;
+            var size = border * 2 + CENTER;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                name = name,
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
                 hideFlags = HideFlags.DontUnloadUnusedAsset,
             };
-            var pixels = new Color32[SIZE * SIZE];
-            for (var y = 0; y < SIZE; y++)
+            var pixels = new Color32[size * size];
+            var half = size * 0.5f;
+            var innerHalf = half - pad;
+            for (var y = 0; y < size; y++)
             {
-                for (var x = 0; x < SIZE; x++)
+                for (var x = 0; x < size; x++)
                 {
-                    var cx = Mathf.Clamp(x + 0.5f, RADIUS, SIZE - RADIUS);
-                    var cy = Mathf.Clamp(y + 0.5f, RADIUS, SIZE - RADIUS);
-                    var distance = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(cx, cy));
-                    var alpha = Mathf.Clamp01(RADIUS - distance + 0.5f);
-                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
+                    var distance = RoundedRectDistance(x + 0.5f - half, y + 0.5f - half, innerHalf, SOURCE_RADIUS);
+                    var alpha = Mathf.Clamp01(alphaFromDistance(distance));
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
                 }
             }
             texture.SetPixels32(pixels);
-            texture.Apply(false, true);
-            var sprite = Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect,
-                                       new Vector4(RADIUS, RADIUS, RADIUS, RADIUS));
+            texture.Apply(true, true);
+            var sprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect,
+                                       new Vector4(border, border, border, border));
             sprite.hideFlags = HideFlags.DontUnloadUnusedAsset;
             return sprite;
+        }
+        /// <summary>
+        /// 点到中心在原点、半宽 <paramref name="halfSize"/>、圆角 <paramref name="radius"/> 的正方形圆角矩形边界的有向距离
+        /// </summary>
+        static float RoundedRectDistance(float px, float py, float halfSize, float radius)
+        {
+            var qx = Mathf.Abs(px) - (halfSize - radius);
+            var qy = Mathf.Abs(py) - (halfSize - radius);
+            var outside = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude;
+            var inside = Mathf.Min(Mathf.Max(qx, qy), 0f);
+            return outside + inside - radius;
         }
         /// <summary>
         /// 心形线 (x² + y² − 1)³ − x²y³ ≤ 0，4×4 超采样抗锯齿；空心为外形减去缩小 76% 的内形
@@ -172,12 +244,12 @@ namespace MajdataPlay
         }
         static Sprite CreateCircleSprite()
         {
-            const int SIZE = 128;
-            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, false)
+            const int SIZE = 256;
+            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, true)
             {
                 name = "UiCircle",
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
                 hideFlags = HideFlags.DontUnloadUnusedAsset,
             };
             var pixels = new Color32[SIZE * SIZE];
@@ -188,12 +260,12 @@ namespace MajdataPlay
                 {
                     var dx = x + 0.5f - radius;
                     var dy = y + 0.5f - radius;
-                    var alpha = Mathf.Clamp01(radius - Mathf.Sqrt(dx * dx + dy * dy));
-                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)(alpha * 255));
+                    var alpha = Mathf.Clamp01(radius - 0.5f - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
                 }
             }
             texture.SetPixels32(pixels);
-            texture.Apply(false, true);
+            texture.Apply(true, true);
             var sprite = Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f);
             sprite.hideFlags = HideFlags.DontUnloadUnusedAsset;
             return sprite;

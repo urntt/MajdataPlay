@@ -26,6 +26,7 @@ namespace MajdataPlay.Scenes.Setting
         const float SCROLLBAR_WIDTH = 16f;
         const float VALUE_AREA_WIDTH = 392f;
         const float STEP_BUTTON_WIDTH = 60f;
+        const float CARD_RADIUS = 15f;
         const int RENDERING_ADVANCED_TAP_COUNT = 10;
         const float RENDERING_ADVANCED_TAP_GAP_SEC = 1.5f;
 
@@ -392,12 +393,11 @@ namespace MajdataPlay.Scenes.Setting
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
 
-            var border = LightUi.CreateImage(row, LightUi.LINE, 15f);
-            border.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
-            LightUi.Stretch(border.rectTransform, -1.5f);
-            var background = LightUi.CreateImage(row, LightUi.PAPER, 14f);
+            // 白底与一圈等宽描边，同一矩形、同一圆角（选中时描边为主题色、稍粗）
+            var background = LightUi.CreateImage(row, LightUi.PAPER, CARD_RADIUS);
             background.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             LightUi.Stretch(background.rectTransform);
+            var border = LightUi.AddRing(row, LightUi.LINE, CARD_RADIUS, 1.5f);
             // 点卡片空白处选中这一行；“渲染质量”连点 10 次进入自定义
             background.raycastTarget = true;
             var rowButton = background.gameObject.AddComponent<Button>();
@@ -552,7 +552,7 @@ namespace MajdataPlay.Scenes.Setting
                 var isSelected = i == _selectedRow;
                 var border = _rows[i].Border;
                 border.color = isSelected ? LightUi.ACCENT : LightUi.LINE;
-                LightUi.Stretch(border.rectTransform, isSelected ? -2.5f : -1.5f);
+                UiSprites.ApplyRing(border, CARD_RADIUS, isSelected ? 2.5f : 1.5f);
             }
         }
         void ScrollToRow(RowView row)

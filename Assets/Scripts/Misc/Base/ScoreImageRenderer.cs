@@ -172,19 +172,19 @@ namespace MajdataPlay
         static void CreateHeader(Transform root, TMP_FontAsset? font, ScoreExchange.ShareHeader header, string pageText, Sprite circle, int width)
         {
             var avatarTop = (HEADER_HEIGHT - AVATAR_SIZE) / 2;
-            var avatarMask = CreateImage(root, circle, header.Avatar != null ? Color.white : AVATAR_PLACEHOLDER_COLOR);
-            Place(avatarMask.rectTransform, PADDING, avatarTop, AVATAR_SIZE, AVATAR_SIZE);
+            // 圆形头像：方形头像上盖背景色的“角帽”，再加一圈描边（不用遮罩，边缘抗锯齿）
+            var avatarFrame = CreateImage(root, circle, header.Avatar != null ? Color.white : AVATAR_PLACEHOLDER_COLOR);
+            Place(avatarFrame.rectTransform, PADDING, avatarTop, AVATAR_SIZE, AVATAR_SIZE);
             if (header.Avatar != null)
             {
-                var mask = avatarMask.gameObject.AddComponent<Mask>();
-                mask.showMaskGraphic = false;
-                var avatar = CreateImage(avatarMask.transform, header.Avatar, Color.white);
+                var avatar = CreateImage(avatarFrame.transform, header.Avatar, Color.white);
                 Fill(avatar.rectTransform);
+                AddRoundedCaps(avatarFrame.transform, BACKGROUND_COLOR, AVATAR_SIZE * 0.5f);
             }
             else
             {
                 var initial = string.IsNullOrEmpty(header.PlayerName) ? "G" : System.Globalization.StringInfo.GetNextTextElement(header.PlayerName).ToUpperInvariant();
-                var initialText = CreateText(avatarMask.transform, font, initial, 40f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
+                var initialText = CreateText(avatarFrame.transform, font, initial, 40f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
                 Fill(initialText.rectTransform);
             }
 
@@ -214,16 +214,19 @@ namespace MajdataPlay
             Place(card.rectTransform, x, y, CARD_WIDTH, CARD_HEIGHT);
             var cardRoot = card.transform;
 
-            // 圆角曲绘：外层圆角底作遮罩，里面放曲绘
+            // 圆角曲绘：方形曲绘上盖卡片底色的“角帽”，再加一圈白色描边（不用遮罩，边缘抗锯齿）
             var coverFrame = CreateImage(cardRoot, null, COVER_PLACEHOLDER_COLOR);
             UiSprites.ApplyRounded(coverFrame, 14f);
-            coverFrame.gameObject.AddComponent<Mask>().showMaskGraphic = true;
             Place(coverFrame.rectTransform, 12, 12, COVER_SIZE, COVER_SIZE);
             if (cover != null)
             {
                 var coverImage = CreateImage(coverFrame.transform, cover, Color.white);
                 coverImage.preserveAspect = true;
                 Fill(coverImage.rectTransform);
+                // 卡片是半透明白色叠在背景上，角帽用叠加后的不透明颜色
+                var cardColor = Color.Lerp(BACKGROUND_COLOR, Color.white, CARD_COLOR.a);
+                cardColor.a = 1f;
+                AddRoundedCaps(coverFrame.transform, cardColor, 14f);
             }
 
             var rankBack = CreateImage(cardRoot, null, new Color(0f, 0f, 0f, 0.6f));
@@ -264,6 +267,18 @@ namespace MajdataPlay
             Place(dxText.rectTransform, textLeft, 151, halfWidth + 20, 27);
             var playCountText = CreateText(cardRoot, font, entry.PlayCountText, 18f, SUB_TEXT_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
             Place(playCountText.rectTransform, textLeft + halfWidth + 20, 151, textWidth - halfWidth - 20, 27);
+        }
+        /// <summary>
+        /// 盖在方形图片上的圆角“角帽”（背后底色）与一圈白色描边，铺满父节点
+        /// </summary>
+        static void AddRoundedCaps(Transform parent, Color backgroundColor, float radius)
+        {
+            var caps = CreateImage(parent, null, backgroundColor);
+            UiSprites.ApplyInverseRounded(caps, radius);
+            Fill(caps.rectTransform);
+            var ring = CreateImage(parent, null, new Color(1f, 1f, 1f, 0.18f));
+            UiSprites.ApplyRing(ring, radius, 2f);
+            Fill(ring.rectTransform);
         }
         static Color GetDifficultyColor(ChartLevel level)
         {

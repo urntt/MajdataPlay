@@ -250,6 +250,7 @@
     "MAJTEXT_RESULT_LIKE": "Like",
     "MAJTEXT_RESULT_UPLOAD": "Upload score",
     "MAJTEXT_RESULT_NOT_SAVED": "Mods are on, so this score is not saved",
+    "MAJTEXT_RESULT_CLASSIC": "Classic view",
     "MAJTEXT_LIST_LABEL_ARTIST": "Artist",
     "MAJTEXT_LIST_LABEL_DESIGNER": "Charter",
     "MAJTEXT_LIST_LABEL_LENGTH": "Length",

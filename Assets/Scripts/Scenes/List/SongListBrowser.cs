@@ -410,20 +410,16 @@ namespace MajdataPlay.Scenes.List
             AddScrollbar(_listScroll);
 
             // 底部浮窗：翻页与页码
-            var pagerShadow = CreatePanel(main, new Color(0.1f, 0.13f, 0.2f, 0.08f), 22f);
-            _pager = CreatePanel(main, LINE_COLOR, 20f).rectTransform;
-            foreach (var rect in new[] { pagerShadow.rectTransform, _pager })
-            {
-                rect.anchorMin = new Vector2(0.5f, 0f);
-                rect.anchorMax = new Vector2(0.5f, 0f);
-                rect.pivot = new Vector2(0.5f, 0f);
-            }
+            // 柔和投影与浮窗同一圆角、中心对齐；浮窗本身是白底加一圈等宽描边
+            _pager = LightUi.CreateShadowHolder(main, 20f, 14f, 0.12f);
+            _pager.anchorMin = new Vector2(0.5f, 0f);
+            _pager.anchorMax = new Vector2(0.5f, 0f);
+            _pager.pivot = new Vector2(0.5f, 0f);
             _pager.sizeDelta = new Vector2(300f, PAGER_HEIGHT);
             _pager.anchoredPosition = new Vector2(-(SCROLLBAR_WIDTH + 14f) * 0.5f, PAGER_BOTTOM);
-            pagerShadow.rectTransform.sizeDelta = new Vector2(308f, PAGER_HEIGHT + 8f);
-            pagerShadow.rectTransform.anchoredPosition = _pager.anchoredPosition + new Vector2(0f, -6f);
-            var pagerInner = CreatePanel(_pager, PAPER_COLOR, 19f);
-            Stretch(pagerInner.rectTransform, 1.5f);
+            var pagerInner = CreatePanel(_pager, PAPER_COLOR, 20f);
+            Stretch(pagerInner.rectTransform);
+            LightUi.AddRing(pagerInner.transform, LINE_COLOR, 20f, 1.5f);
             pagerInner.raycastTarget = true;
             _previousPageButton = CreateButton(pagerInner.rectTransform, "<", PAPER_COLOR, TEXT_COLOR, 26f, () => ChangePage(-1));
             PlaceMiddleLeft((RectTransform)_previousPageButton.transform, 8f, 64f, 48f);

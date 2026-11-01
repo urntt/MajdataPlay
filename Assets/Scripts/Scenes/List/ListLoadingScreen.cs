@@ -308,9 +308,13 @@ namespace MajdataPlay.Scenes.List
                 alignment = TextAlignmentOptions.Center;
             }
 
-            var coverShadow = CreateImage(_content, new Color(0.1f, 0.13f, 0.2f, 0.08f), 26f);
-            PlaceTopLeft(coverShadow.rectTransform, coverX - 4f, coverY + 6f, coverSize + 8f, coverSize + 8f);
-            _coverImage = LightUi.CreateRoundedCover(_content, 22f, out var coverFrame);
+            // 柔和投影与曲绘同一圆角、中心对齐、四周等宽外扩
+            const float COVER_SHADOW_BLUR = 18f;
+            var coverShadow = CreateImage(_content, new Color(0.1f, 0.13f, 0.25f, 0.16f), 0f);
+            UiSprites.ApplySoftShadow(coverShadow, 22f, COVER_SHADOW_BLUR);
+            PlaceTopLeft(coverShadow.rectTransform, coverX - COVER_SHADOW_BLUR, coverY - COVER_SHADOW_BLUR,
+                         coverSize + COVER_SHADOW_BLUR * 2f, coverSize + COVER_SHADOW_BLUR * 2f);
+            _coverImage = LightUi.CreateRoundedCover(_content, 22f, PAGE_COLOR, out var coverFrame);
             PlaceTopLeft(coverFrame, coverX, coverY, coverSize, coverSize);
             if (_cover != null)
             {

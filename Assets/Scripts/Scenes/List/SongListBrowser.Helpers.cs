@@ -22,7 +22,10 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         Image CreateHeartButton(Transform parent, ISongDetail song, float size, Color background, out RectTransform buttonRect)
         {
-            var backgroundImage = CreatePanel(parent, background, size * 0.5f);
+            // 圆形底用高分辨率的圆形贴图（不再用九宫格拉成圆）
+            var backgroundImage = CreateImage(parent, background, 0f);
+            backgroundImage.sprite = UiSprites.Circle;
+            backgroundImage.type = Image.Type.Simple;
             backgroundImage.gameObject.name = "Favorite";
             backgroundImage.raycastTarget = true;
             var button = backgroundImage.gameObject.AddComponent<Button>();
@@ -36,7 +39,8 @@ namespace MajdataPlay.Scenes.List
             heartRect.anchorMax = new Vector2(0.5f, 0.5f);
             heartRect.pivot = new Vector2(0.5f, 0.5f);
             heartRect.sizeDelta = new Vector2(size * 0.6f, size * 0.6f);
-            heartRect.anchoredPosition = new Vector2(0f, -size * 0.02f);
+            // 爱心的视觉重心偏上，下移按钮尺寸的 5% 才显得居中
+            heartRect.anchoredPosition = new Vector2(0f, -size * 0.05f);
             SetHeart(heart, SongStorage.IsInMyFavorites(song));
             buttonRect = backgroundImage.rectTransform;
             return heart;
@@ -54,9 +58,8 @@ namespace MajdataPlay.Scenes.List
             }
             else
             {
-                background = CreatePanel(parent, color, 10f);
-                var inner = CreatePanel(background.transform, PAPER_COLOR, 9f);
-                Stretch(inner.rectTransform, 1.5f);
+                background = CreatePanel(parent, PAPER_COLOR, 10f);
+                LightUi.AddRing(background.transform, color, 10f, 1.5f);
             }
             background.gameObject.name = "Level";
             background.raycastTarget = true;
@@ -401,11 +404,10 @@ namespace MajdataPlay.Scenes.List
         }
         TMP_InputField CreateInputField(Transform parent, string placeholder)
         {
-            var border = CreatePanel(parent, LINE_COLOR, 11f);
+            var border = CreatePanel(parent, PAPER_COLOR, 11f);
             border.gameObject.name = "SearchField";
             border.raycastTarget = true;
-            var background = CreatePanel(border.transform, PAPER_COLOR, 10f);
-            Stretch(background.rectTransform, 1.5f);
+            LightUi.AddRing(border.transform, LINE_COLOR, 11f, 1.5f);
             var textArea = CreateRect("TextArea", border.transform);
             Stretch(textArea, 16f);
             textArea.offsetMin = new Vector2(16f, 6f);

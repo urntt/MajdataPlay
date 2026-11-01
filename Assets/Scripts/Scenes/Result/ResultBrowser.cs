@@ -99,6 +99,8 @@ namespace MajdataPlay.Scenes.Result
         const float COLUMN_GAP = 40f;
         const float CARD_GAP = 20f;
         const float ROLL_DURATION_SEC = 1.5f;
+        const float CONTENT_TOP = 100f;
+        const float TOAST_DURATION_SEC = 2.4f;
 
         ResultScreenManager _manager = null!;
         ResultViewData _data = null!;
@@ -118,6 +120,13 @@ namespace MajdataPlay.Scenes.Result
         Button? _uploadButton;
         TextMeshProUGUI? _uploadStatus;
         Button _continueButton = null!;
+        RectTransform _modal = null!;
+        RectTransform _toast = null!;
+        TextMeshProUGUI _toastText = null!;
+        float _toastRemaining = 0f;
+        bool _isWaitingShare = false;
+        bool _isHidden = false;
+        Vector2Int _graphSize;
         TextMeshProUGUI _continueLabel = null!;
         Texture? _graphTexture;
         Sprite? _cover;
@@ -161,10 +170,19 @@ namespace MajdataPlay.Scenes.Result
             scroll.movementType = ScrollRect.MovementType.Clamped;
 
             // 右下角悬浮的“继续”：保存与上传完成之前不能点
-            _continueButton = _ui.CreateButton(_root, "MAJTEXT_RESULT_CONTINUE".i18n(), LightUi.ACCENT, Color.white, 28f, Continue, 14f);
-            LightUi.PlaceBottomRight((RectTransform)_continueButton.transform, MARGIN, 36f, 240f, 80f);
+            // 柔和投影与按钮同一圆角、中心对齐
+            var continueHolder = LightUi.CreateShadowHolder(_root, 14f, 16f, 0.2f);
+            LightUi.PlaceBottomRight(continueHolder, MARGIN, 36f, 240f, 80f);
+            _continueButton = _ui.CreateButton(continueHolder, "MAJTEXT_RESULT_CONTINUE".i18n(), LightUi.ACCENT, Color.white, 28f, Continue, 14f);
+            LightUi.Stretch((RectTransform)_continueButton.transform);
             _continueLabel = _continueButton.GetComponentInChildren<TextMeshProUGUI>();
             _continueLabel.fontStyle = FontStyles.Bold;
+
+            // 左上角：临时切回原版结算界面（只对这一次结算生效）
+            var classicButton = _ui.CreateButton(_root, "MAJTEXT_RESULT_CLASSIC".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, SwitchToClassic, 12f);
+            LightUi.PlaceTopLeft((RectTransform)classicButton.transform, MARGIN, 24f, 170f, 52f);
+            BuildModal();
+            BuildToast();
 
             _canvasHider.Hide(gameObject);
             // 屏幕触摸不再模拟机台按键（否则点按钮会同时触发 A4 退出、A5 收藏等）；实体按键照常可用
@@ -207,7 +225,12 @@ namespace MajdataPlay.Scenes.Result
         }
         void Update()
         {
+            if (_isHidden)
+            {
+                return;
+            }
             LightUi.FollowTransition(_group, _isLeaving || _manager.IsExited);
+            UpdateToast();
             // 转场基本打开后再开始滚动达成率
             if (!_hasRolled && SceneSwitcher.TransitionProgress < 0.3f && _achievementText != null)
             {
@@ -218,7 +241,11 @@ namespace MajdataPlay.Scenes.Result
         }
         void LateUpdate()
         {
-            // 屏幕方向或尺寸变化（或曲绘加载完成）时重新排版
+            if (_isHidden)
+            {
+                return;
+            }
+            // 屏幕方向或尺寸变化时重新排版
             var size = _viewport.rect.size;
             if (size.x > 0f && size.y > 0f && (size - _lastSize).sqrMagnitude > 1f)
             {
@@ -241,7 +268,7 @@ namespace MajdataPlay.Scenes.Result
                 leftX = MARGIN;
                 rightX = leftX + leftWidth + COLUMN_GAP;
                 rightWidth = width - rightX - MARGIN;
-                rightTop = 56f;
+                rightTop = CONTENT_TOP;
             }
             else
             {
@@ -251,7 +278,7 @@ namespace MajdataPlay.Scenes.Result
                 rightWidth = width - MARGIN * 2f;
                 rightTop = 0f;
             }
-            var leftBottom = BuildLeftColumn(leftX, 56f, leftWidth);
+            var leftBottom = BuildLeftColumn(leftX, CONTENT_TOP, leftWidth);
             if (!isLandscape)
             {
                 rightTop = leftBottom + 32f;
@@ -272,13 +299,16 @@ namespace MajdataPlay.Scenes.Result
             var result = _data.Result;
             var song = result.SongDetail;
             var level = result.Level;
-            var cover = LightUi.CreateRoundedCover(_content, 22f, out var coverFrame);
+            var cover = LightUi.CreateRoundedCover(_content, 22f, LightUi.PAGE, out var coverFrame);
             LightUi.PlaceTopLeft(coverFrame, x, y, width, width);
             LightUi.SetCover(cover, _cover);
             _coverImage = cover;
 
             // 爱心收藏：调用原有的收藏组件（A5 也走它），状态以收藏夹为准
-            var heartBack = LightUi.CreateImage(_content, new Color(1f, 1f, 1f, 0.92f), 30f);
+            // 圆形底用高分辨率圆形贴图；爱心的视觉重心偏上，下移按钮尺寸的 5%
+            var heartBack = LightUi.CreateImage(_content, new Color(1f, 1f, 1f, 0.92f), 0f);
+            heartBack.sprite = UiSprites.Circle;
+            heartBack.type = Image.Type.Simple;
             heartBack.raycastTarget = true;
             LightUi.PlaceTopLeft(heartBack.rectTransform, x + width - 74f, y + 14f, 60f, 60f);
             var heartButton = heartBack.gameObject.AddComponent<Button>();
@@ -291,7 +321,7 @@ namespace MajdataPlay.Scenes.Result
             heartRect.anchorMin = new Vector2(0.5f, 0.5f);
             heartRect.anchorMax = new Vector2(0.5f, 0.5f);
             heartRect.sizeDelta = new Vector2(36f, 36f);
-            heartRect.anchoredPosition = new Vector2(0f, -1f);
+            heartRect.anchoredPosition = new Vector2(0f, -3f);
             UpdateHeart();
 
             var cursor = y + width + 20f;
@@ -316,6 +346,11 @@ namespace MajdataPlay.Scenes.Result
             var credits = _ui.CreateText(_content, $"{"MAJTEXT_LIST_LABEL_ARTIST".i18n()} {artist}    {"MAJTEXT_LIST_LABEL_DESIGNER".i18n()} {designer}", 19f, LightUi.MUTED, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
             LightUi.PlaceTopLeft(credits.rectTransform, x, cursor, width, 30f);
             cursor += 44f;
+
+            // 分享本局成绩
+            var shareButton = _ui.CreateButton(_content, "MAJTEXT_LIST_SHARE".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, ShowShareModal);
+            LightUi.PlaceTopLeft((RectTransform)shareButton.transform, x, cursor, 150f, 50f);
+            cursor += 62f;
 
             // 网络谱面：点赞与上传
             var sender = _manager.OnlineSender;
@@ -462,7 +497,12 @@ namespace MajdataPlay.Scenes.Result
             graphRect.anchorMax = Vector2.one;
             graphRect.offsetMin = new Vector2(24f, 18f);
             graphRect.offsetMax = new Vector2(-24f, -56f);
-            var graphTexture = GetGraphTexture();
+            // 按屏幕上的实际像素尺寸生成，避免放大后出锯齿
+            var canvas = _root.GetComponent<Canvas>();
+            var pixelScale = canvas != null ? Mathf.Max(1f, canvas.scaleFactor) : 1f;
+            var graphWidth = Mathf.Clamp(Mathf.RoundToInt((width - statsWidth - CARD_GAP - 48f) * pixelScale), 64, 4096);
+            var graphHeight = Mathf.Clamp(Mathf.RoundToInt((BOTTOM_HEIGHT - 74f) * pixelScale), 32, 2048);
+            var graphTexture = GetGraphTexture(graphWidth, graphHeight);
             if (graphTexture != null)
             {
                 graph.texture = graphTexture;
@@ -490,15 +530,22 @@ namespace MajdataPlay.Scenes.Result
         /// <summary>
         /// 判定分布图用原结算界面的绘制方法生成一次，之后重新排版时复用
         /// </summary>
-        Texture? GetGraphTexture()
+        Texture? GetGraphTexture(int width, int height)
         {
-            if (_graphTexture != null)
+            var size = new Vector2Int(width, height);
+            if (_graphTexture != null && _graphSize == size)
             {
                 return _graphTexture;
             }
+            if (_graphTexture != null)
+            {
+                Destroy(_graphTexture);
+                _graphTexture = null;
+            }
             try
             {
-                _graphTexture = _manager.DrawNoteJudgeDiffGraph(_data.Result.NoteJudgeDiffs.Span, 260, 900);
+                _graphSize = size;
+                _graphTexture = _manager.DrawNoteJudgeDiffGraph(_data.Result.NoteJudgeDiffs.Span, height, width);
             }
             catch (Exception e)
             {
@@ -621,6 +668,110 @@ namespace MajdataPlay.Scenes.Result
             }
             UpdateHeart();
         }
+        #region Share & classic
+        void BuildModal()
+        {
+            _modal = LightUi.CreateRect("Modal", _root);
+            LightUi.Stretch(_modal);
+            var dim = _modal.gameObject.AddComponent<Image>();
+            dim.color = new Color(0.09f, 0.125f, 0.2f, 0.4f);
+            var dimButton = _modal.gameObject.AddComponent<Button>();
+            dimButton.transition = Selectable.Transition.None;
+            dimButton.onClick.AddListener(HideModal);
+            _modal.gameObject.SetActive(false);
+        }
+        /// <summary>
+        /// 分享本局成绩：与详情页相同的格式选择
+        /// </summary>
+        void ShowShareModal()
+        {
+            LightUi.ClearChildren(_modal);
+            var formats = new[] { ScoreShareFormatOption.Image, ScoreShareFormatOption.Text, ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json };
+            var height = 100f + formats.Length * 64f + 74f;
+            var panel = LightUi.CreateImage(_modal, LightUi.PAPER, 18f);
+            var panelRect = panel.rectTransform;
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(480f, height);
+            // 拦截面板上的点击，免得冒泡到背后的遮罩把弹窗关掉
+            panel.raycastTarget = true;
+            panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
+            var title = _ui.CreateText(panelRect, "MAJTEXT_LIST_CHOOSE_SHARE".i18n(), 22f, LightUi.TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            LightUi.PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
+            for (var i = 0; i < formats.Length; i++)
+            {
+                var format = formats[i];
+                var option = _ui.CreateButton(panelRect, $"MAJSETTING_PROPERTY_ShareFormat_OPTION_{format}".i18n(), LightUi.PAGE, LightUi.TEXT, 19f, () =>
+                {
+                    HideModal();
+                    ShareResult(format);
+                });
+                LightUi.PlaceRow((RectTransform)option.transform, 28f, 86f + i * 64f, 28f, 54f);
+            }
+            var cancel = _ui.CreateButton(panelRect, "MAJTEXT_LIST_CANCEL".i18n(), LightUi.PAPER, LightUi.MUTED, 18f, HideModal);
+            LightUi.PlaceRow((RectTransform)cancel.transform, 28f, height - 74f, 28f, 50f);
+            _modal.gameObject.SetActive(true);
+            _modal.SetAsLastSibling();
+        }
+        void HideModal()
+        {
+            _modal.gameObject.SetActive(false);
+        }
+        void ShareResult(ScoreShareFormatOption format)
+        {
+            var result = _data.Result;
+            var song = result.SongDetail;
+            // 本局的达成率、评级、FC/AP 与 DX；游玩次数取存档里的值
+            var score = MaiScore.CreateFromResult(result, result.Level);
+            score.PlayCount = Math.Max(1L, ScoreManager.GetScore(song, result.Level).PlayCount);
+            _isWaitingShare = true;
+            ScoreExchange.StartShareResult(song, score, format);
+        }
+        void BuildToast()
+        {
+            var toast = LightUi.CreateImage(_root, LightUi.Hex(0x343F56), 12f);
+            _toast = toast.rectTransform;
+            _toast.anchorMin = new Vector2(0.5f, 1f);
+            _toast.anchorMax = new Vector2(0.5f, 1f);
+            _toast.pivot = new Vector2(0.5f, 1f);
+            _toast.sizeDelta = new Vector2(440f, 58f);
+            _toast.anchoredPosition = new Vector2(0f, -24f);
+            _toastText = _ui.CreateText(_toast, string.Empty, 18f, Color.white, TextAlignmentOptions.Center, FontStyles.Normal);
+            LightUi.Stretch(_toastText.rectTransform, 10f);
+            _toast.gameObject.SetActive(false);
+        }
+        void UpdateToast()
+        {
+            if (_isWaitingShare && ScoreExchange.ShareState != ScoreActionState.Running)
+            {
+                _isWaitingShare = false;
+                _toastText.text = (ScoreExchange.ShareState == ScoreActionState.Done ? "MAJTEXT_LIST_SHARE_DONE" : "MAJTEXT_LIST_SHARE_FAILED").i18n();
+                _toast.gameObject.SetActive(true);
+                _toast.SetAsLastSibling();
+                _toastRemaining = TOAST_DURATION_SEC;
+            }
+            if (_toastRemaining > 0f)
+            {
+                _toastRemaining -= Time.unscaledDeltaTime;
+                if (_toastRemaining <= 0f)
+                {
+                    _toast.gameObject.SetActive(false);
+                }
+            }
+        }
+        /// <summary>
+        /// 临时切回原版结算界面：隐藏新界面、恢复原画布，屏幕触摸重新模拟机台按键（A4 继续、A5 收藏等）
+        /// </summary>
+        void SwitchToClassic()
+        {
+            _isHidden = true;
+            _rollMotion.TryCancel();
+            _root.gameObject.SetActive(false);
+            _canvasHider.Restore();
+            InputManager.SuppressTouchPanelSimulation = false;
+        }
+        #endregion
         void Continue()
         {
             if (_isLeaving)

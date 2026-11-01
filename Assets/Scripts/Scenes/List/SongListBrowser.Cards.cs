@@ -30,19 +30,19 @@ namespace MajdataPlay.Scenes.List
 
         CardView CreateCard(ISongDetail song, ChartLevel level, bool isSelected, CancellationToken token)
         {
-            var card = CreatePanel(_listContent, isSelected ? ACCENT_COLOR : LINE_COLOR, 16f);
+            // 白底卡片加一圈等宽描边（选中时为主题色、稍粗）
+            var card = CreatePanel(_listContent, PAPER_COLOR, 16f);
             card.gameObject.AddComponent<LayoutElement>().preferredHeight = CARD_HEIGHT;
-            var inner = CreatePanel(card.transform, PAPER_COLOR, 15f);
-            Stretch(inner.rectTransform, isSelected ? 2.5f : 1.5f);
+            LightUi.AddRing(card.transform, isSelected ? ACCENT_COLOR : LINE_COLOR, 16f, isSelected ? 2.5f : 1.5f);
             // 点在卡片空白处时由它接收，再交给卡片上的 Button
-            inner.raycastTarget = true;
+            card.raycastTarget = true;
             var cardButton = card.gameObject.AddComponent<Button>();
-            cardButton.targetGraphic = inner;
+            cardButton.targetGraphic = card;
             SetButtonColors(cardButton);
             cardButton.onClick.AddListener(() => OpenDetail(song, null, true));
-            var root = inner.rectTransform;
+            var root = card.rectTransform;
 
-            var cover = LightUi.CreateRoundedCover(root, 14f, out var coverFrame);
+            var cover = LightUi.CreateRoundedCover(root, 14f, PAPER_COLOR, out var coverFrame);
             PlaceMiddleLeft(coverFrame, 15f, COVER_SIZE, COVER_SIZE);
             LoadCoverAsync(song, cover, true, token).Forget();
 
