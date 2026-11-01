@@ -283,6 +283,11 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 LaneCheckpointCheck();
                 return default;
             }
+            else if (IsMine && LaneMode.IsEnabled && !LaneMode.IsSlideOriginal)
+            {
+                // 下落式地雷星星只判星星头：箭头部分不判定，判定时刻过后由 MineCheck 记为避开
+                return default;
+            }
             ReportFallingOriginalStars();
             if (!IsCheckable)
             {

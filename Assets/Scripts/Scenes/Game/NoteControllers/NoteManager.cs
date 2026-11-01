@@ -614,6 +614,28 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             return true;
         }
         /// <summary>
+        /// 下落式地雷 Tap / 地雷星星头：只认本列、判定线附近的新按下。不吃扫键，不看相邻列，也不受垂直判定影响
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool TryUseLaneMineClick(int lane)
+        {
+            if (!_isLaneMode)
+            {
+                return false;
+            }
+            for (var i = 0; i < _laneInput.ClickCount; i++)
+            {
+                var click = _laneInput.GetClick(i);
+                if (click.IsUsed || click.IsSweep || !click.IsInJudgeBand || click.Lane != lane)
+                {
+                    continue;
+                }
+                _laneInput.UseClick(i);
+                return true;
+            }
+            return false;
+        }
+        /// <summary>
         /// 下落式 Slide 保持原样：按标准圆形传感器划分的按住状态（实体传感器也算），与标准游玩的判定相同
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

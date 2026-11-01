@@ -95,6 +95,14 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// </summary>
             public int NeighborLane;
             public bool IsUsed;
+            /// <summary>
+            /// 扫键产生的点击（手指划进这一列，不是新按下）
+            /// </summary>
+            public bool IsSweep;
+            /// <summary>
+            /// 按下位置在判定线附近（上下 <see cref="LaneLayout.JUDGE_BAND_HALF_HEIGHT"/> 以内），地雷只认这种
+            /// </summary>
+            public bool IsInJudgeBand;
         }
         struct TouchRecord
         {
@@ -316,7 +324,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 _clicks.Add(new LaneClick()
                 {
-                    Lane = toLane
+                    Lane = toLane,
+                    IsSweep = true
                 });
                 return;
             }
@@ -325,7 +334,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 _clicks.Add(new LaneClick()
                 {
-                    Lane = sweptLane
+                    Lane = sweptLane,
+                    IsSweep = true
                 });
             }
         }
@@ -395,7 +405,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                     _clicks.Add(new LaneClick()
                     {
                         Lane = lane,
-                        NeighborLane = neighborLane
+                        NeighborLane = neighborLane,
+                        IsInJudgeBand = Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT
                     });
                 }
             }

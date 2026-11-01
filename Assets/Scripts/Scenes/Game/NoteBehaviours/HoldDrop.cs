@@ -434,10 +434,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                    (_altButtonPos is ButtonZone altButtonPos && NoteManager.CheckButtonStatusInThisFrame(altButtonPos, SwitchStatus.On));
         }
         /// <summary>
-        /// 下落式：使用一次轨道点击（手指在本列或相邻列的半边），中心音符也可以用第 5 列
+        /// 下落式：使用一次轨道点击（手指在本列或相邻列的半边），中心音符也可以用第 5 列；
+        /// 地雷只认本列判定线附近的新按下
         /// </summary>
         bool TryUseLaneClick()
         {
+            if (IsMine)
+            {
+                // 地雷：只认本列（中心音符为中间两列）判定线附近的新按下，不吃扫键、不走垂直判定
+                return NoteManager.TryUseLaneMineClick(StartPos) ||
+                       (_isLaneCenter && NoteManager.TryUseLaneMineClick(LaneLayout.CENTER_ALT_LANE));
+            }
             var now = ThisFrameSec;
             return NoteManager.TryUseLaneClick(StartPos, JudgeTimingWithOffset, now) ||
                    (_isLaneCenter && NoteManager.TryUseLaneClick(LaneLayout.CENTER_ALT_LANE, JudgeTimingWithOffset, now));

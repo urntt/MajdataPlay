@@ -29,6 +29,7 @@ To turn it on: Settings → Falling → Play Style, choose "Falling".
 - **Tap / Hold / Break**
   - Notes fall in the lane with the same number. Notes in the center C area fall between lanes 4 and 5, and either lane can hit them.
   - Each lane's judge range is the whole lane plus half a lane on each side. One press hits one note: the one closest to its judge time.
+  - Mine Taps and mine stars only count as hit by a new press in their own lane near the judge line: sweeps, the neighbouring half lanes and Vertical Judge don't apply. A mine star is judged by its head only; its arrows are never judged.
 - **Slides (stars)**
   - The original slide arrows are laid out along the path of the judge areas and fall with the notes.
   - Judging works like a Drag: it's a hit when a finger's horizontal position is within two lanes of the arrow on either side (four lanes in total). The jump between 8 and 1 (the two ends of the lanes) is judged more leniently.
