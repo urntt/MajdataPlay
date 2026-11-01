@@ -203,6 +203,10 @@ namespace MajdataPlay.Settings
         /// 选歌即时切换预览：切歌时立即播放新歌的预览，中间不回到选歌背景音乐；关闭时等待 1 秒并恢复背景音乐
         /// </summary>
         public bool ListInstantPreview { get; set; } = false;
+        /// <summary>
+        /// 选歌样式：封面轮播或列表式（左侧分类、搜索、曲目卡片与谱面详情）
+        /// </summary>
+        public ListStyleOption ListStyle { get; set; } = ListStyleOption.Cover;
     }
     
     public class JudgeOptions

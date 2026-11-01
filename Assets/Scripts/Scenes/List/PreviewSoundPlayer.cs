@@ -31,8 +31,13 @@ namespace MajdataPlay.Scenes.List
             return ReferenceEquals(_currentPreviewSong, info) && _isPreviewPlaying;
         }
 
-        public void PlayPreviewSound(ISongDetail info, int loadDelayMS = 1000, CancellationToken token = default)
+        /// <param name="isFromListBrowser">列表式选歌打开时只播放它请求的预览，封面轮播在后台切歌不出声</param>
+        public void PlayPreviewSound(ISongDetail info, int loadDelayMS = 1000, CancellationToken token = default, bool isFromListBrowser = false)
         {
+            if (SongListBrowser.IsOpen && !isFromListBrowser)
+            {
+                return;
+            }
             _currentPreviewSong = info;
             _isPreviewPlaying = false;
             var previewVersion = ++_previewVersion;

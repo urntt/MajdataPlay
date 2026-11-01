@@ -148,6 +148,8 @@ namespace MajdataPlay.Scenes.List
         {
             _coverListManager = Majdata<CoverListManager>.Instance!;
             _collectionListManager = Majdata<CollectionListManager>.Instance!;
+            // 列表式选歌：先标记为打开，封面轮播初始化时不播放预览，初始化完成后再创建界面
+            SongListBrowser.IsOpen = MajEnv.Settings.Game.ListStyle == ListStyleOption.List;
             InitializeCoverListAsync().Forget();
             var selectsfx = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             if (!selectsfx.IsPlaying)
@@ -183,6 +185,10 @@ namespace MajdataPlay.Scenes.List
                 MajInstances.SceneSwitcher.FadeOut();
                 _listSlideInput.SuppressUntilRelease();
                 _isInited = true;
+                if (SongListBrowser.IsOpen)
+                {
+                    SongListBrowser.Create(this, _collectionListManager, _coverListManager);
+                }
                 CabinetLed.SetButtonLight(Color.green, 3);
                 CabinetLed.SetButtonLight(Color.red, 4);
                 CabinetLed.SetButtonLight(Color.blue, 2);
@@ -205,6 +211,11 @@ namespace MajdataPlay.Scenes.List
         {
             if (_isExited || !_isInited)
             {
+                return;
+            }
+            else if (SongListBrowser.IsOpen)
+            {
+                // 列表式选歌打开时由它处理操作，圆圈上的按键不动封面轮播
                 return;
             }
             _recommendRefreshTimer += MajTimeline.UnscaledDeltaTime;
@@ -489,6 +500,48 @@ namespace MajdataPlay.Scenes.List
                 var list = new string[] { "easy.wav", "basic.wav", "advanced.wav", "expert.wav", "master.wav", "remaster.wav", "original.wav" };
                 MajInstances.AudioManager.PlaySFX(list[(int)_listConfig.SelectedDiff]);
             }
+        }
+        /// <summary>
+        /// 列表式选歌：用指定的歌和难度进入游戏，并让封面轮播停在这首，回到选歌时还在这里
+        /// </summary>
+        internal void EnterGame(ISongDetail song, ChartLevel level)
+        {
+            if (_isExited)
+            {
+                return;
+            }
+            if (_listConfig.SelectedDiff != level)
+            {
+                _collectionListManager.SetDifficulty(level);
+            }
+            _coverListManager.SetCursor(song, true, true);
+            if (_coverListManager.SelectedSong?.Hash == song.Hash)
+            {
+                EnterGame();
+                return;
+            }
+            // 当前分类里找不到这首（例如按难度筛掉了）：直接用这首进入
+            _cts.Cancel();
+            MajInstances.AudioManager.StopSFX("bgm_select.mp3");
+            _listConfig.SelectedDiff = level;
+            _listConfig.SelectedSongHash = song.Hash;
+            var info = new GameInfo(GameMode.Normal, new[] { song }, new[] { level });
+            Majdata<GameInfo>.Instance = info;
+            _pressTime = 0;
+            _isExited = true;
+            MajInstances.SceneSwitcher.SwitchScene("Game", false);
+        }
+        /// <summary>
+        /// 列表式选歌：进入设置
+        /// </summary>
+        internal void EnterSetting()
+        {
+            if (_isExited)
+            {
+                return;
+            }
+            MajInstances.SceneSwitcher.SwitchScene("Setting", false);
+            _isExited = true;
         }
         void EnterGame()
         {

@@ -74,6 +74,18 @@ namespace MajdataPlay
             ShareState = ScoreActionState.Running;
             ShareAsync(options).Forget();
         }
+        /// <summary>
+        /// 列表式选歌的谱面详情：分享或导出这一张谱的成绩（按当前游玩模式的分区）
+        /// </summary>
+        public static void StartShareChart(ISongDetail song, ChartLevel level, ScoreShareFormatOption format)
+        {
+            if (ShareState == ScoreActionState.Running)
+            {
+                return;
+            }
+            ShareState = ScoreActionState.Running;
+            ShareChartAsync(song, level, format).Forget();
+        }
         public static void StartExport(ScoreOptions options)
         {
             if (ExportState == ScoreActionState.Running)
@@ -129,45 +141,75 @@ namespace MajdataPlay
                     return;
                 }
                 var title = BuildTitle(options, isFalling, entries.Count);
-                var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-                var directory = PrepareShareDirectory();
-                var baseName = $"MajdataPlay-Scores-{stamp}";
-                switch (options.ShareFormat)
-                {
-                    case ScoreShareFormatOption.Text:
-                        {
-                            var text = BuildText(title, entries);
-                            NativeShare.ShareText(text, title, Path.Combine(directory, baseName + ".txt"));
-                        }
-                        break;
-                    case ScoreShareFormatOption.Csv:
-                        {
-                            var path = Path.Combine(directory, baseName + ".csv");
-                            // 带 BOM，Excel 打开时中日文不乱码
-                            File.WriteAllText(path, BuildCsv(entries), new UTF8Encoding(true));
-                            NativeShare.ShareFiles(new[] { path }, "text/csv", title);
-                        }
-                        break;
-                    case ScoreShareFormatOption.Json:
-                        {
-                            var path = Path.Combine(directory, baseName + ".json");
-                            File.WriteAllText(path, BuildJson(title, entries, isFalling), new UTF8Encoding(false));
-                            NativeShare.ShareFiles(new[] { path }, "application/json", title);
-                        }
-                        break;
-                    default:
-                        {
-                            var paths = await ScoreImageRenderer.RenderAsync(entries, title, directory, baseName);
-                            NativeShare.ShareFiles(paths, "image/png", title);
-                        }
-                        break;
-                }
+                await ShareEntriesAsync(entries, title, options.ShareFormat, isFalling);
                 ShareState = ScoreActionState.Done;
             }
             catch (Exception e)
             {
                 MajDebug.LogError(e);
                 ShareState = ScoreActionState.Failed;
+            }
+        }
+        static async UniTaskVoid ShareChartAsync(ISongDetail song, ChartLevel level, ScoreShareFormatOption format)
+        {
+            try
+            {
+                var isFalling = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling;
+                var score = ScoreManager.FindScore(song.Hash, level, isFalling) ?? new MaiScore()
+                {
+                    Hash = song.Hash,
+                    ChartLevel = level,
+                };
+                var entries = new List<ScoreEntry>
+                {
+                    CreateEntry(score, song.Hash, new Dictionary<string, ISongDetail> { [song.Hash] = song })
+                };
+                var store = (isFalling ? "MAJTEXT_SCORE_STORE_FALLING" : "MAJTEXT_SCORE_STORE_STANDARD").i18n();
+                var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var title = $"{"MAJTEXT_SCORE_TITLE".i18n()} · {store} · {song.Title} · {date}";
+                await ShareEntriesAsync(entries, title, format, isFalling);
+                ShareState = ScoreActionState.Done;
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(e);
+                ShareState = ScoreActionState.Failed;
+            }
+        }
+        static async UniTask ShareEntriesAsync(List<ScoreEntry> entries, string title, ScoreShareFormatOption format, bool isFalling)
+        {
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var directory = PrepareShareDirectory();
+            var baseName = $"MajdataPlay-Scores-{stamp}";
+            switch (format)
+            {
+                case ScoreShareFormatOption.Text:
+                    {
+                        var text = BuildText(title, entries);
+                        NativeShare.ShareText(text, title, Path.Combine(directory, baseName + ".txt"));
+                    }
+                    break;
+                case ScoreShareFormatOption.Csv:
+                    {
+                        var path = Path.Combine(directory, baseName + ".csv");
+                        // 带 BOM，Excel 打开时中日文不乱码
+                        File.WriteAllText(path, BuildCsv(entries), new UTF8Encoding(true));
+                        NativeShare.ShareFiles(new[] { path }, "text/csv", title);
+                    }
+                    break;
+                case ScoreShareFormatOption.Json:
+                    {
+                        var path = Path.Combine(directory, baseName + ".json");
+                        File.WriteAllText(path, BuildJson(title, entries, isFalling), new UTF8Encoding(false));
+                        NativeShare.ShareFiles(new[] { path }, "application/json", title);
+                    }
+                    break;
+                default:
+                    {
+                        var paths = await ScoreImageRenderer.RenderAsync(entries, title, directory, baseName);
+                        NativeShare.ShareFiles(paths, "image/png", title);
+                    }
+                    break;
             }
         }
         static async UniTaskVoid ExportAsync(ScoreOptions options)

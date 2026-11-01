@@ -79,6 +79,7 @@ Settings → Display Settings → Screen Orientation, choose "Landscape". Every 
 
 ### Other
 
+- **List-style song select**: Settings → Game Settings → Song List Style, choose "List" (default is the original cover carousel). A touch-friendly page with categories on the left, search, a global difficulty switch and pages of song cards (cover, title, artist/charter, levels, best score). Tap a card for chart details: big cover, per-song difficulty, best score, chart radar, note density, favorite, share/export the score and Play. "Cover" switches back to the carousel for this visit.
 - **Instant Song Preview**: Settings → Game Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
 - **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.
 - **App icon**: now wears a pink U-shaped hairclip.

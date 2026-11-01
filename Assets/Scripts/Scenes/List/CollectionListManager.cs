@@ -147,6 +147,26 @@ namespace MajdataPlay.Scenes.List
             InitCollectionStorage();
             RestoreContextFromConfiguration();
         }
+        /// <summary>
+        /// 列表式选歌：分类数量、当前分类序号、按序号取分类（未按难度排序的原始分类）
+        /// </summary>
+        internal int CollectionCount => _collections.Length;
+        internal int SelectedCollectionIndex => _listDesiredPos;
+        internal SongCollection GetCollection(int index) => _collections[index];
+        /// <summary>
+        /// 列表式选歌：切换到指定分类，封面轮播随之同步
+        /// </summary>
+        internal void SelectCollection(int index)
+        {
+            SlideListTo(index, true, false);
+        }
+        /// <summary>
+        /// 列表式选歌：切换全局难度
+        /// </summary>
+        internal void SetDifficulty(ChartLevel level)
+        {
+            SlideToDifficulty((int)level);
+        }
         public void SlideDifficulty(int delta)
         {
             var pos = _selectedDifficulty + delta;
