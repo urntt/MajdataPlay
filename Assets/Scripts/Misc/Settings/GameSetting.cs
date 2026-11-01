@@ -69,6 +69,10 @@ namespace MajdataPlay.Settings
                 _hasFallingSettings = value is not null;
             }
         }
+        /// <summary>
+        /// 成绩：分享、导出备份、导入备份
+        /// </summary>
+        public ScoreOptions Score { get; init; } = new();
         
         public DebugOptions Debug { get; init; } = new();
         [HideInSettingUI]
@@ -195,6 +199,10 @@ namespace MajdataPlay.Settings
         public int LeadInTime { get; set; } = 1;
 
         public bool ManualStartGame { get; set; } = false;
+        /// <summary>
+        /// 选歌即时切换预览：切歌时立即播放新歌的预览，中间不回到选歌背景音乐；关闭时等待 1 秒并恢复背景音乐
+        /// </summary>
+        public bool ListInstantPreview { get; set; } = false;
     }
     
     public class JudgeOptions
@@ -516,6 +524,10 @@ namespace MajdataPlay.Settings
 
         public bool FallingLaneDividers { get; set; } = true;
         /// <summary>
+        /// 点亮手指所在列，只在显示轨道分割线时生效：扫键开启时跟着手指，关闭时只亮手指按下的那一列
+        /// </summary>
+        public bool FallingLaneHighlight { get; set; } = false;
+        /// <summary>
         /// 信息显示是否跟随“连击/第二信息/副屏信息”等显示设置；不跟随时右上显示分数与达成率、顶部中间显示连击
         /// </summary>
         public bool FallingInfoFollowDisplay { get; set; } = false;
@@ -532,6 +544,72 @@ namespace MajdataPlay.Settings
         public bool IsChartModActive()
         {
             return FallingTouchToTap || FallingSlideTailToFlick || FallingSlideOriginal;
+        }
+    }
+    
+    /// <summary>
+    /// 成绩的分享、导出与导入。选项类随设置保存，动作类不保存，在该行按左右键即执行（见 <see cref="ScoreExchange"/>）
+    /// </summary>
+    public class ScoreOptions
+    {
+        public ScoreStoreOption ScoreStore { get; set; } = ScoreStoreOption.PlayStyle;
+
+        public ScoreShareScopeOption ShareScope { get; set; } = ScoreShareScopeOption.Best;
+        /// <summary>
+        /// 分享“最好的若干个”时的数量
+        /// </summary>
+        [Step("5")]
+        [Range("5", "200", HasMax = true, HasMin = true)]
+        public int ShareBestCount { get; set; } = 50;
+
+        public ScoreShareFormatOption ShareFormat { get; set; } = ScoreShareFormatOption.Image;
+
+        [JsonIgnore]
+        [OptionEnumerator(typeof(ScoreActionEnumerator))]
+        public ScoreActionState Share
+        {
+            get => ScoreExchange.ShareState;
+            set
+            {
+                if (value == ScoreActionState.Running)
+                {
+                    ScoreExchange.StartShare(this);
+                }
+            }
+        }
+
+        [JsonIgnore]
+        [OptionEnumerator(typeof(ScoreActionEnumerator))]
+        public ScoreActionState ExportBackup
+        {
+            get => ScoreExchange.ExportState;
+            set
+            {
+                if (value == ScoreActionState.Running)
+                {
+                    ScoreExchange.StartExport(this);
+                }
+            }
+        }
+        /// <summary>
+        /// 要导入的备份文件名（备份文件夹里的文件）
+        /// </summary>
+        [JsonIgnore]
+        [OptionEnumerator(typeof(ScoreBackupFileEnumerator))]
+        public string BackupFile { get; set; } = string.Empty;
+
+        [JsonIgnore]
+        [OptionEnumerator(typeof(ScoreActionEnumerator))]
+        public ScoreActionState ImportBackup
+        {
+            get => ScoreExchange.ImportState;
+            set
+            {
+                if (value == ScoreActionState.Running)
+                {
+                    ScoreExchange.StartImport(BackupFile);
+                }
+            }
         }
     }
     

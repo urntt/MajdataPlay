@@ -627,6 +627,14 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             return _isPhysicalSensorOnInThisFrame[index] || _laneInput.CircleSensorHeld[index] ? SwitchStatus.On : SwitchStatus.Off;
         }
         /// <summary>
+        /// 下落式点亮手指所在列：触屏手指（按扫键设置）或实体按键按住
+        /// </summary>
+        /// <param name="lane">1~8</param>
+        public bool IsLaneHighlightedInThisFrame(int lane)
+        {
+            return _laneInput.HighlightLanes[lane - 1] || _isPhysicalBtnOnInThisFrame[lane - 1];
+        }
+        /// <summary>
         /// 下落式地雷 Touch（原版判定）：本帧有手指按进或划进 Touch 本身（不放大的范围），或实体传感器按下
         /// </summary>
         public bool IsLaneMineSensorClickedInThisFrame(SensorArea area)

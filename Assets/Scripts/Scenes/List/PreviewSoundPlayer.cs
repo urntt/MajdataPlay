@@ -45,9 +45,14 @@ namespace MajdataPlay.Scenes.List
         {
             var selectSound = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             AudioSampleWrap? previewSample = null;
+            // 选歌即时切换预览：切歌时背景音乐保持静音，直接接新歌的预览；只有加载失败时才恢复
+            var isInstantPreview = MajEnv.Settings.Game.ListInstantPreview;
             try
             {
-                selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+                if (!isInstantPreview)
+                {
+                    selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+                }
                 await UniTask.SwitchToThreadPool();
                 await Task.Delay(loadDelayMS, cancellationToken: token);
 
@@ -151,10 +156,12 @@ namespace MajdataPlay.Scenes.List
                 token.ThrowIfCancellationRequested();
                 await UniTask.Delay(500, cancellationToken: token, cancelImmediately: true);
                 token.ThrowIfCancellationRequested();
+                // 即时切换时从当前音量淡出：背景音乐已静音时不会被拉回原音量
+                var fadeFromVolume = isInstantPreview ? selectSound.Volume : MajEnv.Settings.Audio.Volume.BGM;
                 for (var i = 1f; i > 0; i = i - 0.2f)
                 {
                     token.ThrowIfCancellationRequested();
-                    selectSound.Volume = i * MajEnv.Settings.Audio.Volume.BGM;
+                    selectSound.Volume = i * fadeFromVolume;
                     await UniTask.Delay(100, cancellationToken: token, cancelImmediately: true);
                 }
                 while (true)
@@ -188,6 +195,11 @@ namespace MajdataPlay.Scenes.List
             {
                 if (_previewVersion == previewVersion && ReferenceEquals(_currentPreviewSong, info))
                 {
+                    // 即时切换时预览没能播放（加载失败）且没有切到别的歌：恢复选歌背景音乐
+                    if (isInstantPreview && !_isPreviewPlaying && !token.IsCancellationRequested)
+                    {
+                        selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+                    }
                     _currentPreviewSong = null;
                     _isPreviewPlaying = false;
                 }

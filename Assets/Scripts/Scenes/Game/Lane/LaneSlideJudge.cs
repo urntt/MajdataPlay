@@ -7,7 +7,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
     /// 下落式 Slide 的 Drag 式判定：沿箭头路径每隔一小段时间取一个点，相当于一串隐形的 Drag。
-    /// 点到达判定线前后一小段时间内，有手指的横坐标离箭头位置不超过一列半宽即算命中；
+    /// 点到达判定线前后一小段时间内，有手指的横坐标离箭头位置不超过两列宽（合计四列）即算命中；
     /// 提前命中不会让后面的点提前结算。全部点结算后，按命中情况以及首、尾点是否命中给出评级。
     /// 星星尾转 Flick 时改为只有一个点，需要在所在列划动（见 <see cref="CreateFlick"/>）。
     /// </summary>
@@ -26,9 +26,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float LATE_SEC = 0.15f;
         /// <summary>
-        /// 手指横坐标与箭头位置相差不超过该值即算命中（左右各一列半）；扫键也用它判断手指是否正在跟这条星星
+        /// 手指横坐标与箭头位置相差不超过该值即算命中：左右各两列，合计四列
+        /// （箭头在列中央时即为左右相邻两列的整列，再加上外侧各半列）；扫键也用它判断手指是否正在跟这条星星
         /// </summary>
-        internal const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 1.5f;
+        internal const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 2f;
         /// <summary>
         /// 路径中横向跨过该距离的一段视为 8 与 1 之间的跳跃（圆周上相邻，轨道上却在两端）
         /// </summary>

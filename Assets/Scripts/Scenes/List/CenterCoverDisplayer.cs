@@ -231,7 +231,8 @@ namespace MajdataPlay.Scenes.List
             }
             UpdateLevelRing();
             UpdateMetadataAndScoreDisplayer(true, false, loadDelayMS);
-            _previewPlayer.PlayPreviewSound(detail, 1000, _cts.Token);
+            // 选歌即时切换预览：不等待，切歌时立即加载新歌的预览
+            _previewPlayer.PlayPreviewSound(detail, MajEnv.Settings.Game.ListInstantPreview ? 0 : 1000, _cts.Token);
             _favoriteAdder.SetSong(detail);
             ListManager.AllBackgroundTasks.Add(SetCoverAsync(detail, loadDelayMS, _cts.Token, immediateCover)
                                                .Register($"[{nameof(CenterCoverDisplayer)}]Load song cover"));

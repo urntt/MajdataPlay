@@ -33,6 +33,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 星星尾转 Flick：整条箭头换成一个 Flick；Slide 保持原样时无效
         /// </summary>
         public static bool IsSlideTailToFlick { get; private set; } = false;
+        /// <summary>
+        /// 点亮手指所在列（只在显示轨道分割线时生效）
+        /// </summary>
+        public static bool IsLaneHighlightEnabled { get; private set; } = false;
 
         public static void Enable(GameSetting settings)
         {
@@ -45,6 +49,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsSlideOriginal = falling.FallingSlideOriginal;
             IsTouchVerticalJudge = falling.FallingTouchVerticalJudge;
             IsSlideTailToFlick = falling.FallingSlideTailToFlick && !falling.FallingSlideOriginal;
+            IsLaneHighlightEnabled = falling.FallingLaneHighlight && falling.FallingLaneDividers;
         }
         public static void Disable()
         {
@@ -56,6 +61,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             IsSlideOriginal = false;
             IsTouchVerticalJudge = false;
             IsSlideTailToFlick = false;
+            IsLaneHighlightEnabled = false;
         }
     }
     /// <summary>

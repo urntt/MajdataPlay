@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 #nullable enable
 namespace MajdataPlay.Scenes.Game.Lane
@@ -20,6 +21,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 
         static Sprite? _whiteSprite;
         static Sprite? _laneShadeSprite;
+        static Sprite? _laneHighlightSprite;
 
         /// <summary>
         /// 1×1 世界单位的白色方块，用缩放和颜色绘制线条
@@ -78,6 +80,46 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         static float LaneShadeWidth => LaneLayout.LANE_AREA_WIDTH + LaneLayout.LANE_WIDTH * 2f;
+        /// <summary>
+        /// 点亮手指所在列的光柱：自下而上渐隐的竖向渐变
+        /// </summary>
+        static Sprite LaneHighlightSprite
+        {
+            get
+            {
+                if (_laneHighlightSprite == null)
+                {
+                    var texture = new Texture2D(1, FADE_TEXTURE_WIDTH, TextureFormat.RGBA32, false)
+                    {
+                        name = "LaneHighlight",
+                        wrapMode = TextureWrapMode.Clamp,
+                        filterMode = FilterMode.Bilinear
+                    };
+                    var pixels = new Color32[FADE_TEXTURE_WIDTH];
+                    for (var i = 0; i < FADE_TEXTURE_WIDTH; i++)
+                    {
+                        var v = (i + 0.5f) / FADE_TEXTURE_WIDTH;
+                        var alpha = (1f - v) * (1f - v);
+                        pixels[i] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
+                    }
+                    texture.SetPixels32(pixels);
+                    texture.Apply(false, true);
+                    // 底边在判定线上：轴心放在底部
+                    _laneHighlightSprite = Sprite.Create(texture,
+                                                         new Rect(0, 0, 1, FADE_TEXTURE_WIDTH),
+                                                         new Vector2(0.5f, 0f),
+                                                         1,
+                                                         0,
+                                                         SpriteMeshType.FullRect);
+                    _laneHighlightSprite.name = "LaneHighlight";
+                }
+                return _laneHighlightSprite;
+            }
+        }
+        /// <summary>
+        /// 当前游戏的点亮手指所在列的光柱，按列（1~8）存放；未开启时为空。离开游戏场景后随场景销毁
+        /// </summary>
+        public static SpriteRenderer[] LaneHighlights { get; private set; } = Array.Empty<SpriteRenderer>();
         /// <summary>
         /// 当前游戏的判定线，颜色由 LaneHud 按设置更新；离开游戏场景后随场景销毁
         /// </summary>
@@ -157,6 +199,22 @@ namespace MajdataPlay.Scenes.Game.Lane
                 var bandTop = LaneLayout.JUDGE_LINE_Y + LaneLayout.JUDGE_BAND_HALF_HEIGHT;
                 band.transform.position = new Vector3((left + right) / 2f, (bandBottom + bandTop) / 2f, 0);
                 band.transform.localScale = new Vector3(right - left, bandTop - bandBottom, 1f);
+            }
+            LaneHighlights = Array.Empty<SpriteRenderer>();
+            if (LaneMode.IsLaneHighlightEnabled)
+            {
+                // 在底色之上、分隔线与音符之下；平时透明，由 LaneHud 按手指所在列点亮
+                var highlights = new SpriteRenderer[LaneLayout.LANE_COUNT];
+                for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
+                {
+                    var highlight = CreateSprite($"LaneHighlight_{lane}", parent, LaneHighlightSprite, material, layerId, -102);
+                    highlight.color = new Color(1f, 1f, 1f, 0f);
+                    highlight.transform.position = new Vector3(LaneLayout.GetLaneX(lane), LaneLayout.JUDGE_LINE_Y, 0);
+                    // 贴图高 FADE_TEXTURE_WIDTH 像素、每像素 1 世界单位
+                    highlight.transform.localScale = new Vector3(LaneLayout.LANE_WIDTH, LaneLayout.TRAVEL_LENGTH * 0.6f / FADE_TEXTURE_WIDTH, 1f);
+                    highlights[lane - 1] = highlight;
+                }
+                LaneHighlights = highlights;
             }
             for (var i = 0; LaneMode.IsLaneDividerVisible && i <= LaneLayout.LANE_COUNT; i++)
             {

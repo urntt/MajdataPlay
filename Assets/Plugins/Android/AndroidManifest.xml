@@ -32,5 +32,10 @@
             </intent-filter>
             <meta-data android:name="unityplayer.UnityActivity" android:value="true" />
         </activity>
+        <!-- 分享成绩：以只读的 content:// 提供分享文件夹里的文件 -->
+        <provider android:name="net.majdata.majdataplay.ShareFileProvider"
+                  android:authorities="${applicationId}.majshare"
+                  android:exported="false"
+                  android:grantUriPermissions="true" />
     </application>
 </manifest>

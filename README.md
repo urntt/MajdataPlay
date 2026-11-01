@@ -31,7 +31,7 @@ To turn it on: Settings → Falling → Play Style, choose "Falling".
   - Each lane's judge range is the whole lane plus half a lane on each side. One press hits one note: the one closest to its judge time.
 - **Slides (stars)**
   - The original slide arrows are laid out along the path of the judge areas and fall with the notes.
-  - Judging works like a Drag: it's a hit when a finger's horizontal position is within one and a half lanes of the arrow. The jump between 8 and 1 (the two ends of the lanes) is judged more leniently.
+  - Judging works like a Drag: it's a hit when a finger's horizontal position is within two lanes of the arrow on either side (four lanes in total). The jump between 8 and 1 (the two ends of the lanes) is judged more leniently.
   - Grades: every point hit is Critical Perfect, first and last hit is Perfect, first hit plus any other is Great, any hit is Good, and nothing hit is Miss.
 - **Floating Touch**
   - Touch notes hover above their lane, from low to high in the order A, D, E, B, C.
@@ -55,6 +55,7 @@ Every falling-mode setting is in its own **Falling** category and is saved with 
 | Touch to Tap | Touch and TouchHold notes become Tap and Hold notes falling in their lane. Scores are not saved while this is on. |
 | Keep Slides Original | Off by default. Stars play as in standard mode: star heads go back to the outer ring and are judged there, and slides float in the middle of the screen, looking and judged as in standard play. Scores are not saved while this is on. |
 | Lane Dividers | Show the vertical lines between lanes. |
+| Light Up Touched Lanes | Off by default; only works while Lane Dividers are shown. The lane under your finger lights up: with Sweep Taps on it follows your finger, with Sweep Taps off only the lane you pressed lights up and it goes dark once you slide away. |
 | Follow Info Display | Off: use the HUD layout above. On: combo and other info follow the display settings. |
 | Difficulty Color / Score Color | Color the difficulty (bottom right) and the score (top right) by grade. |
 | Judge Line Color | White; maimai (gold for AP, purple for Great, green for Good, white for Miss); or Phigros (gold at ≥100.5%, blue at ≥100%, otherwise white). |
@@ -63,8 +64,21 @@ Every falling-mode setting is in its own **Falling** category and is saved with 
 
 Settings → Display Settings → Screen Orientation, choose "Landscape". Every page is shown in landscape: the main screen is centered, the sub screen is shrunk into the top left corner, and the rest is covered.
 
+### Scores (Settings → Scores)
+
+| Setting | Description |
+|---|---|
+| Score Set | Follow Play Style (default), Standard or Falling. |
+| Share Range | Current Chart (the chart selected on the song list before opening settings), Best, or All. Best and All are sorted by difficulty level first (e.g. 14+ > 14 > 13+; same level: Re:MASTER > MASTER > …), then achievement, then DX score; each difficulty of a song is its own entry. |
+| Share Count | How many to share for Best (5–200, default 50). |
+| Share Format | Image (score cards with cover art, up to 50 per image), Text, Spreadsheet (CSV) or Data (JSON). |
+| Share | Press left/right on this row to open the system share sheet (iOS/Android). |
+| Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). |
+| Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
+
 ### Other
 
+- **Instant Song Preview**: Settings → Game Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
 - **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.
 - **App icon**: now wears a pink U-shaped hairclip.
 - **Packaging**

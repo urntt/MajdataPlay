@@ -185,37 +185,7 @@ namespace MajdataPlay
                 record.Timestamp = DateTime.Now;
                 record.PlayCount++;
 
-                if (_db is not null)
-                {
-                    var scoreKey = MajScoreDB.MakeKey(record.Hash ?? string.Empty, record.ChartLevel);
-
-                    await _db.RunInTransactionAsync(conn =>
-                    {
-                        var detail = record.JudgeDetail ?? JudgeDetail.Empty;
-                        var tapRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Tap]);
-                        var holdRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Hold]);
-                        var slideRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Slide]);
-                        var breakRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Break]);
-                        var touchRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Touch]);
-
-                        // Look up existing score row to get FK ids
-                        var oldRow = conn.Find<MajScoreDB>(scoreKey);
-                        conn.UpdateJudgeInfoDB(oldRow?.TapDetailId, tapRecord);
-                        conn.UpdateJudgeInfoDB(oldRow?.HoldDetailId, holdRecord);
-                        conn.UpdateJudgeInfoDB(oldRow?.SlideDetailId, slideRecord);
-                        conn.UpdateJudgeInfoDB(oldRow?.BreakDetailId, breakRecord);
-                        conn.UpdateJudgeInfoDB(oldRow?.TouchDetailId, touchRecord);
-
-                        // Upsert MajScores with FK ids
-                        var dbRow = MajScoreDB.FromMaiScore(record);
-                        dbRow.TapDetailId = tapRecord.Id;
-                        dbRow.HoldDetailId = holdRecord.Id;
-                        dbRow.SlideDetailId = slideRecord.Id;
-                        dbRow.BreakDetailId = breakRecord.Id;
-                        dbRow.TouchDetailId = touchRecord.Id;
-                        conn.InsertOrReplace(dbRow);
-                    });
-                }
+                await WriteRecordAsync(record);
 
                 return true;
             }
@@ -224,6 +194,209 @@ namespace MajdataPlay
                 MajDebug.LogError(ex);
                 return false;
             }
+        }
+        /// <summary>
+        /// 把一条成绩（含判定明细）写入数据库，已有的行会被替换
+        /// </summary>
+        static async Task WriteRecordAsync(MaiScore record)
+        {
+            if (_db is not null)
+            {
+                var scoreKey = MajScoreDB.MakeKey(record.Hash ?? string.Empty, record.ChartLevel);
+
+                await _db.RunInTransactionAsync(conn =>
+                {
+                    var detail = record.JudgeDetail ?? JudgeDetail.Empty;
+                    var tapRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Tap]);
+                    var holdRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Hold]);
+                    var slideRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Slide]);
+                    var breakRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Break]);
+                    var touchRecord = JudgeInfoRecordDB.FromJudgeInfo(detail[ScoreNoteType.Touch]);
+
+                    // Look up existing score row to get FK ids
+                    var oldRow = conn.Find<MajScoreDB>(scoreKey);
+                    conn.UpdateJudgeInfoDB(oldRow?.TapDetailId, tapRecord);
+                    conn.UpdateJudgeInfoDB(oldRow?.HoldDetailId, holdRecord);
+                    conn.UpdateJudgeInfoDB(oldRow?.SlideDetailId, slideRecord);
+                    conn.UpdateJudgeInfoDB(oldRow?.BreakDetailId, breakRecord);
+                    conn.UpdateJudgeInfoDB(oldRow?.TouchDetailId, touchRecord);
+
+                    // Upsert MajScores with FK ids
+                    var dbRow = MajScoreDB.FromMaiScore(record);
+                    dbRow.TapDetailId = tapRecord.Id;
+                    dbRow.HoldDetailId = holdRecord.Id;
+                    dbRow.SlideDetailId = slideRecord.Id;
+                    dbRow.BreakDetailId = breakRecord.Id;
+                    dbRow.TouchDetailId = touchRecord.Id;
+                    conn.InsertOrReplace(dbRow);
+                });
+            }
+        }
+        /// <summary>
+        /// 分享用：取出某个分区里玩过的全部谱面成绩。返回的 Hash 仍带分区前缀，用 <see cref="GetSongHash"/> 取谱面 Hash
+        /// </summary>
+        public static List<MaiScore> GetAllScores(bool isFalling)
+        {
+            var result = new List<MaiScore>();
+            foreach (var score in GetAllStoredScores())
+            {
+                var hash = score.Hash ?? string.Empty;
+                if (hash.StartsWith(FALLING_HASH_PREFIX, StringComparison.Ordinal) == isFalling)
+                {
+                    result.Add(score);
+                }
+            }
+            return result;
+        }
+        /// <summary>
+        /// 导出备份用：标准与下落式两个分区里玩过的全部成绩，Hash 保留下落式前缀
+        /// </summary>
+        public static List<MaiScore> GetAllStoredScores()
+        {
+            var result = new List<MaiScore>();
+            ref var @lock = ref _lock;
+            var isLocked = false;
+            try
+            {
+                @lock.Enter(ref isLocked);
+                foreach (var pair in _buckets)
+                {
+                    if (string.IsNullOrEmpty(pair.Key))
+                    {
+                        continue;
+                    }
+                    foreach (var score in EnumerateLevels(pair.Value))
+                    {
+                        if (score.PlayCount > 0)
+                        {
+                            result.Add(score);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (isLocked)
+                {
+                    @lock.Exit();
+                }
+            }
+            return result;
+        }
+        /// <summary>
+        /// 分享当前谱面用：指定分区里某张谱的成绩，没玩过时为 null
+        /// </summary>
+        public static MaiScore? FindScore(string songHash, ChartLevel level, bool isFalling)
+        {
+            var hash = isFalling ? FALLING_HASH_PREFIX + songHash : songHash;
+            ref var @lock = ref _lock;
+            var isLocked = false;
+            try
+            {
+                @lock.Enter(ref isLocked);
+                if (!_buckets.TryGetValue(hash, out var scores))
+                {
+                    return null;
+                }
+                var score = GetLevel(scores, level);
+                return score.PlayCount > 0 ? score : null;
+            }
+            finally
+            {
+                if (isLocked)
+                {
+                    @lock.Exit();
+                }
+            }
+        }
+        /// <summary>
+        /// 去掉分区前缀，得到谱面 Hash
+        /// </summary>
+        public static string GetSongHash(MaiScore score)
+        {
+            var hash = score.Hash ?? string.Empty;
+            return hash.StartsWith(FALLING_HASH_PREFIX, StringComparison.Ordinal) ? hash.Substring(FALLING_HASH_PREFIX.Length) : hash;
+        }
+        /// <summary>
+        /// 导入备份：与已有成绩合并，达成率、DX 分、FC/AP 各取更好的，游玩次数取较大的，时间取较新的，
+        /// 判定明细取达成率较高的那份
+        /// </summary>
+        /// <returns>有变化的成绩条数</returns>
+        public static async Task<int> MergeScoresAsync(IEnumerable<MaiScore> records)
+        {
+            var changedCount = 0;
+            foreach (var incoming in records)
+            {
+                if (string.IsNullOrEmpty(incoming.Hash) || incoming.PlayCount <= 0 ||
+                    incoming.ChartLevel is < ChartLevel.Easy or > ChartLevel.UTAGE)
+                {
+                    continue;
+                }
+                var record = GetLevel(CheckAndGetSongScores(incoming.Hash!, false), incoming.ChartLevel);
+                var isEmpty = record.PlayCount <= 0;
+                var isBetter = isEmpty || incoming.Acc.DX > record.Acc.DX;
+                var isChanged = false;
+                if (isBetter)
+                {
+                    record.Acc = incoming.Acc;
+                    record.JudgeDetail = incoming.JudgeDetail;
+                    record.Fast = incoming.Fast;
+                    record.Late = incoming.Late;
+                    record.TotalDXScore = incoming.TotalDXScore;
+                    isChanged = true;
+                }
+                if (incoming.DXScore > record.DXScore)
+                {
+                    record.DXScore = incoming.DXScore;
+                    isChanged = true;
+                }
+                if (incoming.ComboState > record.ComboState)
+                {
+                    record.ComboState = incoming.ComboState;
+                    isChanged = true;
+                }
+                if (incoming.PlayCount > record.PlayCount)
+                {
+                    record.PlayCount = incoming.PlayCount;
+                    isChanged = true;
+                }
+                if (incoming.Timestamp > record.Timestamp)
+                {
+                    record.Timestamp = incoming.Timestamp;
+                    isChanged = true;
+                }
+                if (!isChanged)
+                {
+                    continue;
+                }
+                await WriteRecordAsync(record);
+                changedCount++;
+            }
+            return changedCount;
+        }
+        static MaiScore GetLevel(in SongScores scores, ChartLevel level)
+        {
+            return level switch
+            {
+                ChartLevel.Easy => scores.Easy,
+                ChartLevel.Basic => scores.Basic,
+                ChartLevel.Advance => scores.Advance,
+                ChartLevel.Expert => scores.Expert,
+                ChartLevel.Master => scores.Master,
+                ChartLevel.ReMaster => scores.ReMaster,
+                ChartLevel.UTAGE => scores.UTAGE,
+                _ => throw new ArgumentOutOfRangeException(nameof(level))
+            };
+        }
+        static IEnumerable<MaiScore> EnumerateLevels(SongScores scores)
+        {
+            yield return scores.Easy;
+            yield return scores.Basic;
+            yield return scores.Advance;
+            yield return scores.Expert;
+            yield return scores.Master;
+            yield return scores.ReMaster;
+            yield return scores.UTAGE;
         }
 
         public static void LoadOnlineScores(ReadOnlySpan<MajNetAccountSongScore> scores)

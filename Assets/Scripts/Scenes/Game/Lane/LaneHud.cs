@@ -36,6 +36,11 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float ACHIEVEMENT_FONT_SIZE = SCORE_FONT_SIZE * 0.4f;
         const float ACHIEVEMENT_ALPHA = 0.7f;
+        /// <summary>
+        /// 点亮手指所在列的亮度，以及松开后淡出所需的时间
+        /// </summary>
+        const float LANE_HIGHLIGHT_ALPHA = 0.22f;
+        const float LANE_HIGHLIGHT_FADE_SEC = 0.1f;
         const float DOUBLE_TAP_INTERVAL_SEC = 0.5f;
         const float RESUME_COUNTDOWN_SEC = 3f;
 
@@ -365,6 +370,31 @@ namespace MajdataPlay.Scenes.Game.Lane
             _progressFill.anchorMax = new Vector2(progress, 1);
             FitBackground();
             UpdateJudgeLineColor();
+            UpdateLaneHighlights();
+        }
+        /// <summary>
+        /// 点亮手指所在列：按住时亮，松开后很快淡出
+        /// </summary>
+        void UpdateLaneHighlights()
+        {
+            var highlights = LaneVisuals.LaneHighlights;
+            if (highlights.Length == 0)
+            {
+                return;
+            }
+            var fadeStep = Time.unscaledDeltaTime / LANE_HIGHLIGHT_FADE_SEC;
+            for (var i = 0; i < highlights.Length; i++)
+            {
+                var highlight = highlights[i];
+                if (highlight == null)
+                {
+                    continue;
+                }
+                var color = highlight.color;
+                var isOn = !_gpManager.IsPaused && _noteManager.IsLaneHighlightedInThisFrame(i + 1);
+                color.a = isOn ? LANE_HIGHLIGHT_ALPHA : Mathf.Max(0f, color.a - LANE_HIGHLIGHT_ALPHA * fadeStep);
+                highlight.color = color;
+            }
         }
         /// <summary>
         /// maimai 式：保持 AP 金色，出现 Great 紫色、Good 绿色、Miss 白色；
