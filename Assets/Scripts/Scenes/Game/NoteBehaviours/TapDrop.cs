@@ -469,8 +469,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         {
             if (IsStar)
             {
+                // 黄色的 Each 星星染红后足够亮，青色的普通星星染红会发暗
                 var skin = MajInstances.SkinManager.GetStarSkin();
-                _thisRenderer.sprite = IsDouble ? skin.Double : skin.Normal;
+                _thisRenderer.sprite = IsDouble ? skin.EachDouble : skin.Each;
             }
             else
             {

@@ -9,6 +9,8 @@ namespace MajdataPlay.Scenes.Game.Lane
     {
         const string BACKGROUND_SORTING_LAYER = "Outline";
         const string SLIDE_PATH_SORTING_LAYER = "Slides";
+        // 在 Tap/Hold/星星所在的 Tap 层之上、Touch 之下
+        const string FLICK_MARKER_SORTING_LAYER = "TouchHold Border";
 
         /// <summary>
         /// 横贯整个屏幕的线条与底色使用的长度，任何宽高比都能盖满
@@ -81,11 +83,15 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public static SpriteRenderer? JudgeLine { get; private set; }
         /// <summary>
-        /// Break 转 Flick、星星尾转 Flick 的染色
+        /// Break 转 Flick、星星尾转 Flick 的染色。星星用黄色的 Each 贴图来染：默认的星星是青色，染红后会发暗
         /// </summary>
         public static readonly Color FlickColor = new Color(1f, 0.22f, 0.22f);
         public static int BackgroundSortingLayerId => SortingLayer.NameToID(BACKGROUND_SORTING_LAYER);
         public static int SlidePathSortingLayerId => SortingLayer.NameToID(SLIDE_PATH_SORTING_LAYER);
+        /// <summary>
+        /// 星星尾转 Flick 的标记画在所有 Tap、Hold、星星头之上，与它们叠在一起时也能看清
+        /// </summary>
+        public static int FlickMarkerSortingLayerId => SortingLayer.NameToID(FLICK_MARKER_SORTING_LAYER);
 
         public static SpriteRenderer CreateQuad(string name, Transform parent, Material material, int sortingLayerId, int sortingOrder, Color color)
         {

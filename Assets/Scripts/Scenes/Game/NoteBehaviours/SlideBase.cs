@@ -473,11 +473,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var lane = Mathf.Clamp(LaneLayout.GetLaneAt(paths[0][0].X), 1, LaneLayout.LANE_COUNT);
+            // 黄色的 Each 星星染红后足够亮，青色的普通星星染红会发暗
             var skin = MajInstances.SkinManager.GetStarSkin();
             _lanePath = LaneSlidePath.CreateFlickMarker(LaneLayout.GetLaneX(lane),
                                                         StartTiming,
                                                         Speed,
-                                                        skin.Normal,
+                                                        skin.Each,
                                                         DefaultMaterial,
                                                         LaneVisuals.FlickColor,
                                                         USERSETTING_TAP_SCALE,

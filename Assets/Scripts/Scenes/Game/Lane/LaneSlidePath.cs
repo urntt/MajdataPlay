@@ -61,6 +61,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly Sprite _sprite;
         readonly Material _material;
         readonly int _sortingOrder;
+        readonly int _sortingLayerId = LaneVisuals.SlidePathSortingLayerId;
         readonly Color _color = Color.white;
         readonly float _scale = 1f;
         /// <summary>
@@ -93,7 +94,16 @@ namespace MajdataPlay.Scenes.Game.Lane
             _firstVisible = new int[_paths.Length];
         }
         /// <summary>
-        /// 星星尾转 Flick：不画箭头，只画一个 Flick 标记，在 <paramref name="timing"/> 时落到判定线
+        /// Flick 标记比普通音符大一些
+        /// </summary>
+        const float FLICK_MARKER_SCALE = 1.15f;
+        /// <summary>
+        /// Flick 标记相对音符多转半个星角（五角星 72° 的一半），与同一位置的星星头叠在一起时角错开，两者都能看见
+        /// </summary>
+        const float FLICK_MARKER_ROTATION_OFFSET = 36f;
+        /// <summary>
+        /// 星星尾转 Flick：不画箭头，只画一个 Flick 标记，在 <paramref name="timing"/> 时落到判定线。
+        /// 标记画在所有 Tap、Hold、星星头之上，稍大并错开星角，与它们叠在一起时也能看清
         /// </summary>
         /// <param name="sprite">星星贴图，前进方向与下落式的音符相同</param>
         LaneSlidePath(float x, float timing, float speed, Sprite? sprite, Material material, Color color, float scale, int sortingOrder)
@@ -102,10 +112,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
             _sortingOrder = sortingOrder;
+            _sortingLayerId = LaneVisuals.FlickMarkerSortingLayerId;
             _color = color;
-            _scale = scale;
+            _scale = scale * FLICK_MARKER_SCALE;
             _bottomY = LaneLayout.BOTTOM_Y - TOP_MARGIN;
-            _paths = new[] { new[] { new Arrow(x, timing * _heightPerSec, LaneLayout.NoteRotation) } };
+            var rotation = LaneLayout.NoteRotation * Quaternion.Euler(0, 0, FLICK_MARKER_ROTATION_OFFSET);
+            _paths = new[] { new[] { new Arrow(x, timing * _heightPerSec, rotation) } };
             _firstVisible = new int[1];
         }
         internal static LaneSlidePath CreateFlickMarker(float x, float timing, float speed, Sprite? sprite, Material material, Color color, float scale, int sortingOrder)
@@ -201,7 +213,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 }
                 return renderer;
             }
-            var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, LaneVisuals.SlidePathSortingLayerId, _sortingOrder);
+            var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, _sortingLayerId, _sortingOrder);
             created.color = _color;
             created.transform.localScale = new Vector3(_scale, _scale, 1f);
             _renderers.Add(created);
