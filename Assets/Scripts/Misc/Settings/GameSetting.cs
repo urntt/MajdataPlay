@@ -207,6 +207,12 @@ namespace MajdataPlay.Settings
         /// 选歌样式：封面轮播或列表式（左侧分类、搜索、曲目卡片与谱面详情）
         /// </summary>
         public ListStyleOption ListStyle { get; set; } = ListStyleOption.Cover;
+        /// <summary>
+        /// 列表式选歌每页的曲目数量
+        /// </summary>
+        [Step("5")]
+        [Range("5", "100", HasMax = true, HasMin = true)]
+        public int ListPageSize { get; set; } = 20;
     }
     
     public class JudgeOptions
@@ -528,7 +534,7 @@ namespace MajdataPlay.Settings
 
         public bool FallingLaneDividers { get; set; } = true;
         /// <summary>
-        /// 点亮手指所在列，只在显示轨道分割线时生效：扫键开启时跟着手指，关闭时只亮手指按下的那一列
+        /// 点亮手指所在列（跟着手指走），只在显示轨道分割线时生效
         /// </summary>
         public bool FallingLaneHighlight { get; set; } = false;
         /// <summary>

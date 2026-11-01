@@ -56,7 +56,7 @@ Every falling-mode setting is in its own **Falling** category and is saved with 
 | Touch to Tap | Touch and TouchHold notes become Tap and Hold notes falling in their lane. Scores are not saved while this is on. |
 | Keep Slides Original | Off by default. Stars play as in standard mode: star heads go back to the outer ring and are judged there, and slides float in the middle of the screen, looking and judged as in standard play. Scores are not saved while this is on. |
 | Lane Dividers | Show the vertical lines between lanes. |
-| Light Up Touched Lanes | Off by default; only works while Lane Dividers are shown. The lane under your finger lights up: with Sweep Taps on it follows your finger, with Sweep Taps off only the lane you pressed lights up and it goes dark once you slide away. |
+| Light Up Touched Lanes | Off by default; only works while Lane Dividers are shown. The lane under your finger lights up and follows your finger, whether or not Sweep Taps is on. |
 | Follow Info Display | Off: use the HUD layout above. On: combo and other info follow the display settings. |
 | Difficulty Color / Score Color | Color the difficulty (bottom right) and the score (top right) by grade. |
 | Judge Line Color | White; maimai (gold for AP, purple for Great, green for Good, white for Miss); or Phigros (gold at ≥100.5%, blue at ≥100%, otherwise white). |
@@ -72,14 +72,19 @@ Settings → Display Settings → Screen Orientation, choose "Landscape". Every 
 | Score Set | Follow Play Style (default), Standard or Falling. |
 | Share Range | Current Chart (the chart selected on the song list before opening settings), Best, or All. Best and All are sorted by difficulty level first (e.g. 14+ > 14 > 13+; same level: Re:MASTER > MASTER > …), then achievement, then DX score; each difficulty of a song is its own entry. |
 | Share Count | How many to share for Best (5–200, default 50). |
-| Share Format | Image (score cards with cover art, up to 50 per image), Text, Spreadsheet (CSV) or Data (JSON). |
+| Share Format | Image, Text, Spreadsheet (CSV) or Data (JSON). The image shows your avatar and nickname at the top left (from the logged-in account, otherwise "Guest") and "Best X" or "All N" with the date at the top right, then score cards with cover art, achievement, grade, FC/AP, DX score and play count ("3 PC"), up to 50 per image. Text, CSV and JSON carry the same header (nickname, Best X / All N, date) and DX score and play count for every entry; files are named like `Nickname-Best50-2026-11-01.csv`. |
 | Share | Press left/right on this row to open the system share sheet (iOS/Android). |
 | Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). |
 | Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
 
 ### Other
 
-- **List-style song select**: Settings → Game Settings → Song List Style, choose "List" (default is the original cover carousel). A touch-friendly page with categories on the left, search, a global difficulty switch and pages of song cards (cover, title, artist/charter, levels, best score). Tap a card for chart details: big cover, per-song difficulty, best score, chart radar, note density, favorite, share/export the score and Play. "Cover" switches back to the carousel for this visit.
+- **List-style song select**: Settings → Game Settings → Song List Style, choose "List" (default is the original cover carousel). A touch-friendly page:
+  - Categories take the left quarter of the screen; on the right, one song card per row with the cover, title (scrolls when too long), artist and charter, length and BPM (plus ID, plays, likes and comments for online charts), colored difficulty tags, a heart to favorite, and the best score with a colored grade, FC/AP, DX score and "X PC · last played".
+  - "−" / "+" switch the global difficulty without losing your scroll position; a draggable scrollbar on the right; a floating pager at the bottom. Songs per page is a setting (Game Settings → Songs per List Page, default 20).
+  - Tap a card for chart details: big cover with a heart, share/export buttons and an info card on the left; title, difficulty bar, score card, chart radar and note density on the right; "Back" at the top left and a floating "Play" button at the bottom right. Opening and closing details slides and fades, and the preview and background music fade in and out.
+  - After playing a chart started from its detail page, you come back to that detail page, with the list where you left it.
+  - "Cover" switches back to the carousel for this visit.
 - **Instant Song Preview**: Settings → Game Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
 - **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.
 - **App icon**: now wears a pink U-shaped hairclip.

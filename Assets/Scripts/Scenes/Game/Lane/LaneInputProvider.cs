@@ -37,7 +37,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
         /// <summary>
-        /// 点亮手指所在列：扫键开启时为手指当前所在的列（带防抖），关闭时只有手指按下的那一列，离开后熄灭
+        /// 点亮手指所在列：手指当前所在的列（带防抖），与扫键设置无关
         /// </summary>
         public ReadOnlySpan<bool> HighlightLanes => _highlightLanes;
         public ReadOnlySpan<bool> FloatSensorHeld => _floatSensorHeld;
@@ -124,10 +124,6 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// 扫键用：这根手指上一帧所在的列（带防抖），不在轨道判定区时为 0
             /// </summary>
             public int SweepLane;
-            /// <summary>
-            /// 点亮手指所在列（扫键关闭时）：手指按下时所在的列，移出这一列后为 0
-            /// </summary>
-            public int PressLane;
             /// <summary>
             /// Slide 保持原样用：上一帧所在的圆形传感器（33 位）
             /// </summary>
@@ -418,19 +414,10 @@ namespace MajdataPlay.Scenes.Game.Lane
                 AddSweepClicks(record.SweepLane, sweepLane);
             }
             record.SweepLane = sweepLane;
-            // 点亮手指所在列：扫键开启时跟着手指；关闭时只亮按下的那一列，手指移出后不再点亮
-            if (isBegan)
+            // 点亮手指所在列：跟着手指走，与扫键设置无关
+            if (sweepLane != 0)
             {
-                record.PressLane = isInLineArea ? lane : 0;
-            }
-            else if (record.PressLane != 0 && (!isInLineArea || lane != record.PressLane))
-            {
-                record.PressLane = 0;
-            }
-            var highlightLane = LaneMode.IsSweepEnabled ? sweepLane : record.PressLane;
-            if (highlightLane != 0)
-            {
-                _highlightLanes[highlightLane - 1] = true;
+                _highlightLanes[sweepLane - 1] = true;
             }
             // Flick
             var speed = hasRecord ? (position - record.LastPosition).magnitude / deltaTime : 0f;

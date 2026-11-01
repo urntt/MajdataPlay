@@ -2,6 +2,7 @@ using Cysharp.Threading.Tasks;
 using MajdataPlay.Collections;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Json;
+using MajdataPlay.Net;
 using MajdataPlay.Scenes.Game;
 using MajdataPlay.Settings;
 using MajdataPlay.Settings.OptionEnumerators;
@@ -13,6 +14,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 #nullable enable
 namespace MajdataPlay
 {
@@ -59,10 +61,49 @@ namespace MajdataPlay
             public bool IsPlayed => Score.PlayCount > 0;
             public string Title => Song?.Title ?? "MAJTEXT_SCORE_UNKNOWN_SONG".i18n();
             public string Artist => Song?.Artist ?? string.Empty;
+            /// <summary>
+            /// 这个难度的谱师
+            /// </summary>
+            public string Designer
+            {
+                get
+                {
+                    if (Song is null)
+                    {
+                        return string.Empty;
+                    }
+                    var designers = Song.Designers;
+                    var index = (int)Level;
+                    return index < designers.Length ? designers[index] ?? string.Empty : string.Empty;
+                }
+            }
             public string DifficultyName => GetDifficultyName(Level);
             public string AchievementText => IsPlayed ? Score.Acc.DX.ToString("0.0000", CultureInfo.InvariantCulture) + "%" : "—";
             public string GradeText => IsPlayed ? GetGrade(Score.Acc.DX) : "MAJTEXT_SCORE_UNPLAYED".i18n();
             public string ComboText => GetComboText(Score.ComboState);
+            public string DxScoreText => $"DX {Score.DXScore.ToString(CultureInfo.InvariantCulture)}";
+            public string PlayCountText => $"{Score.PlayCount.ToString(CultureInfo.InvariantCulture)} PC";
+        }
+        /// <summary>
+        /// 分享内容的头部信息：玩家、范围标签（“Best 50”“All 120”，当前谱面为空）与日期，图片和三种文本格式共用
+        /// </summary>
+        internal sealed class ShareHeader
+        {
+            public required string PlayerName { get; init; }
+            /// <summary>
+            /// 已登录账号的头像；未登录或没有头像时为空，图片上画一个带首字母的圆
+            /// </summary>
+            public Sprite? Avatar { get; init; }
+            public required string Label { get; init; }
+            public required string Date { get; init; }
+            /// <summary>
+            /// 分享文件名（不含扩展名），如“昵称-Best50-2026-11-01”
+            /// </summary>
+            public required string FileName { get; init; }
+            /// <summary>
+            /// 文字分享的第一行与系统分享的标题：“昵称 · Best 50 · 日期”
+            /// </summary>
+            public string Caption => string.Join(" · ", new[] { PlayerName, Label, Date }.Where(x => !string.IsNullOrEmpty(x)));
         }
 
         public static void StartShare(ScoreOptions options)
@@ -140,8 +181,15 @@ namespace MajdataPlay
                     ShareState = ScoreActionState.Failed;
                     return;
                 }
-                var title = BuildTitle(options, isFalling, entries.Count);
-                await ShareEntriesAsync(entries, title, options.ShareFormat, isFalling);
+                var label = options.ShareScope switch
+                {
+                    ScoreShareScopeOption.CurrentChart => string.Empty,
+                    // 不随语言变化；X 为设置里“最好的若干个”的数量
+                    ScoreShareScopeOption.Best => $"Best {options.ShareBestCount}",
+                    _ => $"All {entries.Count}",
+                };
+                var header = BuildHeader(label, options.ShareScope == ScoreShareScopeOption.CurrentChart ? entries[0].Title : null);
+                await ShareEntriesAsync(entries, header, options.ShareFormat, isFalling);
                 ShareState = ScoreActionState.Done;
             }
             catch (Exception e)
@@ -164,10 +212,8 @@ namespace MajdataPlay
                 {
                     CreateEntry(score, song.Hash, new Dictionary<string, ISongDetail> { [song.Hash] = song })
                 };
-                var store = (isFalling ? "MAJTEXT_SCORE_STORE_FALLING" : "MAJTEXT_SCORE_STORE_STANDARD").i18n();
-                var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                var title = $"{"MAJTEXT_SCORE_TITLE".i18n()} · {store} · {song.Title} · {date}";
-                await ShareEntriesAsync(entries, title, format, isFalling);
+                var header = BuildHeader(string.Empty, song.Title);
+                await ShareEntriesAsync(entries, header, format, isFalling);
                 ShareState = ScoreActionState.Done;
             }
             catch (Exception e)
@@ -176,17 +222,17 @@ namespace MajdataPlay
                 ShareState = ScoreActionState.Failed;
             }
         }
-        static async UniTask ShareEntriesAsync(List<ScoreEntry> entries, string title, ScoreShareFormatOption format, bool isFalling)
+        static async UniTask ShareEntriesAsync(List<ScoreEntry> entries, ShareHeader header, ScoreShareFormatOption format, bool isFalling)
         {
-            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             var directory = PrepareShareDirectory();
-            var baseName = $"MajdataPlay-Scores-{stamp}";
+            var baseName = header.FileName;
+            var caption = header.Caption;
             switch (format)
             {
                 case ScoreShareFormatOption.Text:
                     {
-                        var text = BuildText(title, entries);
-                        NativeShare.ShareText(text, title, Path.Combine(directory, baseName + ".txt"));
+                        var text = BuildText(header, entries);
+                        NativeShare.ShareText(text, caption, Path.Combine(directory, baseName + ".txt"));
                     }
                     break;
                 case ScoreShareFormatOption.Csv:
@@ -194,23 +240,68 @@ namespace MajdataPlay
                         var path = Path.Combine(directory, baseName + ".csv");
                         // 带 BOM，Excel 打开时中日文不乱码
                         File.WriteAllText(path, BuildCsv(entries), new UTF8Encoding(true));
-                        NativeShare.ShareFiles(new[] { path }, "text/csv", title);
+                        NativeShare.ShareFiles(new[] { path }, "text/csv", caption);
                     }
                     break;
                 case ScoreShareFormatOption.Json:
                     {
                         var path = Path.Combine(directory, baseName + ".json");
-                        File.WriteAllText(path, BuildJson(title, entries, isFalling), new UTF8Encoding(false));
-                        NativeShare.ShareFiles(new[] { path }, "application/json", title);
+                        File.WriteAllText(path, BuildJson(header, entries, isFalling), new UTF8Encoding(false));
+                        NativeShare.ShareFiles(new[] { path }, "application/json", caption);
                     }
                     break;
                 default:
                     {
-                        var paths = await ScoreImageRenderer.RenderAsync(entries, title, directory, baseName);
-                        NativeShare.ShareFiles(paths, "image/png", title);
+                        var paths = await ScoreImageRenderer.RenderAsync(entries, header, directory, baseName);
+                        NativeShare.ShareFiles(paths, "image/png", caption);
                     }
                     break;
             }
+        }
+        /// <param name="label">“Best 50”“All 120”，当前谱面为空</param>
+        /// <param name="songTitle">分享单张谱面时用于文件名的曲名</param>
+        static ShareHeader BuildHeader(string label, string? songTitle)
+        {
+            var playerName = "Guest";
+            Sprite? avatar = null;
+            var endpoints = MajEnv.ApiEndpoints ?? Array.Empty<ApiEndpoint>();
+            var endpoint = endpoints.FirstOrDefault(x => x.RuntimeConfig.AuthMethod != NetAuthMethodOption.None && x.RuntimeConfig.IsLoggedIn);
+            if (endpoint is not null)
+            {
+                var runtimeConfig = endpoint.RuntimeConfig;
+                var name = string.IsNullOrEmpty(runtimeConfig.Nickname) ? runtimeConfig.Username : runtimeConfig.Nickname;
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    playerName = name;
+                }
+                avatar = runtimeConfig.Avatar;
+            }
+            var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var middle = string.IsNullOrEmpty(label) ? (songTitle ?? "Scores") : label.Replace(" ", string.Empty);
+            return new ShareHeader()
+            {
+                PlayerName = playerName,
+                Avatar = avatar,
+                Label = label,
+                Date = date,
+                FileName = SanitizeFileName($"{playerName}-{middle}-{date}"),
+            };
+        }
+        static string SanitizeFileName(string name)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var builder = new StringBuilder(name.Length);
+            foreach (var c in name)
+            {
+                // 另外去掉各平台分享时可能出问题的字符
+                builder.Append(Array.IndexOf(invalid, c) >= 0 || c is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or '>' or '|' || char.IsControl(c) ? '_' : c);
+            }
+            var result = builder.ToString().Trim().Trim('.');
+            if (result.Length > 80)
+            {
+                result = result.Substring(0, 80);
+            }
+            return string.IsNullOrEmpty(result) ? "MajdataPlay-Scores" : result;
         }
         static async UniTaskVoid ExportAsync(ScoreOptions options)
         {
@@ -449,18 +540,6 @@ namespace MajdataPlay
                 _ => "UTAGE",
             };
         }
-        static string BuildTitle(ScoreOptions options, bool isFalling, int count)
-        {
-            var store = (isFalling ? "MAJTEXT_SCORE_STORE_FALLING" : "MAJTEXT_SCORE_STORE_STANDARD").i18n();
-            var scope = options.ShareScope switch
-            {
-                ScoreShareScopeOption.CurrentChart => "MAJTEXT_SCORE_SCOPE_CURRENT".i18n(),
-                ScoreShareScopeOption.Best => "MAJTEXT_SCORE_SCOPE_BEST".i18n(count),
-                _ => "MAJTEXT_SCORE_SCOPE_ALL".i18n(count),
-            };
-            var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            return $"{"MAJTEXT_SCORE_TITLE".i18n()} · {store} · {scope} · {date}";
-        }
         static string PrepareShareDirectory()
         {
             var directory = ShareDirectory;
@@ -479,10 +558,10 @@ namespace MajdataPlay
             }
             return directory;
         }
-        static string BuildText(string title, List<ScoreEntry> entries)
+        static string BuildText(ShareHeader header, List<ScoreEntry> entries)
         {
             var builder = new StringBuilder();
-            builder.AppendLine(title);
+            builder.AppendLine(header.Caption);
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -497,6 +576,7 @@ namespace MajdataPlay
                 {
                     builder.Append(' ').Append(entry.ComboText);
                 }
+                builder.Append(' ').Append(entry.DxScoreText).Append(' ').Append(entry.PlayCountText);
                 builder.AppendLine();
             }
             return builder.ToString();
@@ -504,7 +584,7 @@ namespace MajdataPlay
         static string BuildCsv(List<ScoreEntry> entries)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("Rank,Title,Artist,Difficulty,Level,Achievement,Grade,Combo,DXScore,MaxDXScore,PlayCount,LastPlayed");
+            builder.AppendLine("Rank,Title,Artist,Designer,Difficulty,Level,Achievement,Grade,FC/AP,DX,DX Max,PC,Last Played");
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -514,6 +594,7 @@ namespace MajdataPlay
                     (i + 1).ToString(CultureInfo.InvariantCulture),
                     entry.Title,
                     entry.Artist,
+                    entry.Designer,
                     entry.DifficultyName,
                     entry.LevelText,
                     entry.IsPlayed ? score.Acc.DX.ToString("0.0000", CultureInfo.InvariantCulture) : string.Empty,
@@ -536,7 +617,7 @@ namespace MajdataPlay
             }
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
-        static string BuildJson(string title, List<ScoreEntry> entries, bool isFalling)
+        static string BuildJson(ShareHeader header, List<ScoreEntry> entries, bool isFalling)
         {
             var array = new JArray();
             for (var i = 0; i < entries.Count; i++)
@@ -548,6 +629,7 @@ namespace MajdataPlay
                     ["rank"] = i + 1,
                     ["title"] = entry.Title,
                     ["artist"] = entry.Artist,
+                    ["designer"] = entry.Designer,
                     ["difficulty"] = entry.DifficultyName,
                     ["level"] = entry.LevelText,
                     ["achievement"] = entry.IsPlayed ? new JValue(score.Acc.DX) : JValue.CreateNull(),
@@ -555,14 +637,16 @@ namespace MajdataPlay
                     ["combo"] = entry.ComboText,
                     ["dxScore"] = score.DXScore,
                     ["maxDxScore"] = score.TotalDXScore,
-                    ["playCount"] = score.PlayCount,
+                    ["pc"] = score.PlayCount,
                     ["lastPlayed"] = entry.IsPlayed ? score.Timestamp.ToString("o", CultureInfo.InvariantCulture) : null,
                     ["hash"] = entry.SongHash,
                 });
             }
             var root = new JObject
             {
-                ["title"] = title,
+                ["player"] = header.PlayerName,
+                ["label"] = header.Label,
+                ["date"] = header.Date,
                 ["playStyle"] = isFalling ? "Falling" : "Standard",
                 ["scores"] = array,
             };

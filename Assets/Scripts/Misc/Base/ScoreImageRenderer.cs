@@ -10,8 +10,8 @@ using UnityEngine.UI;
 namespace MajdataPlay
 {
     /// <summary>
-    /// 把要分享的成绩画成 PNG：用 Unity UI 在离屏摄像机上渲染，每行 5 张卡片（曲绘、曲名、难度与等级、达成率、评级、FC/AP），
-    /// 每张图最多 50 条，超过时分成多张
+    /// 把要分享的成绩画成 PNG：用 Unity UI 在离屏摄像机上渲染。左上角是玩家头像与昵称，右上角是“Best X”与日期；
+    /// 每行 5 张卡片（曲绘、曲名、难度与等级、达成率、评级、FC/AP、DX 分、游玩次数），每张图最多 50 条，超过时分成多张
     /// </summary>
     internal static class ScoreImageRenderer
     {
@@ -19,10 +19,11 @@ namespace MajdataPlay
         const int ENTRIES_PER_IMAGE = 50;
         const int PADDING = 40;
         const int GAP = 20;
-        const int HEADER_HEIGHT = 150;
-        const int CARD_WIDTH = 368;
-        const int CARD_HEIGHT = 170;
-        const int COVER_SIZE = CARD_HEIGHT - 20;
+        const int HEADER_HEIGHT = 140;
+        const int AVATAR_SIZE = 84;
+        const int CARD_WIDTH = 400;
+        const int CARD_HEIGHT = 184;
+        const int COVER_SIZE = CARD_HEIGHT - 24;
         const int MIN_WIDTH = 960;
         /// <summary>
         /// 放在远离游戏画面的位置并使用隐藏层，只由离屏摄像机渲染
@@ -34,30 +35,68 @@ namespace MajdataPlay
         static readonly Color COVER_PLACEHOLDER_COLOR = new Color(1f, 1f, 1f, 0.12f);
         static readonly Color SUB_TEXT_COLOR = new Color(1f, 1f, 1f, 0.7f);
         static readonly Color GOLD_COLOR = new Color(1f, 0.82f, 0.3f, 1f);
+        static readonly Color FC_COLOR = new Color(0.55f, 0.9f, 0.55f, 1f);
+        static readonly Color AVATAR_PLACEHOLDER_COLOR = new Color32(0x58, 0x6F, 0xDD, 0xFF);
 
         /// <returns>生成的 PNG 文件路径</returns>
-        public static async UniTask<List<string>> RenderAsync(IReadOnlyList<ScoreExchange.ScoreEntry> entries, string title, string directory, string baseName)
+        public static async UniTask<List<string>> RenderAsync(IReadOnlyList<ScoreExchange.ScoreEntry> entries, ScoreExchange.ShareHeader header, string directory, string baseName)
         {
             var font = FindFont();
             var paths = new List<string>();
             var pageCount = (entries.Count + ENTRIES_PER_IMAGE - 1) / ENTRIES_PER_IMAGE;
-            for (var page = 0; page < pageCount; page++)
+            var circle = CreateCircleSprite();
+            try
             {
-                var start = page * ENTRIES_PER_IMAGE;
-                var count = Math.Min(ENTRIES_PER_IMAGE, entries.Count - start);
-                var covers = new Sprite?[count];
-                for (var i = 0; i < count; i++)
+                for (var page = 0; page < pageCount; page++)
                 {
-                    covers[i] = await LoadCoverAsync(entries[start + i].Song);
+                    var start = page * ENTRIES_PER_IMAGE;
+                    var count = Math.Min(ENTRIES_PER_IMAGE, entries.Count - start);
+                    var covers = new Sprite?[count];
+                    for (var i = 0; i < count; i++)
+                    {
+                        covers[i] = await LoadCoverAsync(entries[start + i].Song);
+                    }
+                    var pageText = pageCount > 1 ? $"{page + 1}/{pageCount}" : string.Empty;
+                    var png = RenderPage(entries, start, count, covers, header, pageText, circle, font);
+                    var path = Path.Combine(directory, pageCount > 1 ? $"{baseName}-{page + 1}.png" : $"{baseName}.png");
+                    File.WriteAllBytes(path, png);
+                    paths.Add(path);
+                    await UniTask.Yield();
                 }
-                var pageTitle = pageCount > 1 ? $"{title} ({page + 1}/{pageCount})" : title;
-                var png = RenderPage(entries, start, count, covers, pageTitle, font);
-                var path = Path.Combine(directory, pageCount > 1 ? $"{baseName}-{page + 1}.png" : $"{baseName}.png");
-                File.WriteAllBytes(path, png);
-                paths.Add(path);
-                await UniTask.Yield();
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(circle.texture);
+                UnityEngine.Object.Destroy(circle);
             }
             return paths;
+        }
+        /// <summary>
+        /// 抗锯齿的白色实心圆，用作头像的圆形遮罩与占位底
+        /// </summary>
+        static Sprite CreateCircleSprite()
+        {
+            const int SIZE = 128;
+            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            var pixels = new Color32[SIZE * SIZE];
+            var radius = SIZE / 2f;
+            for (var y = 0; y < SIZE; y++)
+            {
+                for (var x = 0; x < SIZE; x++)
+                {
+                    var dx = x + 0.5f - radius;
+                    var dy = y + 0.5f - radius;
+                    var alpha = Mathf.Clamp01(radius - Mathf.Sqrt(dx * dx + dy * dy));
+                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)(alpha * 255));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false);
+            return Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f);
         }
         static async UniTask<Sprite?> LoadCoverAsync(ISongDetail? song)
         {
@@ -87,7 +126,8 @@ namespace MajdataPlay
             }
             return TMP_Settings.defaultFontAsset;
         }
-        static byte[] RenderPage(IReadOnlyList<ScoreExchange.ScoreEntry> entries, int start, int count, Sprite?[] covers, string title, TMP_FontAsset? font)
+        static byte[] RenderPage(IReadOnlyList<ScoreExchange.ScoreEntry> entries, int start, int count, Sprite?[] covers,
+                                 ScoreExchange.ShareHeader header, string pageText, Sprite circle, TMP_FontAsset? font)
         {
             var columns = Math.Min(COLUMNS, count);
             var rows = (count + COLUMNS - 1) / COLUMNS;
@@ -122,10 +162,7 @@ namespace MajdataPlay
                 canvas.planeDistance = 5f;
                 var root = canvasObject.transform;
 
-                var titleText = CreateText(root, font, title, 46f, Color.white, TextAlignmentOptions.Left, FontStyles.Bold);
-                Place(titleText.rectTransform, PADDING, 32, width - PADDING * 2, 60);
-                var subtitle = CreateText(root, font, "MajdataPlay", 26f, SUB_TEXT_COLOR, TextAlignmentOptions.Left, FontStyles.Normal);
-                Place(subtitle.rectTransform, PADDING, 96, width - PADDING * 2, 36);
+                CreateHeader(root, font, header, pageText, circle, width);
 
                 for (var i = 0; i < count; i++)
                 {
@@ -164,6 +201,48 @@ namespace MajdataPlay
                 UnityEngine.Object.Destroy(renderTexture);
             }
         }
+        /// <summary>
+        /// 左上角：圆形头像（未登录时为带首字母的圆）与昵称；右上角：“Best X”/“All N”与日期，当前谱面只有日期
+        /// </summary>
+        static void CreateHeader(Transform root, TMP_FontAsset? font, ScoreExchange.ShareHeader header, string pageText, Sprite circle, int width)
+        {
+            var avatarTop = (HEADER_HEIGHT - AVATAR_SIZE) / 2;
+            var avatarMask = CreateImage(root, circle, header.Avatar != null ? Color.white : AVATAR_PLACEHOLDER_COLOR);
+            Place(avatarMask.rectTransform, PADDING, avatarTop, AVATAR_SIZE, AVATAR_SIZE);
+            if (header.Avatar != null)
+            {
+                var mask = avatarMask.gameObject.AddComponent<Mask>();
+                mask.showMaskGraphic = false;
+                var avatar = CreateImage(avatarMask.transform, header.Avatar, Color.white);
+                Fill(avatar.rectTransform);
+            }
+            else
+            {
+                var initial = string.IsNullOrEmpty(header.PlayerName) ? "G" : System.Globalization.StringInfo.GetNextTextElement(header.PlayerName).ToUpperInvariant();
+                var initialText = CreateText(avatarMask.transform, font, initial, 40f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
+                Fill(initialText.rectTransform);
+            }
+
+            var rightWidth = 420;
+            var nameLeft = PADDING + AVATAR_SIZE + 20;
+            var nameText = CreateText(root, font, header.PlayerName, 38f, Color.white, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            Place(nameText.rectTransform, nameLeft, avatarTop, width - nameLeft - PADDING - rightWidth - 20, AVATAR_SIZE);
+
+            var dateLine = string.IsNullOrEmpty(pageText) ? header.Date : $"{header.Date} · {pageText}";
+            var rightLeft = width - PADDING - rightWidth;
+            if (string.IsNullOrEmpty(header.Label))
+            {
+                var dateText = CreateText(root, font, dateLine, 30f, SUB_TEXT_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
+                Place(dateText.rectTransform, rightLeft, avatarTop, rightWidth, AVATAR_SIZE);
+            }
+            else
+            {
+                var labelText = CreateText(root, font, header.Label, 40f, Color.white, TextAlignmentOptions.Right, FontStyles.Bold);
+                Place(labelText.rectTransform, rightLeft, avatarTop - 10, rightWidth, 60);
+                var dateText = CreateText(root, font, dateLine, 24f, SUB_TEXT_COLOR, TextAlignmentOptions.Right, FontStyles.Normal);
+                Place(dateText.rectTransform, rightLeft, avatarTop + 52, rightWidth, 36);
+            }
+        }
         static void CreateCard(Transform parent, TMP_FontAsset? font, ScoreExchange.ScoreEntry entry, int rank, Sprite? cover, int x, int y)
         {
             var card = CreateImage(parent, null, CARD_COLOR);
@@ -172,38 +251,45 @@ namespace MajdataPlay
 
             var coverImage = CreateImage(cardRoot, cover, cover != null ? Color.white : COVER_PLACEHOLDER_COLOR);
             coverImage.preserveAspect = true;
-            Place(coverImage.rectTransform, 10, 10, COVER_SIZE, COVER_SIZE);
+            Place(coverImage.rectTransform, 12, 12, COVER_SIZE, COVER_SIZE);
 
             var rankBack = CreateImage(cardRoot, null, new Color(0f, 0f, 0f, 0.6f));
-            Place(rankBack.rectTransform, 10, 10, 52, 28);
+            Place(rankBack.rectTransform, 12, 12, 56, 30);
             var rankText = CreateText(rankBack.transform, font, $"#{rank}", 18f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
             Fill(rankText.rectTransform);
 
-            var textLeft = COVER_SIZE + 20;
-            var textWidth = CARD_WIDTH - textLeft - 10;
+            var textLeft = COVER_SIZE + 24;
+            var textWidth = CARD_WIDTH - textLeft - 12;
+            var halfWidth = textWidth / 2;
 
             var difficulty = CreateImage(cardRoot, null, GetDifficultyColor(entry.Level));
-            Place(difficulty.rectTransform, textLeft, 10, textWidth, 30);
+            Place(difficulty.rectTransform, textLeft, 12, textWidth, 30);
             var difficultyLabel = string.IsNullOrEmpty(entry.LevelText) ? entry.DifficultyName : $"{entry.DifficultyName} {entry.LevelText}";
             var difficultyText = CreateText(difficulty.transform, font, difficultyLabel, 18f, Color.white, TextAlignmentOptions.Center, FontStyles.Bold);
             Fill(difficultyText.rectTransform);
 
-            var titleText = CreateText(cardRoot, font, entry.Title, 20f, Color.white, TextAlignmentOptions.Left, FontStyles.Normal);
-            Place(titleText.rectTransform, textLeft, 46, textWidth, 28);
+            // 每段文字的框高约为字号的 1.5 倍，否则 TMP 会把放不下的整行省略掉
+            var titleText = CreateText(cardRoot, font, entry.Title, 20f, Color.white, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            Place(titleText.rectTransform, textLeft, 46, textWidth, 30);
 
-            var achievementText = CreateText(cardRoot, font, entry.AchievementText, 32f, Color.white, TextAlignmentOptions.Left, FontStyles.Bold);
-            Place(achievementText.rectTransform, textLeft, 76, textWidth, 44);
+            var achievementText = CreateText(cardRoot, font, entry.AchievementText, 28f, Color.white, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            Place(achievementText.rectTransform, textLeft, 76, textWidth, 42);
 
             var gradeColor = entry.IsPlayed && entry.Score.Acc.DX >= 100 ? GOLD_COLOR : Color.white;
-            var gradeText = CreateText(cardRoot, font, entry.GradeText, 24f, gradeColor, TextAlignmentOptions.Left, FontStyles.Bold);
-            Place(gradeText.rectTransform, textLeft, 124, textWidth / 2, 34);
+            var gradeText = CreateText(cardRoot, font, entry.GradeText, 22f, gradeColor, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            Place(gradeText.rectTransform, textLeft, 118, halfWidth, 33);
 
             if (!string.IsNullOrEmpty(entry.ComboText))
             {
-                var comboColor = entry.ComboText.StartsWith("AP", StringComparison.Ordinal) ? GOLD_COLOR : new Color(0.55f, 0.9f, 0.55f, 1f);
-                var comboText = CreateText(cardRoot, font, entry.ComboText, 24f, comboColor, TextAlignmentOptions.Right, FontStyles.Bold);
-                Place(comboText.rectTransform, textLeft + textWidth / 2, 124, textWidth - textWidth / 2, 34);
+                var comboColor = entry.ComboText.StartsWith("AP", StringComparison.Ordinal) ? GOLD_COLOR : FC_COLOR;
+                var comboText = CreateText(cardRoot, font, entry.ComboText, 22f, comboColor, TextAlignmentOptions.MidlineRight, FontStyles.Bold);
+                Place(comboText.rectTransform, textLeft + halfWidth, 118, textWidth - halfWidth, 33);
             }
+
+            var dxText = CreateText(cardRoot, font, entry.DxScoreText, 18f, SUB_TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            Place(dxText.rectTransform, textLeft, 151, halfWidth + 20, 27);
+            var playCountText = CreateText(cardRoot, font, entry.PlayCountText, 18f, SUB_TEXT_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
+            Place(playCountText.rectTransform, textLeft + halfWidth + 20, 151, textWidth - halfWidth - 20, 27);
         }
         static Color GetDifficultyColor(ChartLevel level)
         {
@@ -237,6 +323,8 @@ namespace MajdataPlay
             {
                 text.font = font;
             }
+            // 场景字体的材质带描边和阴影，换成干净的材质
+            CleanTmpMaterial.Apply(text);
             text.fontSize = fontSize;
             text.color = color;
             text.alignment = alignment;
