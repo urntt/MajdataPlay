@@ -336,6 +336,37 @@ namespace MajdataPlay.Scenes.Result
             return _isExited;
         }
         /// <summary>
+        /// Plays the chart of this result again from the new result screen, skipping the first-play feedback prompt.
+        /// </summary>
+        /// <remarks>
+        /// Only available in normal mode, after the score is saved and uploaded. The song list keeps its return-to-detail state,
+        /// so continuing after the next result still returns to the detail page the chart was started from.
+        /// </remarks>
+        /// <returns><see langword="true"/> when the game scene is being loaded; <see langword="false"/> when a retry is not possible now.</returns>
+        internal bool TryRetry()
+        {
+            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending
+             || _gameInfo.IsDanMode || _gameInfo.IsPracticeMode)
+            {
+                return false;
+            }
+            if (_feedbackPanel != null && _feedbackPanel.IsOpen)
+            {
+                return false;
+            }
+            var result = _gameInfo.GetLastResult();
+            var song = result.SongDetail;
+            if (song is null)
+            {
+                return false;
+            }
+            _isExited = true;
+            Majdata<GameInfo>.Instance = new GameInfo(GameMode.Normal, new[] { song }, new[] { result.Level });
+            MajInstances.AudioManager.StopSFX("bgm_result.mp3");
+            MajInstances.SceneSwitcher.SwitchScene("Game", false);
+            return true;
+        }
+        /// <summary>
         /// 可以对这首网络谱面评价（点赞、点踩、评论）
         /// </summary>
         internal bool IsFeedbackAvailable => _feedbackPanel != null && _feedbackPanel.IsAvailable && !_isExited;

@@ -1399,16 +1399,34 @@ namespace MajdataPlay.Scenes.List
             y += SHARE_ROW_HEIGHT;
         }
         /// <summary>
-        /// Adds the row showing how many charts are picked, with the button that enters selection mode to pick them.
+        /// Adds the full-width button that enters selection mode to pick charts, showing how many charts are picked on its right.
         /// </summary>
         /// <param name="panel">The dialog panel.</param>
         /// <param name="y">The top of the row; moved below the row afterwards.</param>
         void AddPickRow(RectTransform panel, ref float y)
         {
-            var count = CreateText(panel, "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount), 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
-            PlaceTopLeft(count.rectTransform, 28f, y, 220f, SHARE_ROW_HEIGHT - 8f);
+            const float PADDING = 18f;
+            const float COUNT_WIDTH = 140f;
             var pick = CreateButton(panel, "MAJTEXT_LIST_PICK_CHARTS".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, PickChartsForShare);
-            PlaceTopRight((RectTransform)pick.transform, 28f, y + 2f, 200f, SHARE_ROW_HEIGHT - 12f);
+            var pickRect = (RectTransform)pick.transform;
+            // 与上下各行左右对齐
+            PlaceTopLeft(pickRect, 28f, y + 2f, SHARE_DIALOG_WIDTH - 28f * 2f, SHARE_ROW_HEIGHT - 12f);
+            var label = pick.GetComponentInChildren<TextMeshProUGUI>();
+            label.alignment = TextAlignmentOptions.MidlineLeft;
+            label.fontStyle = FontStyles.Bold;
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 13f;
+            label.fontSizeMax = 18f;
+            label.rectTransform.offsetMin = new Vector2(PADDING, 4f);
+            label.rectTransform.offsetMax = new Vector2(-(PADDING + COUNT_WIDTH), -4f);
+            // 右侧：已选数量
+            var count = CreateText(pickRect, "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount), 16f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
+            var countRect = count.rectTransform;
+            countRect.anchorMin = new Vector2(1f, 0f);
+            countRect.anchorMax = new Vector2(1f, 1f);
+            countRect.pivot = new Vector2(1f, 0.5f);
+            countRect.anchoredPosition = new Vector2(-PADDING, 0f);
+            countRect.sizeDelta = new Vector2(COUNT_WIDTH, -8f);
             y += SHARE_ROW_HEIGHT;
         }
         /// <summary>

@@ -6,6 +6,7 @@ using MajdataPlay.IO;
 using MajdataPlay.Misc.Base;
 using MajdataPlay.Scenes.Game;
 using MajdataPlay.Scenes.Game.Notes;
+using MajdataPlay.Scenes.List;
 using MajdataPlay.Settings;
 using System;
 using System.Globalization;
@@ -105,6 +106,9 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         const float PROFILE_WIDTH = 300f;
         const float PROFILE_HEIGHT = 52f;
+        const float CONTINUE_WIDTH = 240f;
+        const float RETRY_WIDTH = 200f;
+        const float BOTTOM_BUTTON_GAP = 16f;
         const float TOAST_DURATION_SEC = 2.4f;
 
         ResultScreenManager _manager = null!;
@@ -124,6 +128,7 @@ namespace MajdataPlay.Scenes.Result
         Button? _uploadButton;
         TextMeshProUGUI? _uploadStatus;
         Button _continueButton = null!;
+        Button _retryButton = null!;
         RectTransform _modal = null!;
         RectTransform _toast = null!;
         TextMeshProUGUI _toastText = null!;
@@ -174,11 +179,17 @@ namespace MajdataPlay.Scenes.Result
             // 右下角悬浮的“继续”：保存与上传完成之前不能点
             // 柔和投影与按钮同一圆角、中心对齐
             var continueHolder = LightUi.CreateShadowHolder(_root, 14f, 16f, 0.2f);
-            LightUi.PlaceBottomRight(continueHolder, MARGIN, 36f, 240f, 80f);
+            LightUi.PlaceBottomRight(continueHolder, MARGIN, 36f, CONTINUE_WIDTH, 80f);
             _continueButton = _ui.CreateButton(continueHolder, "MAJTEXT_RESULT_CONTINUE".i18n(), LightUi.ACCENT, Color.white, 28f, Continue, 14f);
             LightUi.Stretch((RectTransform)_continueButton.transform);
             _continueLabel = _continueButton.GetComponentInChildren<TextMeshProUGUI>();
             _continueLabel.fontStyle = FontStyles.Bold;
+            // “继续”左边：再玩一次同一张谱面（白底，次要操作）
+            var retryHolder = LightUi.CreateShadowHolder(_root, 14f, 16f, 0.16f);
+            LightUi.PlaceBottomRight(retryHolder, MARGIN + CONTINUE_WIDTH + BOTTOM_BUTTON_GAP, 36f, RETRY_WIDTH, 80f);
+            _retryButton = _ui.CreateButton(retryHolder, "MAJTEXT_RESULT_RETRY".i18n(), LightUi.PAPER, LightUi.TEXT, 26f, Retry, 14f);
+            LightUi.Stretch((RectTransform)_retryButton.transform);
+            _retryButton.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
 
             // 左上角：临时切回原版结算界面（只对这一次结算生效）
             var classicButton = _ui.CreateButton(_root, "MAJTEXT_RESULT_CLASSIC".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, SwitchToClassic, 12f);
@@ -626,6 +637,10 @@ namespace MajdataPlay.Scenes.Result
             {
                 _continueButton.interactable = canContinue;
             }
+            if (_retryButton.interactable != canContinue)
+            {
+                _retryButton.interactable = canContinue;
+            }
             var continueText = _manager.IsAllTaskFinished ? "MAJTEXT_RESULT_CONTINUE".i18n() : "MAJTEXT_RESULT_SAVING".i18n();
             if (_continueLabel.text != continueText)
             {
@@ -784,6 +799,19 @@ namespace MajdataPlay.Scenes.Result
             {
                 _isLeaving = true;
             }
+        }
+        /// <summary>
+        /// Plays the same chart again: shows the loading screen used by the song list and leaves the result screen.
+        /// </summary>
+        void Retry()
+        {
+            if (_isLeaving || !_manager.TryRetry())
+            {
+                return;
+            }
+            _isLeaving = true;
+            var result = _data.Result;
+            ListLoadingScreen.Show(result.SongDetail, result.Level, LightUi.GetDifficultyColor(result.Level), _cover, _ui.Font);
         }
         #endregion
     }
