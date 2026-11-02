@@ -100,6 +100,11 @@ namespace MajdataPlay.Scenes.Result
         const float CARD_GAP = 20f;
         const float ROLL_DURATION_SEC = 1.5f;
         const float CONTENT_TOP = 100f;
+        /// <summary>
+        /// The size of the player nickname and avatar at the top right; the height is also the avatar diameter.
+        /// </summary>
+        const float PROFILE_WIDTH = 300f;
+        const float PROFILE_HEIGHT = 52f;
         const float TOAST_DURATION_SEC = 2.4f;
 
         ResultScreenManager _manager = null!;
@@ -178,6 +183,9 @@ namespace MajdataPlay.Scenes.Result
             // 左上角：临时切回原版结算界面（只对这一次结算生效）
             var classicButton = _ui.CreateButton(_root, "MAJTEXT_RESULT_CLASSIC".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, SwitchToClassic, 12f);
             LightUi.PlaceTopLeft((RectTransform)classicButton.transform, MARGIN, 24f, 170f, 52f);
+            // 右上角：玩家昵称与头像
+            var profile = _ui.CreatePlayerProfile(_root, PROFILE_HEIGHT, LightUi.PAGE);
+            LightUi.PlaceTopRight(profile, MARGIN, 24f, PROFILE_WIDTH, PROFILE_HEIGHT);
             BuildModal();
             BuildToast();
 

@@ -25,6 +25,9 @@ namespace MajdataPlay
         static Sprite? _circle;
         static Sprite? _heartFilled;
         static Sprite? _heartOutline;
+        static Sprite? _magnifier;
+        static Sprite? _share;
+        static Sprite? _person;
         static readonly Dictionary<int, Sprite> _rings = new();
         static readonly Dictionary<int, Sprite> _shadows = new();
 
@@ -48,6 +51,18 @@ namespace MajdataPlay
         /// 白色空心爱心（未收藏）
         /// </summary>
         public static Sprite HeartOutline => _heartOutline != null ? _heartOutline : (_heartOutline = CreateHeartSprite(false));
+        /// <summary>
+        /// Gets the white magnifier icon used by the search button.
+        /// </summary>
+        public static Sprite Magnifier => _magnifier != null ? _magnifier : (_magnifier = CreateIconSprite("UiMagnifier", MagnifierDistance));
+        /// <summary>
+        /// Gets the white share icon (an open box with an upward arrow).
+        /// </summary>
+        public static Sprite Share => _share != null ? _share : (_share = CreateIconSprite("UiShare", ShareDistance));
+        /// <summary>
+        /// Gets the white person silhouette used when the player has no avatar.
+        /// </summary>
+        public static Sprite Person => _person != null ? _person : (_person = CreateIconSprite("UiPerson", PersonDistance));
 
         /// <summary>
         /// 把 Image 变成半径为 <paramref name="radius"/> 的圆角矩形
@@ -241,6 +256,104 @@ namespace MajdataPlay
         {
             var a = x * x + y * y - 1f;
             return a * a * a - x * x * y * y * y <= 0f;
+        }
+        /// <summary>
+        /// Rasterizes an icon from its signed distance field with one pixel of anti-aliasing and mipmaps.
+        /// </summary>
+        /// <param name="name">The texture name.</param>
+        /// <param name="distance">
+        /// The signed distance to the icon edge in icon units, where the icon spans -1 to 1 on both axes with y pointing up;
+        /// negative inside the icon.
+        /// </param>
+        /// <returns>A white sprite whose alpha is the icon coverage.</returns>
+        static Sprite CreateIconSprite(string name, System.Func<Vector2, float> distance)
+        {
+            const int SIZE = 128;
+            const float PIXELS_PER_UNIT = SIZE * 0.5f;
+            var texture = new Texture2D(SIZE, SIZE, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+                hideFlags = HideFlags.DontUnloadUnusedAsset,
+            };
+            var pixels = new Color32[SIZE * SIZE];
+            for (var y = 0; y < SIZE; y++)
+            {
+                for (var x = 0; x < SIZE; x++)
+                {
+                    var point = new Vector2((x + 0.5f) / PIXELS_PER_UNIT - 1f, (y + 0.5f) / PIXELS_PER_UNIT - 1f);
+                    var alpha = Mathf.Clamp01(0.5f - distance(point) * PIXELS_PER_UNIT);
+                    pixels[y * SIZE + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(true, true);
+            var sprite = Sprite.Create(texture, new Rect(0, 0, SIZE, SIZE), new Vector2(0.5f, 0.5f), 100f);
+            sprite.hideFlags = HideFlags.DontUnloadUnusedAsset;
+            return sprite;
+        }
+        /// <summary>
+        /// Gets the distance from a point to a line segment.
+        /// </summary>
+        /// <param name="point">The point.</param>
+        /// <param name="start">The start of the segment.</param>
+        /// <param name="end">The end of the segment.</param>
+        /// <returns>The shortest distance between the point and the segment.</returns>
+        static float SegmentDistance(Vector2 point, Vector2 start, Vector2 end)
+        {
+            var fromStart = point - start;
+            var segment = end - start;
+            var t = Mathf.Clamp01(Vector2.Dot(fromStart, segment) / Vector2.Dot(segment, segment));
+            return (fromStart - segment * t).magnitude;
+        }
+        /// <summary>
+        /// Gets the signed distance to the magnifier icon: a ring with a handle pointing to the bottom right.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float MagnifierDistance(Vector2 point)
+        {
+            const float RING_RADIUS = 0.46f;
+            const float STROKE = 0.11f;
+            var center = new Vector2(-0.14f, 0.14f);
+            var ring = Mathf.Abs((point - center).magnitude - RING_RADIUS) - STROKE;
+            var direction = new Vector2(0.70710678f, -0.70710678f);
+            var handleStart = center + direction * (RING_RADIUS + STROKE * 0.5f);
+            var handle = SegmentDistance(point, handleStart, new Vector2(0.74f, -0.74f)) - STROKE * 1.15f;
+            return Mathf.Min(ring, handle);
+        }
+        /// <summary>
+        /// Gets the signed distance to the share icon: an open-topped box with an arrow pointing up out of it.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float ShareDistance(Vector2 point)
+        {
+            const float STROKE = 0.085f;
+            var box = Mathf.Min(
+                Mathf.Min(SegmentDistance(point, new Vector2(-0.3f, 0.2f), new Vector2(-0.6f, 0.2f)),
+                          SegmentDistance(point, new Vector2(-0.6f, 0.2f), new Vector2(-0.6f, -0.8f))),
+                Mathf.Min(SegmentDistance(point, new Vector2(-0.6f, -0.8f), new Vector2(0.6f, -0.8f)),
+                          Mathf.Min(SegmentDistance(point, new Vector2(0.6f, -0.8f), new Vector2(0.6f, 0.2f)),
+                                    SegmentDistance(point, new Vector2(0.6f, 0.2f), new Vector2(0.3f, 0.2f)))));
+            var tip = new Vector2(0f, 0.86f);
+            var arrow = Mathf.Min(
+                SegmentDistance(point, new Vector2(0f, -0.3f), tip),
+                Mathf.Min(SegmentDistance(point, tip, new Vector2(-0.3f, 0.56f)),
+                          SegmentDistance(point, tip, new Vector2(0.3f, 0.56f))));
+            return Mathf.Min(box, arrow) - STROKE;
+        }
+        /// <summary>
+        /// Gets the signed distance to the person silhouette: a round head above rounded shoulders.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float PersonDistance(Vector2 point)
+        {
+            var head = (point - new Vector2(0f, 0.3f)).magnitude - 0.32f;
+            var shoulders = (point - new Vector2(0f, -1.08f)).magnitude - 0.8f;
+            return Mathf.Min(head, shoulders);
         }
         static Sprite CreateCircleSprite()
         {

@@ -16,6 +16,10 @@ namespace MajdataPlay.Scenes.List
     internal sealed partial class SongListBrowser
     {
         const float DETAIL_MARGIN = 40f;
+        /// <summary>
+        /// The width of the Back button at the top left of the detail page.
+        /// </summary>
+        const float DETAIL_BACK_WIDTH = 150f;
         const float DETAIL_GAP = 32f;
         const float DETAIL_TOP = 100f;
         const float INFO_ROW_HEIGHT = 46f;
@@ -65,12 +69,15 @@ namespace MajdataPlay.Scenes.List
 
             // 固定在左上角的返回与右下角的游玩，不随内容滚动
             var back = CreateButton(_detailView, "<  " + "MAJTEXT_LIST_BACK".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, CloseDetail);
-            PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, 24f, 150f, 56f);
+            PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, 24f, DETAIL_BACK_WIDTH, TOPBAR_HEIGHT);
 
-            // 右上角与列表相同的一组控件（位置相同）；这里的 −/+ 只切换当前谱面的难度，不改全局难度
+            // 返回键右边是与列表相同的一组控件；这里的 −/+ 只切换当前谱面的难度，不改全局难度
             var topControls = CreateRect("TopControls", _detailView);
-            PlaceTopRight(topControls, MAIN_RIGHT_PADDING, TOP_PADDING, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
+            PlaceTopLeft(topControls, DETAIL_MARGIN + DETAIL_BACK_WIDTH + 16f, 24f, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
             _detailLevelText = BuildTopControls(topControls, SwitchToCover, () => ChangeDetailLevel(-1), () => ChangeDetailLevel(1), EnterSetting);
+            // 右上角：玩家昵称与头像，与列表同一位置
+            var profile = new LightUi(_font).CreatePlayerProfile(_detailView, TOPBAR_HEIGHT, PAGE_COLOR);
+            PlaceTopRight(profile, MAIN_RIGHT_PADDING, 24f, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
             // 柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
             var playHolder = LightUi.CreateShadowHolder(_detailView, 10f, 16f, 0.2f);

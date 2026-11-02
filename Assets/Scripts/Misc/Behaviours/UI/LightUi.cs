@@ -255,6 +255,39 @@ namespace MajdataPlay
             scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
         }
         /// <summary>
+        /// Creates the player nickname and round avatar shown at the right end of a top bar.
+        /// </summary>
+        /// <param name="parent">The parent the view is created in; place the returned rectangle afterwards.</param>
+        /// <param name="height">The height of the view, which is also the avatar diameter.</param>
+        /// <param name="backgroundColor">The color behind the view, used to round the avatar corners.</param>
+        /// <returns>The rectangle of the view, with the nickname right-aligned to the left of the avatar.</returns>
+        public RectTransform CreatePlayerProfile(Transform parent, float height, Color backgroundColor)
+        {
+            const float GAP = 12f;
+            const float ICON_INSET_RATIO = 0.18f;
+            var root = CreateRect("PlayerProfile", parent);
+            var avatar = CreateRoundedCover(root, height * 0.5f, backgroundColor, out var avatarFrame);
+            avatarFrame.anchorMin = new Vector2(1f, 0.5f);
+            avatarFrame.anchorMax = new Vector2(1f, 0.5f);
+            avatarFrame.pivot = new Vector2(1f, 0.5f);
+            avatarFrame.sizeDelta = new Vector2(height, height);
+            avatarFrame.anchoredPosition = Vector2.zero;
+            var placeholderIcon = CreateImage(avatarFrame, MUTED, 0f);
+            placeholderIcon.gameObject.name = "PersonIcon";
+            placeholderIcon.sprite = UiSprites.Person;
+            placeholderIcon.preserveAspect = true;
+            Stretch(placeholderIcon.rectTransform, height * ICON_INSET_RATIO);
+            var nameText = CreateText(root, PlayerProfile.GUEST_NAME, 20f, TEXT, TextAlignmentOptions.MidlineRight, FontStyles.Bold);
+            Stretch(nameText.rectTransform);
+            nameText.rectTransform.offsetMax = new Vector2(-(height + GAP), 0f);
+            nameText.enableAutoSizing = true;
+            nameText.fontSizeMin = 14f;
+            nameText.fontSizeMax = 20f;
+            var view = root.gameObject.AddComponent<PlayerProfileView>();
+            view.Init(nameText, avatar, placeholderIcon);
+            return root;
+        }
+        /// <summary>
         /// 左栏顶部的标题栏：圆角应用图标、大字标题、小字副标题；返回标题栏占用的高度
         /// </summary>
         public float CreateSidebarHeader(RectTransform parent, string title, string subtitle)

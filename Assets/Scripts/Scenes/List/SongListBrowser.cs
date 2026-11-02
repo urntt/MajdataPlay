@@ -52,8 +52,14 @@ namespace MajdataPlay.Scenes.List
 
         const float TOP_PADDING = 20f;
         const float TOPBAR_HEIGHT = 56f;
-        const float CAPTION_TOP = 88f;
-        const float LIST_TOP = 128f;
+        /// <summary>
+        /// The top of the song list: below the top bar with a small gap.
+        /// </summary>
+        const float LIST_TOP = TOP_PADDING + TOPBAR_HEIGHT + 16f;
+        /// <summary>
+        /// The width of the player nickname and avatar at the right end of the top bar.
+        /// </summary>
+        const float PROFILE_WIDTH = 300f;
         const float MAIN_LEFT_PADDING = 28f;
         const float MAIN_RIGHT_PADDING = 20f;
         const float CARD_HEIGHT = 210f;
@@ -66,6 +72,20 @@ namespace MajdataPlay.Scenes.List
         const float LEVEL_SCORE_HEIGHT = 22f;
         const float PAGER_HEIGHT = 64f;
         const float PAGER_BOTTOM = 52f;
+        const float PAGER_WIDTH = 300f;
+        /// <summary>
+        /// The gap between the pager and the search and share buttons beside it.
+        /// </summary>
+        const float FLOAT_GAP = 12f;
+        /// <summary>
+        /// The width of the expanded search bar, limited by the space left of the pager.
+        /// </summary>
+        const float SEARCH_EXPANDED_WIDTH = 420f;
+        const float SEARCH_ANIMATION_SEC = 0.2f;
+        /// <summary>
+        /// The width of the selection bar, limited by the space right of the pager.
+        /// </summary>
+        const float SELECTION_BAR_MAX_WIDTH = 470f;
         const float SCROLLBAR_WIDTH = 16f;
         const float TOAST_DURATION_SEC = 2.4f;
 
@@ -115,15 +135,27 @@ namespace MajdataPlay.Scenes.List
         CanvasGroup _listPaneGroup = null!;
         RectTransform _listContent = null!;
         ScrollRect _listScroll = null!;
-        TextMeshProUGUI _captionText = null!;
         TextMeshProUGUI _difficultyText = null!;
         TextMeshProUGUI _pageText = null!;
         TMP_InputField _searchField = null!;
+        /// <summary>
+        /// The search button left of the pager, which expands into the search bar.
+        /// </summary>
+        RectTransform _searchHolder = null!;
+        Image _searchPanel = null!;
+        Image _searchRing = null!;
+        Image _searchIcon = null!;
+        RectTransform _searchExpandedArea = null!;
+        Button _searchClearButton = null!;
+        bool _isSearchExpanded = false;
+        MotionHandle _searchMotion;
+        /// <summary>
+        /// The share button right of the pager, which enters selection mode.
+        /// </summary>
+        RectTransform _shareHolder = null!;
         Button _previousPageButton = null!;
         Button _nextPageButton = null!;
         RectTransform _pager = null!;
-        Button _selectButton = null!;
-        TextMeshProUGUI _selectButtonLabel = null!;
         RectTransform _selectionBar = null!;
         TextMeshProUGUI _selectionCountText = null!;
         /// <summary>
@@ -227,6 +259,7 @@ namespace MajdataPlay.Scenes.List
             }
             _query = state.Query;
             _searchField.SetTextWithoutNotify(_query);
+            UpdateSearchBarStyle();
             _page = state.Page;
             RefreshList(false, false);
             RequestListScroll(state.ScrollY);
@@ -311,6 +344,7 @@ namespace MajdataPlay.Scenes.List
             CancelListMotions();
             CancelDetailMotions();
             CancelAudioMotions();
+            _searchMotion.TryCancel();
             ResetPreviewVolume();
             SaveSelectionIfNeeded();
             DestroyCreatedTextures();
@@ -379,28 +413,12 @@ namespace MajdataPlay.Scenes.List
             main.offsetMin = new Vector2(MAIN_LEFT_PADDING, 0f);
             main.offsetMax = new Vector2(-MAIN_RIGHT_PADDING, 0f);
 
-            // 顶部：搜索；难度 −/+；设置、封面
+            // 顶部：左边“封面　−　难度　+　设置”，右边玩家昵称与头像
             var topRow = CreateRect("TopRow", main);
             PlaceRow(topRow, 0f, TOP_PADDING, 0f, TOPBAR_HEIGHT);
-            _searchField = CreateInputField(topRow, "MAJTEXT_LIST_SEARCH_PLACEHOLDER".i18n());
-            PlaceTopLeft((RectTransform)_searchField.transform, 0f, 0f, 360f, TOPBAR_HEIGHT);
-            _searchField.onSubmit.AddListener(_ => ApplySearch());
-            _searchField.onEndEdit.AddListener(_ => ApplySearch());
-            var searchButton = CreateButton(topRow, "MAJTEXT_LIST_SEARCH".i18n(), ACCENT_COLOR, Color.white, 19f, ApplySearch);
-            PlaceTopLeft((RectTransform)searchButton.transform, 372f, 0f, 96f, TOPBAR_HEIGHT);
-
-            // 右侧从左到右：选择分享　封面　−　难度　+　设置（详情页右上角是后五个控件，位置相同）
             _difficultyText = BuildTopControls(topRow, SwitchToCover, () => ChangeGlobalLevel(-1), () => ChangeGlobalLevel(1), EnterSetting);
-            // 自选分享：进入选择模式后点难度标签勾选谱面
-            _selectButton = CreateButton(topRow, "MAJTEXT_LIST_SELECT_MODE".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, ToggleSelectMode);
-            PlaceTopRight((RectTransform)_selectButton.transform, TOP_CONTROLS_WIDTH + 12f, 0f, 140f, TOPBAR_HEIGHT);
-            _selectButtonLabel = _selectButton.GetComponentInChildren<TextMeshProUGUI>();
-            _selectButtonLabel.enableAutoSizing = true;
-            _selectButtonLabel.fontSizeMin = 13f;
-            _selectButtonLabel.fontSizeMax = 19f;
-
-            _captionText = CreateText(main, string.Empty, 17f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(_captionText.rectTransform, 2f, CAPTION_TOP, 0f, 30f);
+            var profile = new LightUi(_font).CreatePlayerProfile(topRow, TOPBAR_HEIGHT, PAGE_COLOR);
+            PlaceTopRight(profile, 0f, 0f, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
             // 曲目列表：每行一张卡片，右侧可拖动的滚动条，底部给浮窗留出空间
             _listPane = CreateRect("ListPane", main);
@@ -419,18 +437,11 @@ namespace MajdataPlay.Scenes.List
             _listContent.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             AddScrollbar(_listScroll);
 
-            // 底部浮窗：翻页与页码
+            // 底部浮窗：中间翻页与页码，左边搜索（点击展开搜索条），右边分享（进入选择模式）
             // 柔和投影与浮窗同一圆角、中心对齐；浮窗本身是白底加一圈等宽描边
-            _pager = LightUi.CreateShadowHolder(main, 20f, 14f, 0.12f);
-            _pager.anchorMin = new Vector2(0.5f, 0f);
-            _pager.anchorMax = new Vector2(0.5f, 0f);
-            _pager.pivot = new Vector2(0.5f, 0f);
-            _pager.sizeDelta = new Vector2(300f, PAGER_HEIGHT);
-            _pager.anchoredPosition = new Vector2(-(SCROLLBAR_WIDTH + 14f) * 0.5f, PAGER_BOTTOM);
-            var pagerInner = CreatePanel(_pager, PAPER_COLOR, 20f);
-            Stretch(pagerInner.rectTransform);
-            LightUi.AddRing(pagerInner.transform, LINE_COLOR, 20f, 1.5f);
-            pagerInner.raycastTarget = true;
+            _pager = CreateFloatingHolder(main, new Vector2(0.5f, 0f), PagerCenterX);
+            _pager.sizeDelta = new Vector2(PAGER_WIDTH, PAGER_HEIGHT);
+            var pagerInner = CreateFloatingPanel(_pager, out _);
             _previousPageButton = CreateButton(pagerInner.rectTransform, "<", PAPER_COLOR, TEXT_COLOR, 26f, () => ChangePage(-1));
             PlaceMiddleLeft((RectTransform)_previousPageButton.transform, 8f, 64f, 48f);
             _nextPageButton = CreateButton(pagerInner.rectTransform, ">", PAPER_COLOR, TEXT_COLOR, 26f, () => ChangePage(1));
@@ -440,49 +451,273 @@ namespace MajdataPlay.Scenes.List
             _pageText.rectTransform.offsetMin = new Vector2(76f, 0f);
             _pageText.rectTransform.offsetMax = new Vector2(-76f, 0f);
 
-            // 底部右侧浮窗（选择模式）：已选 N 张　清空　分享
-            _selectionBar = LightUi.CreateShadowHolder(main, 20f, 14f, 0.12f);
-            _selectionBar.anchorMin = new Vector2(1f, 0f);
-            _selectionBar.anchorMax = new Vector2(1f, 0f);
-            _selectionBar.pivot = new Vector2(1f, 0f);
-            _selectionBar.sizeDelta = new Vector2(420f, PAGER_HEIGHT);
-            _selectionBar.anchoredPosition = new Vector2(-(SCROLLBAR_WIDTH + 14f), PAGER_BOTTOM);
+            BuildSearchBar(main);
+            BuildShareButton(main);
+            BuildSelectionBar(main);
+        }
+        /// <summary>
+        /// The horizontal center of the floating bars: the middle of the list, not counting the scrollbar.
+        /// </summary>
+        static float PagerCenterX => -(SCROLLBAR_WIDTH + 14f) * 0.5f;
+        /// <summary>
+        /// Creates a holder with a soft shadow for a floating bar at the bottom of the list.
+        /// </summary>
+        /// <param name="parent">The main area of the list.</param>
+        /// <param name="pivot">The pivot of the holder; its x decides which edge stays at <paramref name="x"/>.</param>
+        /// <param name="x">The horizontal position of the pivot, relative to the center of the main area.</param>
+        /// <returns>The holder; set its size afterwards.</returns>
+        static RectTransform CreateFloatingHolder(RectTransform parent, Vector2 pivot, float x)
+        {
+            var holder = LightUi.CreateShadowHolder(parent, 20f, 14f, 0.12f);
+            holder.anchorMin = new Vector2(0.5f, 0f);
+            holder.anchorMax = new Vector2(0.5f, 0f);
+            holder.pivot = pivot;
+            holder.sizeDelta = new Vector2(PAGER_HEIGHT, PAGER_HEIGHT);
+            holder.anchoredPosition = new Vector2(x, PAGER_BOTTOM);
+            return holder;
+        }
+        /// <summary>
+        /// Creates the white rounded panel with a thin outline that fills a floating holder.
+        /// </summary>
+        /// <param name="holder">The floating holder.</param>
+        /// <param name="ring">The outline of the panel.</param>
+        /// <returns>The panel, which receives touches so they do not reach the list below.</returns>
+        Image CreateFloatingPanel(RectTransform holder, out Image ring)
+        {
+            var panel = CreatePanel(holder, PAPER_COLOR, 20f);
+            Stretch(panel.rectTransform);
+            ring = LightUi.AddRing(panel.transform, LINE_COLOR, 20f, 1.5f);
+            panel.raycastTarget = true;
+            return panel;
+        }
+        /// <summary>
+        /// Creates a transparent button covering <paramref name="parent"/> with a centered white icon.
+        /// </summary>
+        /// <param name="parent">The area the button covers.</param>
+        /// <param name="icon">The icon sprite.</param>
+        /// <param name="iconSize">The size of the icon.</param>
+        /// <param name="onClick">The action run when the button is tapped.</param>
+        /// <param name="iconImage">The icon image, tinted afterwards.</param>
+        /// <returns>The button.</returns>
+        Button CreateIconButton(RectTransform parent, Sprite icon, float iconSize, UnityAction onClick, out Image iconImage)
+        {
+            var hit = CreateImage(parent, new Color(0f, 0f, 0f, 0f), 0f);
+            hit.gameObject.name = "IconButton";
+            hit.raycastTarget = true;
+            var button = hit.gameObject.AddComponent<Button>();
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(onClick);
+            iconImage = CreateImage(hit.transform, TEXT_COLOR, 0f);
+            iconImage.gameObject.name = "Icon";
+            iconImage.sprite = icon;
+            iconImage.preserveAspect = true;
+            var iconRect = iconImage.rectTransform;
+            iconRect.anchorMin = new Vector2(0.5f, 0.5f);
+            iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+            iconRect.sizeDelta = new Vector2(iconSize, iconSize);
+            iconRect.anchoredPosition = Vector2.zero;
+            return button;
+        }
+        #region Search bar
+        /// <summary>
+        /// Builds the search button left of the pager. Its right edge stays next to the pager, so it grows to the left
+        /// into a search bar with the text field and a clear button.
+        /// </summary>
+        /// <param name="main">The main area of the list.</param>
+        void BuildSearchBar(RectTransform main)
+        {
+            _searchHolder = CreateFloatingHolder(main, new Vector2(1f, 0f), PagerCenterX - PAGER_WIDTH * 0.5f - FLOAT_GAP);
+            _searchPanel = CreateFloatingPanel(_searchHolder, out _searchRing);
+            var iconArea = CreateRect("SearchButton", _searchPanel.transform);
+            iconArea.anchorMin = new Vector2(1f, 0f);
+            iconArea.anchorMax = new Vector2(1f, 1f);
+            iconArea.pivot = new Vector2(1f, 0.5f);
+            iconArea.sizeDelta = new Vector2(PAGER_HEIGHT, 0f);
+            iconArea.anchoredPosition = Vector2.zero;
+            CreateIconButton(iconArea, UiSprites.Magnifier, 30f, OnSearchButtonClicked, out _searchIcon);
+
+            _searchExpandedArea = CreateRect("Expanded", _searchPanel.transform);
+            Stretch(_searchExpandedArea);
+            _searchExpandedArea.offsetMin = new Vector2(10f, 0f);
+            _searchExpandedArea.offsetMax = new Vector2(-PAGER_HEIGHT, 0f);
+            var clearArea = CreateRect("ClearButton", _searchExpandedArea);
+            clearArea.anchorMin = new Vector2(1f, 0.5f);
+            clearArea.anchorMax = new Vector2(1f, 0.5f);
+            clearArea.pivot = new Vector2(1f, 0.5f);
+            clearArea.sizeDelta = new Vector2(44f, 44f);
+            clearArea.anchoredPosition = Vector2.zero;
+            _searchClearButton = CreateButton(clearArea, "×", PAGE_COLOR, MUTED_COLOR, 24f, ClearSearch);
+            Stretch((RectTransform)_searchClearButton.transform);
+            _searchField = CreateInputField(_searchExpandedArea, "MAJTEXT_LIST_SEARCH_PLACEHOLDER".i18n());
+            var fieldRect = (RectTransform)_searchField.transform;
+            Stretch(fieldRect);
+            fieldRect.offsetMax = new Vector2(-52f, 0f);
+            _searchField.onSubmit.AddListener(_ => OnSearchSubmitted());
+            _searchField.onEndEdit.AddListener(_ => ApplySearch());
+            _searchField.onValueChanged.AddListener(_ => UpdateSearchBarStyle());
+            _searchExpandedArea.gameObject.SetActive(false);
+            UpdateSearchBarStyle();
+        }
+        /// <summary>
+        /// Expands the search bar, or applies the search and collapses it when it is already expanded.
+        /// </summary>
+        void OnSearchButtonClicked()
+        {
+            if (_isSearchExpanded)
+            {
+                ApplySearch();
+                SetSearchExpanded(false);
+                return;
+            }
+            SetSearchExpanded(true);
+            _searchField.ActivateInputField();
+        }
+        /// <summary>
+        /// Applies the search and collapses the search bar when the keyboard submits the text.
+        /// </summary>
+        void OnSearchSubmitted()
+        {
+            ApplySearch();
+            SetSearchExpanded(false);
+        }
+        /// <summary>
+        /// Empties the search text and shows the whole category again; the search bar stays expanded.
+        /// </summary>
+        void ClearSearch()
+        {
+            _searchField.text = string.Empty;
+            ApplySearch();
+        }
+        /// <summary>
+        /// Animates the search button between the collapsed square and the expanded search bar.
+        /// </summary>
+        /// <param name="isExpanded">Whether to show the search bar.</param>
+        void SetSearchExpanded(bool isExpanded)
+        {
+            if (_isSearchExpanded == isExpanded)
+            {
+                return;
+            }
+            _isSearchExpanded = isExpanded;
+            _searchMotion.TryCancel();
+            var main = (RectTransform)_searchHolder.parent;
+            // 搜索条从翻页浮窗左边向左展开，不超出主区域
+            var available = main.rect.width * 0.5f + _searchHolder.anchoredPosition.x;
+            var expandedWidth = Mathf.Clamp(available, PAGER_HEIGHT, SEARCH_EXPANDED_WIDTH);
+            var targetWidth = isExpanded ? expandedWidth : PAGER_HEIGHT;
+            if (isExpanded)
+            {
+                _searchExpandedArea.gameObject.SetActive(true);
+            }
+            _searchMotion = LMotion.Create(_searchHolder.sizeDelta.x, targetWidth, SEARCH_ANIMATION_SEC)
+                                   .WithEase(Ease.OutCubic)
+                                   .WithOnComplete(() =>
+                                   {
+                                       if (!_isSearchExpanded && _searchExpandedArea != null)
+                                       {
+                                           _searchExpandedArea.gameObject.SetActive(false);
+                                       }
+                                   })
+                                   .Bind(width => _searchHolder.sizeDelta = new Vector2(width, PAGER_HEIGHT));
+            UpdateSearchBarStyle();
+        }
+        /// <summary>
+        /// Shows whether a search is active: the collapsed button turns blue with a white icon while the list is filtered.
+        /// </summary>
+        void UpdateSearchBarStyle()
+        {
+            var isFiltering = !_isSearchExpanded && !string.IsNullOrEmpty(_query);
+            _searchPanel.color = isFiltering ? ACCENT_COLOR : PAPER_COLOR;
+            _searchRing.enabled = !isFiltering;
+            _searchIcon.color = isFiltering ? Color.white : TEXT_COLOR;
+            _searchClearButton.gameObject.SetActive(!string.IsNullOrEmpty(_searchField.text));
+        }
+        #endregion
+        #region Share button and selection bar
+        /// <summary>
+        /// Builds the share button right of the pager, which enters selection mode.
+        /// </summary>
+        /// <param name="main">The main area of the list.</param>
+        void BuildShareButton(RectTransform main)
+        {
+            _shareHolder = CreateFloatingHolder(main, new Vector2(0f, 0f), SideButtonsRightX);
+            var panel = CreateFloatingPanel(_shareHolder, out _);
+            CreateIconButton(panel.rectTransform, UiSprites.Share, 30f, EnterSelectMode, out _);
+        }
+        /// <summary>
+        /// The left edge of the share button and the selection bar: right of the pager.
+        /// </summary>
+        static float SideButtonsRightX => PagerCenterX + PAGER_WIDTH * 0.5f + FLOAT_GAP;
+        /// <summary>
+        /// Builds the selection bar shown in selection mode in place of the share button:
+        /// the number of selected charts, then Clear, Share and Done.
+        /// </summary>
+        /// <param name="main">The main area of the list.</param>
+        void BuildSelectionBar(RectTransform main)
+        {
+            const float BUTTON_WIDTH = 84f;
+            const float BUTTON_GAP = 8f;
+            const float EDGE = 10f;
+            _selectionBar = CreateFloatingHolder(main, new Vector2(0f, 0f), SideButtonsRightX);
+            _selectionBar.sizeDelta = new Vector2(SELECTION_BAR_MAX_WIDTH, PAGER_HEIGHT);
             var selectionInner = CreatePanel(_selectionBar, PAPER_COLOR, 20f);
             Stretch(selectionInner.rectTransform);
             LightUi.AddRing(selectionInner.transform, ACCENT_COLOR, 20f, 2f);
             selectionInner.raycastTarget = true;
+            var done = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SELECT_DONE".i18n(), ACCENT_COLOR, Color.white, 18f, ExitSelectMode);
+            PlaceMiddleRight((RectTransform)done.transform, EDGE, BUTTON_WIDTH, 46f);
+            var shareSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SHARE_SELECTED".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, ShowSelectionShareModal);
+            PlaceMiddleRight((RectTransform)shareSelected.transform, EDGE + BUTTON_WIDTH + BUTTON_GAP, BUTTON_WIDTH, 46f);
+            var clearSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_CLEAR".i18n(), PAGE_COLOR, TEXT_COLOR, 18f, ClearSelection);
+            PlaceMiddleRight((RectTransform)clearSelected.transform, EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f, BUTTON_WIDTH, 46f);
             _selectionCountText = CreateText(selectionInner.rectTransform, string.Empty, 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             Stretch(_selectionCountText.rectTransform);
-            _selectionCountText.rectTransform.offsetMin = new Vector2(22f, 0f);
-            _selectionCountText.rectTransform.offsetMax = new Vector2(-220f, 0f);
-            var shareSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SHARE_SELECTED".i18n(), ACCENT_COLOR, Color.white, 18f, ShowSelectionShareModal);
-            PlaceMiddleRight((RectTransform)shareSelected.transform, 10f, 96f, 46f);
-            var clearSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_CLEAR".i18n(), PAGE_COLOR, TEXT_COLOR, 18f, ClearSelection);
-            PlaceMiddleRight((RectTransform)clearSelected.transform, 114f, 96f, 46f);
+            _selectionCountText.rectTransform.offsetMin = new Vector2(20f, 0f);
+            _selectionCountText.rectTransform.offsetMax = new Vector2(-(EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 3f), 0f);
+            _selectionCountText.enableAutoSizing = true;
+            _selectionCountText.fontSizeMin = 13f;
+            _selectionCountText.fontSizeMax = 19f;
             _selectionBar.gameObject.SetActive(false);
         }
         /// <summary>
-        /// 顶部右侧的一组控件：封面　−　难度　+　设置；返回中间显示难度名的文字
+        /// Fits the selection bar into the space right of the pager.
         /// </summary>
+        void FitSelectionBar()
+        {
+            var main = (RectTransform)_selectionBar.parent;
+            var available = main.rect.width * 0.5f - SideButtonsRightX - (SCROLLBAR_WIDTH + 14f);
+            var width = available > 0f ? Mathf.Min(SELECTION_BAR_MAX_WIDTH, available) : SELECTION_BAR_MAX_WIDTH;
+            _selectionBar.sizeDelta = new Vector2(width, PAGER_HEIGHT);
+        }
+        #endregion
+        /// <summary>
+        /// Builds the top bar controls from the left: Cover, −, the difficulty name, + and Settings.
+        /// </summary>
+        /// <param name="parent">The top bar; the controls start at its left edge.</param>
+        /// <param name="onCover">Switches back to the cover carousel.</param>
+        /// <param name="onDown">Selects the previous difficulty.</param>
+        /// <param name="onUp">Selects the next difficulty.</param>
+        /// <param name="onSetting">Opens the settings.</param>
+        /// <returns>The text showing the difficulty name.</returns>
         TextMeshProUGUI BuildTopControls(RectTransform parent, UnityAction onCover, UnityAction onDown, UnityAction onUp, UnityAction onSetting)
         {
-            var settingButton = CreateButton(parent, "MAJTEXT_LIST_SETTING".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onSetting);
-            PlaceTopRight((RectTransform)settingButton.transform, 0f, 0f, 96f, TOPBAR_HEIGHT);
-            var upButton = CreateButton(parent, "+", PAPER_COLOR, TEXT_COLOR, 28f, onUp);
-            PlaceTopRight((RectTransform)upButton.transform, 108f, 0f, 60f, TOPBAR_HEIGHT);
+            var coverButton = CreateButton(parent, "MAJTEXT_LIST_COVER".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onCover);
+            PlaceTopLeft((RectTransform)coverButton.transform, 0f, 0f, 96f, TOPBAR_HEIGHT);
+            var downButton = CreateButton(parent, "−", PAPER_COLOR, TEXT_COLOR, 28f, onDown);
+            PlaceTopLeft((RectTransform)downButton.transform, 108f, 0f, 60f, TOPBAR_HEIGHT);
             var difficultyText = CreateText(parent, string.Empty, 21f, ACCENT_COLOR, TextAlignmentOptions.Center, FontStyles.Bold);
-            PlaceTopRight(difficultyText.rectTransform, 174f, 0f, 150f, TOPBAR_HEIGHT);
+            PlaceTopLeft(difficultyText.rectTransform, 174f, 0f, 150f, TOPBAR_HEIGHT);
             difficultyText.enableAutoSizing = true;
             difficultyText.fontSizeMin = 14f;
             difficultyText.fontSizeMax = 21f;
-            var downButton = CreateButton(parent, "−", PAPER_COLOR, TEXT_COLOR, 28f, onDown);
-            PlaceTopRight((RectTransform)downButton.transform, 330f, 0f, 60f, TOPBAR_HEIGHT);
-            var coverButton = CreateButton(parent, "MAJTEXT_LIST_COVER".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onCover);
-            PlaceTopRight((RectTransform)coverButton.transform, 402f, 0f, 96f, TOPBAR_HEIGHT);
+            var upButton = CreateButton(parent, "+", PAPER_COLOR, TEXT_COLOR, 28f, onUp);
+            PlaceTopLeft((RectTransform)upButton.transform, 330f, 0f, 60f, TOPBAR_HEIGHT);
+            var settingButton = CreateButton(parent, "MAJTEXT_LIST_SETTING".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, onSetting);
+            PlaceTopLeft((RectTransform)settingButton.transform, 402f, 0f, 96f, TOPBAR_HEIGHT);
             return difficultyText;
         }
         /// <summary>
-        /// 顶部右侧控件组的总宽度（封面左缘到设置右缘）
+        /// The total width of the top bar controls, from the left edge of Cover to the right edge of Settings.
         /// </summary>
         const float TOP_CONTROLS_WIDTH = 498f;
         void AddScrollbar(ScrollRect scrollRect)
@@ -618,7 +853,6 @@ namespace MajdataPlay.Scenes.List
             // 到头循环，只有一页时不能翻
             _previousPageButton.interactable = pageCount > 1;
             _nextPageButton.interactable = pageCount > 1;
-            _captionText.text = $"{_collections.SelectedCollection.Name} · {"MAJTEXT_LIST_SONG_COUNT".i18n(_filteredSongs.Count)}";
             var level = GlobalLevel;
             UpdateDifficultyText(level);
 
@@ -746,10 +980,12 @@ namespace MajdataPlay.Scenes.List
             var query = _searchField.text.Trim();
             if (query == _query)
             {
+                UpdateSearchBarStyle();
                 return;
             }
             _query = query;
             _page = 0;
+            UpdateSearchBarStyle();
             RefreshList();
         }
         void ToggleFavorite(ISongDetail song)
@@ -777,14 +1013,35 @@ namespace MajdataPlay.Scenes.List
             RenderSidebar();
         }
         #region Selection
-        void ToggleSelectMode()
+        /// <summary>
+        /// Enters selection mode from the share button: tapping difficulty tags then picks or unpicks charts to share.
+        /// </summary>
+        void EnterSelectMode()
         {
-            _isSelecting = !_isSelecting;
+            SetSelectMode(true);
+        }
+        /// <summary>
+        /// Leaves selection mode from the Done button, keeping and saving the picked charts.
+        /// </summary>
+        void ExitSelectMode()
+        {
+            SetSelectMode(false);
+        }
+        /// <summary>
+        /// Switches selection mode and rebuilds the difficulty tags on this page, which show "+" or "−" while selecting.
+        /// </summary>
+        /// <param name="isSelecting">Whether selection mode is on.</param>
+        void SetSelectMode(bool isSelecting)
+        {
+            if (_isSelecting == isSelecting)
+            {
+                return;
+            }
+            _isSelecting = isSelecting;
             if (!_isSelecting)
             {
                 SaveSelectionIfNeeded();
             }
-            // 选择模式下难度标签带“+”/“−”，切换时重建当前页的标签
             var level = GlobalLevel;
             foreach (var card in _cards)
             {
@@ -835,9 +1092,12 @@ namespace MajdataPlay.Scenes.List
         }
         void UpdateSelectionUi()
         {
-            _selectButtonLabel.text = (_isSelecting ? "MAJTEXT_LIST_SELECT_DONE" : "MAJTEXT_LIST_SELECT_MODE").i18n();
-            _selectButtonLabel.color = _isSelecting ? Color.white : TEXT_COLOR;
-            ((Image)_selectButton.targetGraphic).color = _isSelecting ? ACCENT_COLOR : PAPER_COLOR;
+            // 选择模式下分享键让位给选择浮窗：已选 N 张　清空　分享　完成
+            _shareHolder.gameObject.SetActive(!_isSelecting);
+            if (_isSelecting && !_selectionBar.gameObject.activeSelf)
+            {
+                FitSelectionBar();
+            }
             _selectionBar.gameObject.SetActive(_isSelecting);
             _selectionCountText.text = "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount);
             UpdateDetailPickButton();

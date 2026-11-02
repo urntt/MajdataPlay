@@ -454,16 +454,21 @@ namespace MajdataPlay.Scenes.List
             Stretch(text.rectTransform, 4f);
             return button;
         }
+        /// <summary>
+        /// Creates a borderless single-line text field; the search bar around it draws the background.
+        /// </summary>
+        /// <param name="parent">The parent the field is created in; place the field afterwards.</param>
+        /// <param name="placeholder">The hint shown while the field is empty.</param>
+        /// <returns>The text field.</returns>
         TMP_InputField CreateInputField(Transform parent, string placeholder)
         {
-            var border = CreatePanel(parent, PAPER_COLOR, 11f);
+            var border = CreateImage(parent, new Color(0f, 0f, 0f, 0f), 0f);
             border.gameObject.name = "SearchField";
             border.raycastTarget = true;
-            LightUi.AddRing(border.transform, LINE_COLOR, 11f, 1.5f);
             var textArea = CreateRect("TextArea", border.transform);
-            Stretch(textArea, 16f);
-            textArea.offsetMin = new Vector2(16f, 6f);
-            textArea.offsetMax = new Vector2(-16f, -6f);
+            Stretch(textArea);
+            textArea.offsetMin = new Vector2(12f, 6f);
+            textArea.offsetMax = new Vector2(-8f, -6f);
             textArea.gameObject.AddComponent<RectMask2D>();
             var placeholderText = CreateText(textArea, placeholder, 18f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
             Stretch(placeholderText.rectTransform);

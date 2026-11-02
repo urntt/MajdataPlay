@@ -341,20 +341,9 @@ namespace MajdataPlay
         /// <param name="songTitle">分享单张谱面时用于文件名的曲名</param>
         static ShareHeader BuildHeader(string label, string? songTitle)
         {
-            var playerName = "Guest";
-            Sprite? avatar = null;
-            var endpoints = MajEnv.ApiEndpoints ?? Array.Empty<ApiEndpoint>();
-            var endpoint = endpoints.FirstOrDefault(x => x.RuntimeConfig.AuthMethod != NetAuthMethodOption.None && x.RuntimeConfig.IsLoggedIn);
-            if (endpoint is not null)
-            {
-                var runtimeConfig = endpoint.RuntimeConfig;
-                var name = string.IsNullOrEmpty(runtimeConfig.Nickname) ? runtimeConfig.Username : runtimeConfig.Nickname;
-                if (!string.IsNullOrWhiteSpace(name))
-                {
-                    playerName = name;
-                }
-                avatar = runtimeConfig.Avatar;
-            }
+            var profile = PlayerProfile.GetCurrent();
+            var playerName = profile.Name;
+            var avatar = profile.Avatar;
             var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var middle = string.IsNullOrEmpty(label) ? (songTitle ?? "Scores") : label.Replace(" ", string.Empty);
             return new ShareHeader()
