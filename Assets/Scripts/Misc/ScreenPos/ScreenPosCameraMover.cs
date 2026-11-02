@@ -93,7 +93,7 @@ namespace MajdataPlay
             }
             if (isLandscape)
             {
-                // 横屏：与 ScreenPosCanvasMover 的 1920×1080 / Expand 对齐，判定圆居中并占满屏高。
+                // 横屏：与 ScreenPosCanvasLayout 横屏布局的 1920×1080 / Expand 对齐，判定圆居中并占满屏高。
                 float landscapeCanvasScale = Mathf.Min(width / GameplayScreenLayout.LANDSCAPE_REFERENCE_WIDTH,
                                                        height / GameplayScreenLayout.LANDSCAPE_REFERENCE_HEIGHT);
                 _screenOrthographicSize = GameplayScreenLayout.LANDSCAPE_HALF_HEIGHT * (height / GameplayScreenLayout.LANDSCAPE_REFERENCE_HEIGHT) / landscapeCanvasScale;

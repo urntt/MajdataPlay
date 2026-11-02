@@ -41,6 +41,10 @@ internal static class Program
         VerifyAnchoredPositionConversion();
         VerifyCoverPivotPosition();
         VerifyInputEquality();
+        VerifyLandscapeLayout();
+        VerifyLandscapeMainScale();
+        VerifyFallingPlayArea();
+        VerifyLandscapeInputMode();
         s_assertions += CornerUpdaterValidation.Run();
         Console.WriteLine($"SCREEN_POS_LAYOUT_VALIDATION_PASSED ({s_assertions} assertions)");
         return 0;
@@ -203,6 +207,81 @@ internal static class Program
     }
 
     /// <summary>
+    /// Landscape centers the judgment circle at full height, shrinks the sub display into the top-left column and hides the covers.
+    /// </summary>
+    static void VerifyLandscapeLayout()
+    {
+        var layout = ScreenPosCanvasLayout.Calculate(CreateInput(1920, 1080, false, 0f, 1f, 0f, 1f, ScreenPosLayoutMode.Landscape));
+        Check(layout.Mode == ScreenPosLayoutMode.Landscape, "landscape: mode is forwarded");
+        Check(layout.CoversHidden, "landscape: covers are hidden");
+        CheckVector(layout.ReferenceResolution, 1920f, 1080f, "landscape: reference resolution");
+        CheckVector(layout.CanvasSize, 1920f, 1080f, "landscape: canvas size");
+        CheckFloat(layout.ScreenCenterY, 960f, "landscape: screen center uses the portrait base resolution");
+        CheckVector(layout.MainDisplayPosition, 0f, 540f, "landscape: Main_Display is centered");
+        // 侧栏宽 420：副屏缩放 (420 - 48) / 1080，位于侧栏中间、距顶边 24
+        var subScale = (420f - 48f) / 1080f;
+        CheckFloat(layout.SubDisplayScale, subScale, "landscape: sub display fits the side column");
+        CheckVector(layout.SubDisplayPosition, -750f, 1080f - (225f * subScale) - 24f, "landscape: Sub_Display sits in the top-left column");
+        var far = ScreenPosCanvasLayout.LandscapeEdgePanelExtent;
+        var subBottom = 1080f - (450f * subScale) - 24f;
+        CheckRect(layout.EdgeRight, 540f, -far, far - 540f, far * 2f, "landscape: right panel covers the right column");
+        CheckRect(layout.EdgeUp, -540f, 1080f, 1080f, far - 1080f, "landscape: up panel starts at the top of the main display");
+        CheckRect(layout.EdgeDown, -540f, -far, 1080f, far, "landscape: down panel ends at the bottom of the main display");
+        CheckRect(layout.EdgeLeft, -far, -far, far - 540f, subBottom + far, "landscape: left panel stops below the sub display");
+
+        var wide = ScreenPosCanvasLayout.Calculate(CreateInput(2400, 1080, false, 0f, 1f, 0f, 1f, ScreenPosLayoutMode.Landscape));
+        CheckVector(wide.CanvasSize, 2400f, 1080f, "landscape wide: canvas size");
+        CheckFloat(wide.SubDisplayScale, (660f - 48f) / 1080f, "landscape wide: sub display grows with the column");
+
+        // Expand 保证画布至少 1920 宽，方屏时画布变高，副屏仍贴着顶边
+        var square = ScreenPosCanvasLayout.Calculate(CreateInput(1080, 1080, false, 0f, 1f, 0f, 1f, ScreenPosLayoutMode.Landscape));
+        CheckVector(square.CanvasSize, 1920f, 1920f, "landscape square: canvas grows taller");
+        CheckVector(square.MainDisplayPosition, 0f, 960f, "landscape square: Main_Display stays centered");
+        CheckFloat(square.SubDisplayScale, subScale, "landscape square: sub display keeps the column width");
+        CheckVector(square.SubDisplayPosition, -750f, 1920f - (225f * subScale) - 24f, "landscape square: Sub_Display stays at the top");
+    }
+
+    /// <summary>
+    /// Landscape applies the main display scale through the reference resolution like portrait does.
+    /// </summary>
+    static void VerifyLandscapeMainScale()
+    {
+        var layout = ScreenPosCanvasLayout.Calculate(CreateInput(1920, 1080, true, 1f, 0.5f, 0f, 1f, ScreenPosLayoutMode.Landscape));
+        CheckVector(layout.ReferenceResolution, 3840f, 2160f, "landscape scale 0.5: reference resolution doubles");
+        CheckVector(layout.CanvasSize, 3840f, 2160f, "landscape scale 0.5: canvas size doubles");
+        CheckVector(layout.MainDisplayPosition, 0f, 1080f, "landscape scale 0.5: Main_Display stays centered");
+    }
+
+    /// <summary>
+    /// The falling play area ignores the main display scale, hides the sub display and covers the whole left column.
+    /// </summary>
+    static void VerifyFallingPlayArea()
+    {
+        var layout = ScreenPosCanvasLayout.Calculate(CreateInput(1920, 1080, true, 1f, 0.5f, 0f, 1f, ScreenPosLayoutMode.FallingPlayArea));
+        Check(layout.Mode == ScreenPosLayoutMode.FallingPlayArea, "falling: mode is forwarded");
+        Check(layout.CoversHidden, "falling: covers are hidden");
+        CheckVector(layout.ReferenceResolution, 1920f, 1080f, "falling: main display scale is ignored");
+        CheckFloat(layout.SubDisplayScale, 0f, "falling: sub display is hidden");
+        var far = ScreenPosCanvasLayout.LandscapeEdgePanelExtent;
+        CheckRect(layout.EdgeLeft, -far, -far, far - 540f, far * 2f, "falling: left panel covers the whole left column");
+    }
+
+    /// <summary>
+    /// A changed layout mode is detected, and portrait stays the default.
+    /// </summary>
+    static void VerifyLandscapeInputMode()
+    {
+        var portrait = CreateInput(1920, 1080, true, 1f, 1f, 0f, 1f);
+        var explicitPortrait = CreateInput(1920, 1080, true, 1f, 1f, 0f, 1f, ScreenPosLayoutMode.Portrait);
+        var landscape = CreateInput(1920, 1080, true, 1f, 1f, 0f, 1f, ScreenPosLayoutMode.Landscape);
+        Check(portrait.Mode == ScreenPosLayoutMode.Portrait, "input: portrait is the default mode");
+        Check(portrait.Equals(explicitPortrait) && portrait.GetHashCode() == explicitPortrait.GetHashCode(), "input: the default mode equals portrait");
+        Check(!portrait.Equals(landscape), "input: a changed mode is detected");
+        var layout = ScreenPosCanvasLayout.Calculate(portrait);
+        Check(!layout.CoversHidden && layout.Mode == ScreenPosLayoutMode.Portrait, "portrait: covers stay visible");
+    }
+
+    /// <summary>
     /// Calculates a layout for the CanvasTemplate reference resolution.
     /// </summary>
     /// <param name="screenWidth">The screen width in pixels.</param>
@@ -242,7 +321,8 @@ internal static class Program
                                                   float mainOffset,
                                                   float mainScale,
                                                   float subOffset,
-                                                  float subScale)
+                                                  float subScale,
+                                                  ScreenPosLayoutMode mode = ScreenPosLayoutMode.Portrait)
     {
         return new ScreenPosCanvasLayoutInput(
             screenWidth,
@@ -252,7 +332,8 @@ internal static class Program
             mainOffset,
             mainScale,
             subOffset,
-            subScale);
+            subScale,
+            mode);
     }
 
     /// <summary>

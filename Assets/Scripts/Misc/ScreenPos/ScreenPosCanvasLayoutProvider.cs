@@ -100,7 +100,20 @@ namespace MajdataPlay
                 displayOptions.MainScreenOffset,
                 displayOptions.MainScreenScale,
                 displayOptions.SubDisplayOffset,
-                displayOptions.SubDisplayScale);
+                displayOptions.SubDisplayScale,
+                GetLayoutMode());
+        }
+
+        /// <summary>
+        /// 当前的布局模式：已请求横屏且屏幕实际为横向时为横屏，下落式游戏场景为下落式游玩区
+        /// </summary>
+        private static ScreenPosLayoutMode GetLayoutMode()
+        {
+            if (!GameplayScreenLayout.IsLandscape)
+            {
+                return ScreenPosLayoutMode.Portrait;
+            }
+            return GameplayScreenLayout.IsFallingPlayArea ? ScreenPosLayoutMode.FallingPlayArea : ScreenPosLayoutMode.Landscape;
         }
     }
 }

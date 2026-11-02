@@ -20,7 +20,10 @@ anchored at the screen center and with sub display offset and scale; the
 `Sub_Cover`, `Sub_Cover_Bottom` and `Sub_Cover_Top` areas, including collapsing
 to zero size instead of going negative; anchored position conversion for the
 anchors used by `CanvasTemplate` and for stretched anchors; cover pivot
-mirroring for negative scales; and value equality of the layout input.
+mirroring for negative scales; value equality of the layout input, including
+the layout mode; and the landscape and falling play area layouts (1920×1080
+reference resolution, centered `Main_Display`, the sub display shrunk into the
+top-left column or hidden, hidden covers and the four `EdgeCanvas` panel areas).
 
 Passing does not verify actual Unity integration: finding the parts by name,
 writing `RectTransform`/`CanvasScaler` values, execution order between the

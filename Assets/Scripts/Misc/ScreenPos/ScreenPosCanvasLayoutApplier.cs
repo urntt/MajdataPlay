@@ -88,6 +88,24 @@ namespace MajdataPlay
         /// </summary>
         private int _appliedVersion = NotAppliedVersion;
 
+        /// <summary>
+        /// 横屏时的 EdgeCanvas 与圆形遮罩（只有常驻的 GlobalCanvas 上才有）
+        /// </summary>
+        private LandscapeEdgeMask? _edgeMask;
+
+        /// <summary>
+        /// 各遮罩原本的缩放：横屏时缩为 0（连同其中的调试文字），回到竖屏时还原
+        /// </summary>
+        private Vector3 _subCoverScale = Vector3.one;
+        private Vector3 _subCoverBottomScale = Vector3.one;
+        private Vector3 _subCoverTopScale = Vector3.one;
+        private bool _areCoversHidden;
+
+        /// <summary>
+        /// 当前应用的布局模式
+        /// </summary>
+        private ScreenPosLayoutMode _appliedMode = ScreenPosLayoutMode.Portrait;
+
         private void Awake()
         {
             var root = transform;
@@ -97,6 +115,10 @@ namespace MajdataPlay
             _subCover = FindPart(root, SubCoverName);
             _subCoverBottom = FindPart(root, SubCoverBottomName);
             _subCoverTop = FindPart(root, SubCoverTopName);
+            _subCoverScale = _subCover != null ? _subCover.localScale : Vector3.one;
+            _subCoverBottomScale = _subCoverBottom != null ? _subCoverBottom.localScale : Vector3.one;
+            _subCoverTopScale = _subCoverTop != null ? _subCoverTop.localScale : Vector3.one;
+            _edgeMask = LandscapeEdgeMask.TryCreate(root, _mainDisplay);
         }
 
         private void LateUpdate()
@@ -109,6 +131,11 @@ namespace MajdataPlay
             var version = provider.Version;
             if (version == _appliedVersion)
             {
+                // 下落式转场时四周的遮罩随进度渐隐渐显
+                if (_appliedMode == ScreenPosLayoutMode.FallingPlayArea)
+                {
+                    _edgeMask?.UpdateFallingTransition(false);
+                }
                 return;
             }
 
@@ -134,9 +161,35 @@ namespace MajdataPlay
                 ApplyDisplay(follower, layout.MainDisplayPosition, 1f, canvasSize);
             }
             ApplyDisplay(_subDisplay, layout.SubDisplayPosition, layout.SubDisplayScale, canvasSize);
+            SetCoversHidden(layout.CoversHidden);
             ApplyCover(_subCover, layout.SubCover, canvasSize);
             ApplyCover(_subCoverBottom, layout.SubCoverBottom, canvasSize);
             ApplyCover(_subCoverTop, layout.SubCoverTop, canvasSize);
+            _appliedMode = layout.Mode;
+            _edgeMask?.Apply(layout);
+        }
+
+        /// <summary>
+        /// 横屏时把主副屏之间的遮罩缩为 0，回到竖屏时还原原本的缩放
+        /// </summary>
+        private void SetCoversHidden(bool hidden)
+        {
+            if (hidden == _areCoversHidden)
+            {
+                return;
+            }
+            _areCoversHidden = hidden;
+            SetScale(_subCover, hidden ? Vector3.zero : _subCoverScale);
+            SetScale(_subCoverBottom, hidden ? Vector3.zero : _subCoverBottomScale);
+            SetScale(_subCoverTop, hidden ? Vector3.zero : _subCoverTopScale);
+        }
+
+        private static void SetScale(RectTransform? rect, Vector3 scale)
+        {
+            if (rect != null)
+            {
+                rect.localScale = scale;
+            }
         }
 
         /// <summary>

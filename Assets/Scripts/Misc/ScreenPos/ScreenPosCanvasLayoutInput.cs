@@ -5,6 +5,19 @@ using UnityEngine;
 namespace MajdataPlay
 {
     /// <summary>
+    /// 画面布局模式（见 <see cref="GameplayScreenLayout"/>）
+    /// </summary>
+    public enum ScreenPosLayoutMode
+    {
+        /// <summary>竖屏：主屏在下、副屏在上</summary>
+        Portrait,
+        /// <summary>横屏：圆形主屏居中占满屏高，副屏缩小放在左上</summary>
+        Landscape,
+        /// <summary>下落式：画面铺满屏幕，不显示副屏，忽略主屏缩放</summary>
+        FallingPlayArea,
+    }
+
+    /// <summary>
     /// Captures every value that affects <see cref="ScreenPosCanvasLayout"/>, so the layout is only recalculated when one of them changes.
     /// </summary>
     public readonly struct ScreenPosCanvasLayoutInput : IEquatable<ScreenPosCanvasLayoutInput>
@@ -50,6 +63,11 @@ namespace MajdataPlay
         public float SubDisplayScale { get; }
 
         /// <summary>
+        /// Gets the layout mode (portrait, landscape or the falling play area).
+        /// </summary>
+        public ScreenPosLayoutMode Mode { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ScreenPosCanvasLayoutInput"/> struct.
         /// </summary>
         /// <param name="screenWidth">The screen width in pixels.</param>
@@ -60,6 +78,7 @@ namespace MajdataPlay
         /// <param name="mainScreenScale">The scale of the main display.</param>
         /// <param name="subDisplayOffset">The vertical offset of the sub display, in setting units.</param>
         /// <param name="subDisplayScale">The scale of the sub display.</param>
+        /// <param name="mode">The layout mode.</param>
         public ScreenPosCanvasLayoutInput(int screenWidth,
                                           int screenHeight,
                                           Vector2 baseReferenceResolution,
@@ -67,8 +86,10 @@ namespace MajdataPlay
                                           float mainScreenOffset,
                                           float mainScreenScale,
                                           float subDisplayOffset,
-                                          float subDisplayScale)
+                                          float subDisplayScale,
+                                          ScreenPosLayoutMode mode = ScreenPosLayoutMode.Portrait)
         {
+            Mode = mode;
             ScreenWidth = screenWidth;
             ScreenHeight = screenHeight;
             BaseReferenceResolution = baseReferenceResolution;
@@ -94,7 +115,8 @@ namespace MajdataPlay
                    MainScreenOffset.Equals(other.MainScreenOffset) &&
                    MainScreenScale.Equals(other.MainScreenScale) &&
                    SubDisplayOffset.Equals(other.SubDisplayOffset) &&
-                   SubDisplayScale.Equals(other.SubDisplayScale);
+                   SubDisplayScale.Equals(other.SubDisplayScale) &&
+                   Mode == other.Mode;
         }
 
         /// <summary>
@@ -123,6 +145,7 @@ namespace MajdataPlay
             hash.Add(MainScreenScale);
             hash.Add(SubDisplayOffset);
             hash.Add(SubDisplayScale);
+            hash.Add(Mode);
             return hash.ToHashCode();
         }
     }

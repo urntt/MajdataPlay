@@ -53,6 +53,31 @@ namespace MajdataPlay
         const float SubDisplayOffsetStep = 100f;
 
         /// <summary>
+        /// 横屏的参考分辨率：判定圆（1080 单位）占满屏高
+        /// </summary>
+        static readonly Vector2 LandscapeReferenceResolution = new Vector2(1920f, 1080f);
+
+        /// <summary>
+        /// 横屏时副屏与屏幕边缘、主屏之间的间距
+        /// </summary>
+        const float LandscapeSideMargin = 24f;
+
+        /// <summary>
+        /// 横屏时副屏缩放的下限
+        /// </summary>
+        const float LandscapeMinSubDisplayScale = 0.05f;
+
+        /// <summary>
+        /// 横屏时 EdgeCanvas 黑板伸到屏幕外的长度（过大时换算位置会损失精度）
+        /// </summary>
+        public const float LandscapeEdgePanelExtent = 20000f;
+
+        /// <summary>
+        /// The width of the sub display in canvas units.
+        /// </summary>
+        const float SubDisplayWidth = 1080f;
+
+        /// <summary>
         /// Gets the reference resolution that the canvas scaler must use to apply the main display scale.
         /// </summary>
         public Vector2 ReferenceResolution { get; }
@@ -98,6 +123,36 @@ namespace MajdataPlay
         public Rect SubCoverTop { get; }
 
         /// <summary>
+        /// Gets the layout mode this layout was calculated for.
+        /// </summary>
+        public ScreenPosLayoutMode Mode { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the covers between the displays are hidden (landscape layouts).
+        /// </summary>
+        public bool CoversHidden { get; }
+
+        /// <summary>
+        /// 横屏：EdgeCanvas 上方黑板的区域（主屏方框上方）
+        /// </summary>
+        public Rect EdgeUp { get; }
+
+        /// <summary>
+        /// 横屏：EdgeCanvas 下方黑板的区域（主屏方框下方）
+        /// </summary>
+        public Rect EdgeDown { get; }
+
+        /// <summary>
+        /// 横屏：EdgeCanvas 左侧黑板的区域（副屏底边以下；下落式为整列）
+        /// </summary>
+        public Rect EdgeLeft { get; }
+
+        /// <summary>
+        /// 横屏：EdgeCanvas 右侧黑板的区域（主屏右侧整列）
+        /// </summary>
+        public Rect EdgeRight { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ScreenPosCanvasLayout"/> struct.
         /// </summary>
         /// <param name="referenceResolution">The reference resolution the canvas scaler must use.</param>
@@ -128,6 +183,37 @@ namespace MajdataPlay
             SubCover = subCover;
             SubCoverBottom = subCoverBottom;
             SubCoverTop = subCoverTop;
+            Mode = ScreenPosLayoutMode.Portrait;
+            CoversHidden = false;
+            EdgeUp = default;
+            EdgeDown = default;
+            EdgeLeft = default;
+            EdgeRight = default;
+        }
+
+        /// <summary>
+        /// 横屏布局用：竖屏的全部值加上模式、遮罩隐藏与 EdgeCanvas 四块黑板的区域
+        /// </summary>
+        ScreenPosCanvasLayout(Vector2 referenceResolution,
+                              Vector2 canvasSize,
+                              float screenCenterY,
+                              Vector2 mainDisplayPosition,
+                              Vector2 subDisplayPosition,
+                              float subDisplayScale,
+                              ScreenPosLayoutMode mode,
+                              Rect edgeUp,
+                              Rect edgeDown,
+                              Rect edgeLeft,
+                              Rect edgeRight)
+            : this(referenceResolution, canvasSize, screenCenterY, mainDisplayPosition, subDisplayPosition, subDisplayScale,
+                   default, default, default)
+        {
+            Mode = mode;
+            CoversHidden = true;
+            EdgeUp = edgeUp;
+            EdgeDown = edgeDown;
+            EdgeLeft = edgeLeft;
+            EdgeRight = edgeRight;
         }
 
         /// <summary>
@@ -141,6 +227,10 @@ namespace MajdataPlay
         /// </remarks>
         public static ScreenPosCanvasLayout Calculate(in ScreenPosCanvasLayoutInput input)
         {
+            if (input.Mode != ScreenPosLayoutMode.Portrait)
+            {
+                return CalculateLandscape(input);
+            }
             var baseReferenceResolution = input.BaseReferenceResolution;
             var baseScaleFactor = Mathf.Min(
                 input.ScreenWidth / baseReferenceResolution.x,
@@ -191,6 +281,62 @@ namespace MajdataPlay
                 CreateArea(mainLeft, mainRight, mainTop, subBottom),
                 CreateArea(mainLeft, mainRight, 0f, mainBottom),
                 CreateArea(mainLeft, mainRight, subTop, canvasSize.y));
+        }
+
+        /// <summary>
+        /// 横屏布局：判定圆（主屏）居中占满屏高，副屏按左侧栏宽度等比缩小放在左上，遮罩收起；
+        /// 下落式画面铺满屏幕（忽略主屏缩放），不显示副屏，左侧整列由 EdgeCanvas 遮住。
+        /// </summary>
+        static ScreenPosCanvasLayout CalculateLandscape(in ScreenPosCanvasLayoutInput input)
+        {
+            var isFalling = input.Mode == ScreenPosLayoutMode.FallingPlayArea;
+            // 屏幕中心仍按竖屏的基准分辨率计算，与竖屏一致
+            var baseReferenceResolution = input.BaseReferenceResolution;
+            var baseScaleFactor = Mathf.Min(
+                input.ScreenWidth / baseReferenceResolution.x,
+                input.ScreenHeight / baseReferenceResolution.y);
+            var screenCenterY = input.ScreenHeight / baseScaleFactor / 2f;
+
+            var mainScale = 1f;
+            if (!isFalling && input.IsTransformEnabled && input.MainScreenScale > 0f)
+            {
+                mainScale = input.MainScreenScale;
+            }
+            var referenceResolution = LandscapeReferenceResolution / mainScale;
+            // CanvasScaler Expand：取宽高比例中的较小值
+            var scaleFactor = Mathf.Min(input.ScreenWidth / referenceResolution.x, input.ScreenHeight / referenceResolution.y);
+            var canvasSize = new Vector2(input.ScreenWidth / scaleFactor, input.ScreenHeight / scaleFactor);
+
+            var mainPosition = new Vector2(0f, canvasSize.y / 2f);
+            var mainLeft = -MainDisplayWidth / 2f;
+            var mainRight = MainDisplayWidth / 2f;
+            var mainBottom = mainPosition.y - (MainDisplayHeight / 2f);
+            var mainTop = mainPosition.y + (MainDisplayHeight / 2f);
+
+            var sideWidth = Mathf.Max(0f, (canvasSize.x - MainDisplayWidth) / 2f);
+            // 下落式由 HUD 显示信息，不显示副屏；缩放为 0 后副屏点击区域也随之消失
+            var subScale = isFalling
+                ? 0f
+                : Mathf.Min(Mathf.Max((sideWidth - (LandscapeSideMargin * 2f)) / SubDisplayWidth, LandscapeMinSubDisplayScale), 1f);
+            var subHalfHeight = SubDisplayHeight * subScale / 2f;
+            var subPosition = new Vector2(-((MainDisplayWidth / 2f) + (sideWidth / 2f)),
+                                          canvasSize.y - subHalfHeight - LandscapeSideMargin);
+
+            const float FAR = LandscapeEdgePanelExtent;
+            // 左侧黑板只让出副屏所在的左上角；下落式没有副屏，左侧整列都遮
+            var leftTop = isFalling ? FAR : subPosition.y - subHalfHeight;
+            return new ScreenPosCanvasLayout(
+                referenceResolution,
+                canvasSize,
+                screenCenterY,
+                mainPosition,
+                subPosition,
+                subScale,
+                input.Mode,
+                CreateArea(mainLeft, mainRight, mainTop, FAR),
+                CreateArea(mainLeft, mainRight, -FAR, mainBottom),
+                CreateArea(-FAR, mainLeft, -FAR, leftTop),
+                CreateArea(mainRight, FAR, -FAR, FAR));
         }
 
         /// <summary>
