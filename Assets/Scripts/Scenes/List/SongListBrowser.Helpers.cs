@@ -49,8 +49,13 @@ namespace MajdataPlay.Scenes.List
         /// 难度标签：非当前难度为白底、难度色文字、难度色细边框；当前难度为难度色 12% 透明度的底、难度色粗体文字
         /// </summary>
         /// <param name="isPicked">已加入自选：难度色实底、白色粗体字</param>
-        Button CreateLevelTag(Transform parent, ChartLevel level, string label, bool isCurrent, float fontSize, UnityAction onClick, bool isPicked = false)
+        /// <param name="showPickMark">选择模式：未选的文字前加“+ ”，已选的加“− ”</param>
+        Button CreateLevelTag(Transform parent, ChartLevel level, string label, bool isCurrent, float fontSize, UnityAction onClick, bool isPicked = false, bool showPickMark = false)
         {
+            if (showPickMark)
+            {
+                label = (isPicked ? "− " : "+ ") + label;
+            }
             var color = GetDifficultyColor(level);
             Image background;
             if (isPicked)

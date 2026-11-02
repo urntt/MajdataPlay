@@ -382,21 +382,24 @@ namespace MajdataPlay.Scenes.List
             var topRow = CreateRect("TopRow", main);
             PlaceRow(topRow, 0f, TOP_PADDING, 0f, TOPBAR_HEIGHT);
             _searchField = CreateInputField(topRow, "MAJTEXT_LIST_SEARCH_PLACEHOLDER".i18n());
-            PlaceTopLeft((RectTransform)_searchField.transform, 0f, 0f, 420f, TOPBAR_HEIGHT);
+            PlaceTopLeft((RectTransform)_searchField.transform, 0f, 0f, 360f, TOPBAR_HEIGHT);
             _searchField.onSubmit.AddListener(_ => ApplySearch());
             _searchField.onEndEdit.AddListener(_ => ApplySearch());
             var searchButton = CreateButton(topRow, "MAJTEXT_LIST_SEARCH".i18n(), ACCENT_COLOR, Color.white, 19f, ApplySearch);
-            PlaceTopLeft((RectTransform)searchButton.transform, 432f, 0f, 96f, TOPBAR_HEIGHT);
+            PlaceTopLeft((RectTransform)searchButton.transform, 372f, 0f, 96f, TOPBAR_HEIGHT);
 
-            // 右侧从左到右：封面　−　难度　+　设置（详情页右上角是同一组控件，位置相同）
+            // 右侧从左到右：选择分享　封面　−　难度　+　设置（详情页右上角是后五个控件，位置相同）
             _difficultyText = BuildTopControls(topRow, SwitchToCover, () => ChangeGlobalLevel(-1), () => ChangeGlobalLevel(1), EnterSetting);
+            // 自选分享：进入选择模式后点难度标签勾选谱面
+            _selectButton = CreateButton(topRow, "MAJTEXT_LIST_SELECT_MODE".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, ToggleSelectMode);
+            PlaceTopRight((RectTransform)_selectButton.transform, TOP_CONTROLS_WIDTH + 12f, 0f, 140f, TOPBAR_HEIGHT);
+            _selectButtonLabel = _selectButton.GetComponentInChildren<TextMeshProUGUI>();
+            _selectButtonLabel.enableAutoSizing = true;
+            _selectButtonLabel.fontSizeMin = 13f;
+            _selectButtonLabel.fontSizeMax = 19f;
 
             _captionText = CreateText(main, string.Empty, 17f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(_captionText.rectTransform, 2f, CAPTION_TOP, 180f, 30f);
-            // 自选分享：进入选择模式后点难度标签勾选谱面
-            _selectButton = CreateButton(main, "MAJTEXT_LIST_SELECT_MODE".i18n(), PAPER_COLOR, TEXT_COLOR, 16f, ToggleSelectMode);
-            PlaceTopRight((RectTransform)_selectButton.transform, SCROLLBAR_WIDTH + 14f, CAPTION_TOP - 4f, 150f, 38f);
-            _selectButtonLabel = _selectButton.GetComponentInChildren<TextMeshProUGUI>();
+            PlaceRow(_captionText.rectTransform, 2f, CAPTION_TOP, 0f, 30f);
 
             // 曲目列表：每行一张卡片，右侧可拖动的滚动条，底部给浮窗留出空间
             _listPane = CreateRect("ListPane", main);
@@ -779,6 +782,12 @@ namespace MajdataPlay.Scenes.List
             if (!_isSelecting)
             {
                 SaveSelectionIfNeeded();
+            }
+            // 选择模式下难度标签带“+”/“−”，切换时重建当前页的标签
+            var level = GlobalLevel;
+            foreach (var card in _cards)
+            {
+                UpdateCardLevel(card, level);
             }
             UpdateSelectionUi();
         }
