@@ -1,0 +1,29 @@
+{
+    "name": "MajdataPlay.Tests.Utils",
+    "rootNamespace": "MajdataPlay.Tests.Plugins.Utils",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MajdataPlay.Tests.Shared",
+        "UniTask",
+        "MajdataPlay.Utils",
+        "MajdataPlay.Utils.Editor",
+        "MajdataPlay.Tests.Utils.PlayMode"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

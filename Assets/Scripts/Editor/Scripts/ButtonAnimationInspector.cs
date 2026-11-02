@@ -1,8 +1,9 @@
-using MajdataPlay.UI;
+using MajdataPlay.Behaviours.UI;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
 
+#nullable enable
 namespace MajdataPlay.Editor
 {
     using Editor = UnityEditor.Editor;
@@ -53,11 +54,13 @@ namespace MajdataPlay.Editor
         {
             FinishPreview();
 
+            serializedObject.Update();
+            var animationDuration = serializedObject.FindProperty("_animationDuration").floatValue;
             var animation = (ButtonAnimation)target;
             _originalScale = animation.transform.localScale;
             animation.PlayClickAnimationPreview();
             _previewRepaintUntil = EditorApplication.timeSinceStartup
-                                 + Mathf.Max(animation.AnimationDuration, 0f) * 2f
+                                 + Mathf.Max(animationDuration, 0f) * 2f
                                  + 0.1d;
             _isPreviewing = true;
         }

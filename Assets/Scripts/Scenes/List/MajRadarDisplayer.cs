@@ -1,5 +1,7 @@
 using Cysharp.Threading.Tasks;
 using LitMotion;
+using MajdataPlay.Buffers;
+using MajdataPlay.Caches;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Scenes.List;
 using MajdataPlay.Threading;
@@ -38,6 +40,9 @@ namespace MajdataPlay
 
         private Material _radarMaterial;
         private readonly MotionHandle[] _scoreHandles = new MotionHandle[6];
+        private MotionHandle _fillColorHandle;
+        private MotionHandle _outlineColorHandle;
+        private MotionHandle _estiHandle;
         private float _loadTimer = 0f;
         private float _loadDelayTimer = 0f;
 
@@ -46,7 +51,7 @@ namespace MajdataPlay
         private Task<SimaiFile>? _maidataLoadTask;
         private CancellationToken _cancellationToken = default;
 
-        const float LOAD_DEBOUNCE_INTERVAL_SEC = 0.4f;
+        private const float LoadDebounceIntervalSec = 0.4f;
 
 
 
@@ -57,10 +62,17 @@ namespace MajdataPlay
         }
         private async UniTask AnalyzeAsync(SimaiChart simaiChart, CancellationToken cts)
         {
-            ChartRadarSnapshot result = await ChartRadarService.AnalyzeAsync(
-                                            simaiChart,
-                                            cts);
-            List<float> scores = new();
+            var cache = default(CachedRadarAnalyzeResult);
+            var result = default(ChartRadarSnapshot?);
+            if (Cache.MaidataRadar.TryGetValue(simaiChart.Fumen, out cache))
+            {
+                result = cache.Snapshot;
+            }
+            else
+            {
+                result = await ChartRadarService.AnalyzeAsync(simaiChart, cts);
+            }
+            using PooledList<float> scores = new();
             if (result.DimensionOrder.Count != 7)
             {
                 MajDebug.LogError($"[MajRadar] Unexpected dimension count: {result.DimensionOrder.Count}");
@@ -68,12 +80,28 @@ namespace MajdataPlay
             }
             if (result.IsSuccess)
             {
-                foreach (var dimension in result.DimensionOrder)
+                if (cache.IsValid)
                 {
-                    scores.Add((float)(result.Scores[dimension] / 250f ?? 0f));
-                    //MajDebug.LogInfo(dimension + ": " + (result.Scores[dimension] ?? 0f));
+                    scores.AddRange(cache.Scores.Span);
+                }
+                else
+                {
+                    foreach (var dimension in result.DimensionOrder)
+                    {
+                        scores.Add((float)((result.Scores[dimension] / 250f) ?? 0f));
+                    }
                 }
                 SetRadar(scores, (float)(result.FittedConstant ?? 0f));
+                if (!cache.IsValid)
+                {
+                    Cache.MaidataRadar.Set(simaiChart.Fumen, new()
+                    {
+                        IsValid = true,
+                        Snapshot = result,
+                        Scores = scores.ToArray(),
+                        Timestamp = DateTime.Now
+                    });
+                }
             }
             else if (!result.IsCancelled)
             {
@@ -81,7 +109,7 @@ namespace MajdataPlay
             }
         }
 
-        public void SetRadar(List<float> scores, float esti)
+        public void SetRadar(IList<float> scores, float esti)
         {
             if (_radarMaterial == null)
             {
@@ -89,9 +117,9 @@ namespace MajdataPlay
                 return;
             }
 
-            var scoreZero = new List<float> { 0, 0, 0, 0, 0, 0, 0 };
+            var scoreZero = new PooledList<float> { 0, 0, 0, 0, 0, 0, 0 };
 
-            // À×´ïÍ¼ÊýÖµ¶¯»­
+            // é›·è¾¾å›¾æ•°å€¼åŠ¨ç”»
             for (int i = 0; i < 6; i++)
             {
                 int index = i;
@@ -105,13 +133,14 @@ namespace MajdataPlay
                 });
             }
 
-            // ÑÕÉ«ÇÐ»»¶¯»­
+            // é¢œè‰²åˆ‡æ¢åŠ¨ç”»
             var maxIndex = scores.IndexOf(scores.Max());
 
             Color startFill = _radarMaterial.GetColor("_FillColor");
             Color targetFill = _radarFillColors[maxIndex];
 
-            LMotion.Create(startFill, targetFill, 0.5f)
+            _fillColorHandle.TryCancel();
+            _fillColorHandle = LMotion.Create(startFill, targetFill, 0.5f)
             .Bind(color =>
             {
                 _radarMaterial.SetColor("_FillColor", color);
@@ -120,20 +149,22 @@ namespace MajdataPlay
             Color startOutline = _radarMaterial.GetColor("_OutlineColor");
             Color targetOutline = _radarOutlineColors[maxIndex];
 
-            LMotion.Create(startOutline, targetOutline, 0.5f)
+            _outlineColorHandle.TryCancel();
+            _outlineColorHandle = LMotion.Create(startOutline, targetOutline, 0.5f)
             .Bind(color =>
             {
                 _radarMaterial.SetColor("_OutlineColor", color);
             });
 
-            // ¹ÀËãÖµÊý×Ö¹ö¶¯¶¯»­
+            // ä¼°ç®—å€¼æ•°å­—æ»šåŠ¨åŠ¨ç”»
             if (esti > 0)
             {
                 float currentEsti = float.TryParse(_estiText.text, out var oldValue)
                 ? oldValue
                 : 0f;
 
-                LMotion.Create(currentEsti, esti, 0.5f)
+                _estiHandle.TryCancel();
+                _estiHandle = LMotion.Create(currentEsti, esti, 0.5f)
                 .WithEase(Ease.OutCubic)
                 .Bind(value =>
                 {
@@ -146,13 +177,24 @@ namespace MajdataPlay
             }
         }
 
+        private void OnDestroy()
+        {
+            // The motions bind to this component's material and text, which are destroyed with it.
+            for (var i = 0; i < _scoreHandles.Length; i++)
+            {
+                _scoreHandles[i].TryCancel();
+            }
+            _fillColorHandle.TryCancel();
+            _outlineColorHandle.TryCancel();
+            _estiHandle.TryCancel();
+        }
         private void LateUpdate()
         {
             if (_currentSongDetail is null)
             {
                 return;
             }
-            else if (_loadTimer < LOAD_DEBOUNCE_INTERVAL_SEC)
+            else if (_loadTimer < LoadDebounceIntervalSec)
             {
                 _loadTimer += MajTimeline.DeltaTime;
                 _loadDelayTimer -= MajTimeline.DeltaTime;
@@ -208,7 +250,7 @@ namespace MajdataPlay
         {
             _currentSongDetail = songDetail;
             _currentLevel = level;
-            SetRadar(new List<float> { 0, 0, 0, 0, 0, 0, 0 }, 0);
+            SetRadar(new PooledList<float> { 0, 0, 0, 0, 0, 0, 0 }, 0);
             _cancellationToken = token;
             _loadDelayTimer = loadDelayMS / 1000f;
         }

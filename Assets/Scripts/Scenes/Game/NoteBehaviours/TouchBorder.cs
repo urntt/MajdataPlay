@@ -6,6 +6,7 @@ using MajdataPlay.Utils;
 using System.Collections.Generic;
 using UnityEngine;
 
+#nullable enable
 namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 {
     public class TouchBorder : MonoBehaviour
@@ -14,8 +15,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
 
         List<NoteRegister> queue = new(64);
 
-        GameObject _two, _three;
-        SpriteRenderer _twoRenderer, _threeRenderer;
+        GameObject _two = null!, _three = null!;
+        SpriteRenderer _twoRenderer = null!, _threeRenderer = null!;
         Sprite[] _normal = new Sprite[2];
         Sprite[] _each = new Sprite[2];
         Sprite[] _break = new Sprite[2];
@@ -34,12 +35,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             };
             // 下落式：跟随悬空 Touch 的位置
             var pos = LaneMode.IsEnabled ? LaneLayout.GetSensorFloatPosition(AreaPosition) : NoteHelper.GetTouchAreaPosition(index, area);
-            transform.position = pos;
-            transform.localScale *= USERSETTING_TOUCH_SCALE;
+            NoteHelper.Sorting.SetPosition(transform, pos);
+            var scale = transform.localScale;
+            transform.localScale = new Vector3(scale.x * USERSETTING_TOUCH_SCALE, scale.y * USERSETTING_TOUCH_SCALE, 1f);
             _two = transform.GetChild(0).gameObject;
             _three = transform.GetChild(1).gameObject;
             _twoRenderer = _two.GetComponent<SpriteRenderer>();
             _threeRenderer = _three.GetComponent<SpriteRenderer>();
+            NoteHelper.Sorting.Apply(_twoRenderer, NoteHelper.Sorting.NoteLayer.Touch);
+            NoteHelper.Sorting.Apply(_threeRenderer, NoteHelper.Sorting.NoteLayer.Touch);
             var skin = MajInstances.SkinManager.GetTouchSkin();
             skin.Border_Normal.CopyTo(_normal);
             skin.Border_Each.CopyTo(_each);

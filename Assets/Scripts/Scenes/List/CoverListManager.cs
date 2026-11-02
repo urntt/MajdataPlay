@@ -550,8 +550,7 @@ namespace MajdataPlay.Scenes.List
         }
         void UpdateListConfiguration()
         {
-            _listConfig.SelectedSongIndex = _listDesiredPos;
-            _listConfig.SelectedSongHash = SelectedSong?.Hash ?? string.Empty;
+            _listConfig.SelectedSongId = SelectedSong?.Id ?? string.Empty;
         }
         
 

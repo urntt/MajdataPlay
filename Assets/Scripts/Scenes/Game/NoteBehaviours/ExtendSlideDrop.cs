@@ -18,6 +18,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         [field: ReadOnlyField]
         [field: SerializeField]
         public ExtendSlideMetadata? Metadata { get; set; }
+        /// <summary>
+        /// Gets or sets the judge table predefined in <see cref="Slide.Utils.SlideTables"/> for the shape of this slide,
+        /// already mirrored and rotated to its start key. When <see langword="null"/>, <see cref="Init"/> generates the
+        /// table from <see cref="Metadata"/>. The slide owns the table and disposes it when it is destroyed.
+        /// </summary>
+        public SlideTable? PredefinedTable { get; set; }
+        /// <summary>
+        /// Gets or sets the slide code the slide was parsed from, after chart rotation, for the slide inspector; empty when
+        /// the slide was built from metadata directly.
+        /// </summary>
+        public string SlideCode { get; set; } = string.Empty;
 
 
         protected override void Awake()
@@ -26,11 +37,14 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             var star = Instantiate(SlideStarPrefab, NoteManager.transform.GetChild(3));
             var stars = Stars.Span;
             var starTransforms = StarTransforms.Span;
+            var starRenderers = StarRenderers.Span;
 
             star.SetActive(true);
             stars[0] = star;
             starTransforms[0] = star.transform;
             StarRenderer = star.GetComponent<SpriteRenderer>();
+            // SetStarActive hides the star through StarRenderers, as in SlideDrop.
+            starRenderers[0] = StarRenderer;
 
             var slideOK = transform.GetChild(transform.childCount - 1).gameObject; //slideok is the last one
             slideOK.SetActive(true);
@@ -38,7 +52,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             SlideOK.IsClassic = IsClassic;
             SlideOK.transform.SetParent(Transform.parent);
 
-            starTransforms[0].position = Vector3.zero;
+            NoteHelper.Sorting.SetPosition(starTransforms[0], Vector3.zero);
             starTransforms[0].localScale = new Vector3(0f, 0f, 1f);
         }
         public override void Init()
@@ -79,7 +93,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             FadeInCutoffTiming = FadeInTiming + FadeInDurationTimeSec;
 
             var starTransforms = StarTransforms.Span;
-            starTransforms[0].position = StarPositions[0];
+            NoteHelper.Sorting.SetPosition(starTransforms[0], StarPositions[0]);
             starTransforms[0].transform.localScale = new Vector3(0f, 0f, 1f);
 
             SetActive(false);
@@ -92,7 +106,32 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             DJAutoplayRatio = SlideLength / 14;
         }
 
+        /// <summary>
+        /// Uses the predefined table, or generates one, applies the slide skipping setting and computes the judge timing.
+        /// </summary>
+        /// <param name="metadata">The parsed slide.</param>
         private void InitSlideTable(ExtendSlideMetadata metadata)
+        {
+            Table = PredefinedTable ?? BuildSlideTable(metadata);
+            JudgeQueues[0] = Table.JudgeQueue;
+            JudgeQueueLength = Table.JudgeQueue.Length;
+            if (!USERSETTING_SLIDE_SKIPPING)
+            {
+                var judgeQueue = Table.JudgeQueue.Span;
+                foreach (ref var judgeArea in judgeQueue)
+                {
+                    judgeArea.IsSkippable = false;
+                }
+            }
+
+            var percent = IsClassic ? Table.ClassicConst : Table.Const;
+            JudgeTiming = StartTiming + (Length * (1 - percent));
+            LastWaitTimeSec = Length * percent;
+        }
+        /// <summary>Generates the judge table from the judge areas found by the slide code algorithm.</summary>
+        /// <param name="metadata">The parsed slide.</param>
+        /// <returns>The generated table.</returns>
+        private static SlideTable BuildSlideTable(ExtendSlideMetadata metadata)
         {
             using var areas = new PooledList<SlideArea>();
             var parsingAreas = metadata.JudgeAreaQueue;
@@ -125,19 +164,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
 
             var rentedBuffer = Pool<SlideArea>.Rent(areas.Count);
-            areas.CopyTo(rentedBuffer);            
+            areas.CopyTo(rentedBuffer);
 
-            Table = new SlideTable(rentedBuffer, areas.Count)
+            return new SlideTable(rentedBuffer, areas.Count)
             {
                 Const = metadata.SlideConst,
                 ClassicConst = metadata.SlideConst,
             };
-            JudgeQueues[0] = Table.JudgeQueue;
-            JudgeQueueLength = Table.JudgeQueue.Length;
-
-            var percent = Table.Const;
-            JudgeTiming = StartTiming + (Length * (1 - percent));
-            LastWaitTimeSec = Length * percent;
         }
         private void InitArrowAndPath(ExtendSlideMetadata metadata)
         {
@@ -145,17 +178,21 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             StartPos = ((int)metadata.JudgeAreaQueue[0].SensorA) + 1;
             EndPos = ((int)metadata.JudgeAreaQueue[metadata.JudgeAreaQueue.Length - 1].SensorA) + 1;
 
+            // 引导星星经过的点与箭头分开存放：连接星星的连接点可能只有星星经过，没有箭头
+            for (var i = 0; i < metadata.StarPoses.Length; i++)
+            {
+                var starInfo = metadata.StarPoses[i];
+                StarPositions.Add(new Vector3(starInfo.X, starInfo.Y));
+                StarRotations.Add(Quaternion.Euler(new Vector3(0, 0, starInfo.RotZ) + new Vector3(0f, 0f, 18f)));
+            }
+
             for (var i = 0; i < metadata.ArrowPoses.Length; i++)
             {
                 var arrowInfo = metadata.ArrowPoses[i];
                 var pos = new Vector3(arrowInfo.X, arrowInfo.Y);
-                var rot = Quaternion.Euler(new Vector3(0, 0, arrowInfo.RotZ) + new Vector3(0f, 0f, 18f));
                 var arrowRot = Quaternion.Euler(new Vector3(0, 0, arrowInfo.RotZ));
 
-                StarPositions.Add(pos);
-                StarRotations.Add(rot);
-
-                if (i == 0 || 
+                if (i == 0 ||
                     i == metadata.ArrowPoses.Length - 1 ||
                     (i == metadata.ArrowPoses.Length - 2 && metadata.ConditionalLastArrow))
                 {
@@ -190,7 +227,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             var pose = metadata.OkPose;
             var rotZ = pose.RotZ;
-            SlideOK.transform.position = new Vector3(pose.X, pose.Y);
+            NoteHelper.Sorting.SetPosition(SlideOK.transform, new Vector3(pose.X, pose.Y));
             //SlideOK.transform.rotation = Quaternion.Euler(new Vector3(0, 0, pose.RotZ));
             //if (IsJustR)
             //{
@@ -213,6 +250,22 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     SlideOK.Shape = SlideOKShape.Wifi;
                     break;
             }
+        }
+
+        void OnDestroy()
+        {
+            // 这个消息会遮蔽 NoteDrop.OnDestroy，所以在这里保留它的行为
+            Active = false;
+            if (Table is not null)
+            {
+                Table.Dispose();
+            }
+            else
+            {
+                PredefinedTable?.Dispose();
+            }
+            StarPositions.Dispose();
+            StarRotations.Dispose();
         }
     }
 }

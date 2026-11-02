@@ -31,7 +31,7 @@ namespace MajdataPlay.Net
     internal static class Online
     {
         readonly static HttpClient _client = MajEnv.SharedHttpClient;
-        readonly static JsonSerializer _defaultJsonSerializer = JsonSerializer.Create(_defaultJsonSerializerSettings);
+        // Declared before the serializer: static initializers run in textual order.
         readonly static JsonSerializerSettings _defaultJsonSerializerSettings = new()
         {
             ContractResolver = new DefaultContractResolver
@@ -40,6 +40,7 @@ namespace MajdataPlay.Net
             },
             ObjectCreationHandling = ObjectCreationHandling.Replace
         };
+        readonly static JsonSerializer _defaultJsonSerializer = JsonSerializer.Create(_defaultJsonSerializerSettings);
 
         public const string API_GET_USER_PROFILE = "account/profile";
         public const string API_GET_AVATAR = "avatar/{0}";
@@ -51,6 +52,7 @@ namespace MajdataPlay.Net
         public const string API_GET_MACHINE_INFO = "machine/info";
         public const string API_GET_AUTH_CHECK = "machine/auth/check";
         public const string API_GET_RECOMMEND_FEED = "recommend/feed?source={0}&page={1}&pageSize={2}";
+        public const string API_GET_SERVER_INFO = "info";
 
         public const string API_POST_USER_LOGIN = "account/login";
         public const string API_POST_USER_LOGOUT = "account/logout";
@@ -60,6 +62,10 @@ namespace MajdataPlay.Net
         public const string API_POST_AUTH_REQUEST = "machine/auth/request";
         public const string API_POST_AUTH_REVOKE = "machine/auth/revoke";
         public const string API_POST_RECOMMEND_IMPRESSIONS = "recommend/impressions";
+        public const string API_POST_MAICHART_INFO = "maichart/info";
+
+        // The server answers any number of chart IDs in two queries; batches only bound the size of one response
+        const int CHART_INFO_BATCH_SIZE = 500;
 
         // Same value as ImpressionSources.PlayFeed on the server; keeps Play impressions apart from the website's
         public const string RECOMMEND_SOURCE = "play-feed";
@@ -463,20 +469,20 @@ namespace MajdataPlay.Net
                 }
             }
         }
-        public static async ValueTask<MajNetSongInteract?> GetChartInteractAsync(OnlineSongDetail song, CancellationToken token = default)
+        public static async ValueTask<MajNetSongInteract?> GetChartInteractAsync(OnlineSongDetail song, CancellationToken token = default, bool forceRefresh = false)
         {
             await UniTask.SwitchToThreadPool();
             var cachedResponse = GetCachedResponse(song);
             var cachedInteract = cachedResponse.Interact;
             var isCacheAlive = (DateTime.Now - cachedInteract.LastActive).TotalSeconds < MajEnv.ONLINE_RESPONSE_CACHE_TTL_SEC;
-            if (isCacheAlive)
+            if (isCacheAlive && !forceRefresh)
             {
                 return cachedInteract.Response;
             }
             using (await cachedInteract.RequestLock.LockAsync(token))
             {
                 isCacheAlive = (DateTime.Now - cachedInteract.LastActive).TotalSeconds < MajEnv.ONLINE_RESPONSE_CACHE_TTL_SEC;
-                if (isCacheAlive)
+                if (isCacheAlive && !forceRefresh)
                 {
                     return cachedInteract.Response;
                 }
@@ -580,53 +586,48 @@ namespace MajdataPlay.Net
             }
         }
 
-        public static async ValueTask<EndpointResponse> PostLikeAsync(OnlineSongDetail song, CancellationToken token = default)
+        public static ValueTask<EndpointResponse> PostLikeAsync(OnlineSongDetail song, CancellationToken token = default)
+        {
+            return SendChartInteractionAsync(song, HttpMethod.Post, "like", "like", token);
+        }
+        public static ValueTask<EndpointResponse> PostDislikeAsync(OnlineSongDetail song, CancellationToken token = default)
+        {
+            return SendChartInteractionAsync(song, HttpMethod.Post, "dislike", "dislike", token);
+        }
+        public static ValueTask<EndpointResponse> PostCommentAsync(OnlineSongDetail song, string comment, CancellationToken token = default)
+        {
+            return SendChartInteractionAsync(song, HttpMethod.Post, "comment", comment, token);
+        }
+        public static ValueTask<EndpointResponse> DeleteLikeAsync(OnlineSongDetail song, CancellationToken token = default)
+        {
+            return SendChartInteractionAsync(song, HttpMethod.Delete, "like", "", token);
+        }
+        public static ValueTask<EndpointResponse> DeleteDislikeAsync(OnlineSongDetail song, CancellationToken token = default)
+        {
+            return SendChartInteractionAsync(song, HttpMethod.Delete, "dislike", "", token);
+        }
+        static async ValueTask<EndpointResponse> SendChartInteractionAsync(OnlineSongDetail song, HttpMethod method, string type, string content, CancellationToken token)
         {
             await UniTask.SwitchToThreadPool();
-            var serverInfo = song.ServerInfo;
-            var interactUrl = BuildMaiChartUri(song.ServerInfo, API_POST_MAICHART_INTERACT, song.Id);
-            var rsp = default(EndpointResponse);
-
-            for (var i = 0; i <= MajEnv.HTTP_REQUEST_MAX_RETRY; i++)
+            var uri = BuildMaiChartUri(song.ServerInfo, API_POST_MAICHART_INTERACT, song.Id);
+            // SendAsync's HttpRequestMessage owns and disposes the form, including on failure.
+            // Disposing it again here throws in Unity's MultipartContent implementation on iOS.
+            var formData = new MultipartFormDataContent
             {
-                var formData = new MultipartFormDataContent
+                { new StringContent(type), "type" },
+                { new StringContent(content), "content" },
+            };
+            // Comments are not idempotent; a lost response must not trigger an automatic repost.
+            var response = await SendAsync(method, uri, formData, token);
+            if (response.IsSuccessfully)
+            {
+                var cache = GetCachedResponse(song).Interact;
+                using (await cache.RequestLock.LockAsync())
                 {
-                    { new StringContent("like"), "type" },
-                    { new StringContent("..."), "content" },
-                };
-                rsp = await PostAsync(interactUrl, formData, token);
-                if (rsp.IsSuccessfully)
-                {
-                    MajDebug.LogDebug(rsp);
-                    var cachedResponse = GetCachedResponse(song);
-                    using (await cachedResponse.Interact.RequestLock.LockAsync())
-                    {
-                        cachedResponse.Interact.LastActive = DateTime.UnixEpoch;
-                    }
-                    return rsp;
-                }
-                else
-                {
-                    MajDebug.LogError("Failed to post like interact");
-                }
-
-                if (rsp.ErrorCode == HttpErrorCode.Canceled)
-                {
-                    break;
-                }
-                else if (rsp.StatusCode is HttpStatusCode.BadRequest
-                    or HttpStatusCode.NotFound
-                    or HttpStatusCode.Unauthorized
-                    or HttpStatusCode.Forbidden)
-                {
-                    break;
-                }
-                else if (!rsp.IsSuccessfully && rsp.StatusCode is not null)
-                {
-                    break;
+                    cache.LastActive = DateTime.UnixEpoch;
                 }
             }
-            return rsp;
+            return response;
         }
         public static async ValueTask<EndpointResponse> PostScoreAsync(OnlineSongDetail song, MaiScore score, CancellationToken token = default)
         {
@@ -702,6 +703,103 @@ namespace MajdataPlay.Net
             }
 
             return null;
+        }
+        /// <summary>Fetches the identity of the server behind an endpoint from <c>GET info</c>.</summary>
+        /// <param name="apiEndpoint">The endpoint, which may be one of several addresses of the server, such as a reverse proxy.</param>
+        /// <param name="token">The token canceling the request.</param>
+        /// <returns>The server identity, or null when the request failed, for example because the server does not provide the API.</returns>
+        public static async ValueTask<MajNetServerInfo?> GetServerInfoAsync(ApiEndpoint apiEndpoint, CancellationToken token = default)
+        {
+            await UniTask.SwitchToThreadPool();
+            var url = apiEndpoint.Url.Combine(API_GET_SERVER_INFO);
+
+            for (var i = 0; i < MajEnv.HTTP_REQUEST_MAX_RETRY; i++)
+            {
+                var rsp = await GetAsync(url, token);
+                var e = default(Exception?);
+                if (rsp.IsSuccessfully && rsp.TryDeserialize<MajNetServerInfo>(out var serverInfo, out e) && serverInfo is not null)
+                {
+                    return serverInfo;
+                }
+                MajDebug.LogError($"Failed to get server info: {e?.Message ?? rsp.StatusCode?.ToString() ?? "Unknown error"}");
+                if (rsp.ErrorCode == HttpErrorCode.Canceled || rsp.StatusCode is not null)
+                {
+                    break;
+                }
+            }
+
+            return null;
+        }
+        /// <summary>Fetches the metadata and file digests of charts from <c>POST maichart/info</c>, in batches.</summary>
+        /// <param name="apiEndpoint">The endpoint serving the charts.</param>
+        /// <param name="chartIds">The chart identities; blank identities are skipped.</param>
+        /// <param name="token">The token canceling the requests.</param>
+        /// <returns>
+        /// The info of every chart the server knows, in request order; charts the server does not know are left out.
+        /// Null when a batch failed, for example because the endpoint does not provide the API.
+        /// </returns>
+        public static async ValueTask<MajNetChartInfo[]?> GetChartInfosAsync(ApiEndpoint apiEndpoint, ReadOnlyMemory<string?> chartIds, CancellationToken token = default)
+        {
+            await UniTask.SwitchToThreadPool();
+            var url = apiEndpoint.Url.Combine(API_POST_MAICHART_INFO);
+            var infos = new List<MajNetChartInfo>(chartIds.Length);
+
+            for (var offset = 0; offset < chartIds.Length; offset += CHART_INFO_BATCH_SIZE)
+            {
+                var count = Math.Min(CHART_INFO_BATCH_SIZE, chartIds.Length - offset);
+                var json = SerializeChartIds(chartIds.Span.Slice(offset, count), out var idCount);
+                if (idCount == 0)
+                {
+                    continue;
+                }
+                var batch = default(MajNetChartInfo[]);
+                for (var i = 0; i < MajEnv.HTTP_REQUEST_MAX_RETRY; i++)
+                {
+                    var rsp = await PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"), token);
+                    var e = default(Exception?);
+                    if (rsp.IsSuccessfully && rsp.TryDeserialize<MajNetChartInfo[]>(out batch, out e) && batch is not null)
+                    {
+                        break;
+                    }
+                    batch = null;
+                    MajDebug.LogError($"Failed to get chart info: {e?.Message ?? rsp.StatusCode?.ToString() ?? "Unknown error"}");
+                    if (rsp.ErrorCode == HttpErrorCode.Canceled || rsp.StatusCode is not null)
+                    {
+                        break;
+                    }
+                }
+                if (batch is null)
+                {
+                    return null;
+                }
+                infos.AddRange(batch);
+            }
+
+            return infos.ToArray();
+        }
+        /// <summary>Writes chart identities as the JSON array body of <c>POST maichart/info</c>, skipping blank identities.</summary>
+        /// <param name="chartIds">The chart identities of one batch.</param>
+        /// <param name="idCount">Set to the number of identities written.</param>
+        /// <returns>The JSON array.</returns>
+        static string SerializeChartIds(ReadOnlySpan<string?> chartIds, out int idCount)
+        {
+            idCount = 0;
+            using var writer = new System.IO.StringWriter();
+            using (var json = new JsonTextWriter(writer))
+            {
+                json.WriteStartArray();
+                foreach (var id in chartIds)
+                {
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        continue;
+                    }
+                    json.WriteValue(id);
+                    idCount++;
+                }
+                json.WriteEndArray();
+            }
+            return writer.ToString();
         }
 
         public static async ValueTask<MajNetOnlineDanInfo[]?> GetUserOnlineFavCollection(ApiEndpoint apiEndpoint, CancellationToken token = default)
@@ -982,12 +1080,20 @@ namespace MajdataPlay.Net
         {
             return PostAsync(uri, new ByteArrayContent(content.Array, content.Offset, content.Count), token);
         }
-        static async ValueTask<EndpointResponse> PostAsync(Uri uri, HttpContent? content, CancellationToken token = default, HttpClient? client = null)
+        static ValueTask<EndpointResponse> PostAsync(Uri uri, HttpContent? content, CancellationToken token = default, HttpClient? client = null)
+        {
+            return SendAsync(HttpMethod.Post, uri, content, token, client);
+        }
+        static async ValueTask<EndpointResponse> SendAsync(HttpMethod method, Uri uri, HttpContent? content, CancellationToken token = default, HttpClient? client = null)
         {
             try
             {
                 client ??= MajEnv.SharedHttpClient;
-                var rsp = await (content is null ? client.PostAsync(uri, new StringContent(string.Empty, Encoding.UTF8, "application/json"), token) : client.PostAsync(uri, content, token));
+                using var request = new HttpRequestMessage(method, uri)
+                {
+                    Content = content ?? new StringContent(string.Empty, Encoding.UTF8, "application/json")
+                };
+                using var rsp = await client.SendAsync(request, token);
                 var buffer = await rsp.Content.ReadAsByteArrayAsync();
                 var epRsp = default(EndpointResponse);
                 if (!((int)rsp.StatusCode).InRange(200, 299))
@@ -1002,7 +1108,7 @@ namespace MajdataPlay.Net
                         Headers = rsp.Headers.ToDictionary(kv => kv.Key.ToLower(), kv => kv.Value),
                         Message = ""
                     };
-                    MajDebug.LogError($"[Online][POST] {uri} - Unsuccessful\n{epRsp}");
+                    MajDebug.LogError($"[Online][{method}] {uri} - Unsuccessful\n{epRsp}");
                     return epRsp;
                 }
                 epRsp = new EndpointResponse(buffer, _defaultJsonSerializer, _defaultJsonSerializerSettings)
@@ -1015,7 +1121,7 @@ namespace MajdataPlay.Net
                     Headers = rsp.Headers.ToDictionary(kv => kv.Key.ToLower(), kv => kv.Value),
                     Message = "Ok"
                 };
-                MajDebug.LogDebug($"[Online][POST] {uri}\n{epRsp}");
+                MajDebug.LogDebug($"[Online][{method}] {uri}\n{epRsp}");
                 return epRsp;
             }
             catch (OperationCanceledException)
@@ -1024,11 +1130,11 @@ namespace MajdataPlay.Net
                 if (token.IsCancellationRequested)
                 {
                     errorCode = HttpErrorCode.Canceled;
-                    MajDebug.LogError($"[Online][POST] {uri} - Canceled");
+                    MajDebug.LogError($"[Online][{method}] {uri} - Canceled");
                 }
                 else
                 {
-                    MajDebug.LogError($"[Online][POST] {uri} - Timeout");
+                    MajDebug.LogError($"[Online][{method}] {uri} - Timeout");
                 }
                 return new EndpointResponse(Array.Empty<byte>(), _defaultJsonSerializer, _defaultJsonSerializerSettings)
                 {
@@ -1042,7 +1148,7 @@ namespace MajdataPlay.Net
             }
             catch (Exception e)
             {
-                MajDebug.LogError($"[Online][POST] {uri} - Unknown Error\n{e}");
+                MajDebug.LogError($"[Online][{method}] {uri} - Unknown Error\n{e}");
                 return new EndpointResponse(Array.Empty<byte>(), _defaultJsonSerializer, _defaultJsonSerializerSettings)
                 {
                     Endpoint = uri,

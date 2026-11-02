@@ -347,7 +347,6 @@ namespace MajdataPlay.Scenes.List
         }
         void UpdateListConfiguration()
         {
-            _listConfig.SelectedDir = _listDesiredPos;
             _listConfig.SelectedDirGuid = _currentCollection.Id;
         }
         void UpdateCollectionIcon()
@@ -552,25 +551,36 @@ namespace MajdataPlay.Scenes.List
                 _utageSortedCollections = newCollections;
             }
         }
+        /// <summary>Restores the visible selection while retaining saved identities when their content is unavailable.</summary>
         void RestoreContextFromConfiguration()
         {
             var selectedCollectionUUID = _listConfig.SelectedDirGuid;
-            var selectedSongHash = _listConfig.SelectedSongHash;
-            var index = Array.FindIndex(_collections, x => x.Id == selectedCollectionUUID);
-            if(index == -1)
+            var selectedSongId = _listConfig.SelectedSongId;
+            try
             {
-                index = 0;
+                var index = Array.FindIndex(_collections, x => x.Id == selectedCollectionUUID);
+                if (index == -1)
+                {
+                    index = 0;
+                }
+                SlideListTo(index, true, true);
+                SlideToDifficulty((int)_listConfig.SelectedDiff);
+                if (string.IsNullOrEmpty(selectedSongId))
+                {
+                    _coverListManager.SlideListToHead();
+                }
+                else
+                {
+                    // A missing song still moves the cursor to the first song, as an unmatched cursor always has.
+                    var selectedSong = _collections.Length == 0 ? null : SongStorage.FindSongById(_collections[index], selectedSongId);
+                    _coverListManager.SetCursor(selectedSong?.Hash ?? string.Empty, true, true);
+                }
             }
-            SlideListTo(index, true, true);
-            SlideToDifficulty((int)_listConfig.SelectedDiff);
-            if(string.IsNullOrEmpty(selectedSongHash))
+            finally
             {
-                _coverListManager.SlideListToHead();
+                _listConfig.SelectedDirGuid = selectedCollectionUUID;
+                _listConfig.SelectedSongId = selectedSongId;
             }
-            else
-            {
-                _coverListManager.SetCursor(selectedSongHash, true, true);
-            }            
         }
 
         Vector2 GetDisplayerPositionFromDelta(float delta)

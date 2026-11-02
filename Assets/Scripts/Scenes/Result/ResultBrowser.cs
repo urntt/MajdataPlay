@@ -115,8 +115,7 @@ namespace MajdataPlay.Scenes.Result
         TextMeshProUGUI? _achievementText;
         Image? _coverImage;
         Image? _heart;
-        Button? _likeButton;
-        TextMeshProUGUI? _likeStatus;
+        Button? _feedbackButton;
         Button? _uploadButton;
         TextMeshProUGUI? _uploadStatus;
         Button _continueButton = null!;
@@ -133,7 +132,6 @@ namespace MajdataPlay.Scenes.Result
         MotionHandle _rollMotion;
         bool _hasRolled = false;
         bool _isLeaving = false;
-        string _likeInfoText = string.Empty;
 
         public static ResultBrowser? Create(ResultScreenManager manager, ResultViewData data)
         {
@@ -158,7 +156,6 @@ namespace MajdataPlay.Scenes.Result
             _manager = manager;
             _data = data;
             _ui = new LightUi(LightUi.FindFont());
-            _likeInfoText = "MAJTEXT_THUMBUP_INFO".i18n();
             LightUi.EnsureEventSystem();
             _root = LightUi.CreateOverlayCanvas(transform, "ResultBrowserCanvas", 30, out _group);
             LightUi.FollowTransition(_group, false);
@@ -227,6 +224,12 @@ namespace MajdataPlay.Scenes.Result
         {
             if (_isHidden)
             {
+                return;
+            }
+            // 评价面板属于原版界面：打开时切回原版，否则会被新界面挡住
+            if (_manager.IsFeedbackShowing)
+            {
+                SwitchToClassic();
                 return;
             }
             LightUi.FollowTransition(_group, _isLeaving || _manager.IsExited);
@@ -352,19 +355,19 @@ namespace MajdataPlay.Scenes.Result
             LightUi.PlaceTopLeft((RectTransform)shareButton.transform, x, cursor, 150f, 50f);
             cursor += 62f;
 
-            // 网络谱面：点赞与上传
+            // 网络谱面：评价（打开原版的评价面板：点赞、点踩、评论）与上传
             var sender = _manager.OnlineSender;
-            _likeButton = null;
-            _likeStatus = null;
+            _feedbackButton = null;
             _uploadButton = null;
             _uploadStatus = null;
+            if (_manager.IsFeedbackAvailable)
+            {
+                _feedbackButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_FEEDBACK".i18n(), LightUi.PAPER, LightUi.FAVORITE, 19f, _manager.RequestFeedback);
+                LightUi.PlaceTopLeft((RectTransform)_feedbackButton.transform, x, cursor, 150f, 50f);
+                cursor += 62f;
+            }
             if (sender != null && sender.CanInteract)
             {
-                _likeButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_LIKE".i18n(), LightUi.PAPER, LightUi.FAVORITE, 19f, () => _manager.OnlineSender.RequestLike());
-                LightUi.PlaceTopLeft((RectTransform)_likeButton.transform, x, cursor, 150f, 50f);
-                _likeStatus = _ui.CreateText(_content, string.Empty, 17f, LightUi.MUTED, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-                LightUi.PlaceTopLeft(_likeStatus.rectTransform, x + 166f, cursor, width - 166f, 50f);
-                cursor += 62f;
                 if (!MajEnv.Settings.IsAnyModActive())
                 {
                     _uploadButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_UPLOAD".i18n(), LightUi.PAPER, LightUi.ACCENT, 19f, () => _manager.OnlineSender.RequestUpload());
@@ -602,10 +605,14 @@ namespace MajdataPlay.Scenes.Result
             return $"{truncated.ToString($"F{digits}", CultureInfo.InvariantCulture)}%";
         }
         /// <summary>
-        /// 每帧更新：继续按钮是否可点、收藏状态、点赞与上传的状态文字
+        /// 每帧更新：继续按钮是否可点、收藏状态、评价按钮、上传的状态文字
         /// </summary>
         void UpdateDynamicParts()
         {
+            if (_feedbackButton != null && _feedbackButton.interactable != _manager.IsAllTaskFinished)
+            {
+                _feedbackButton.interactable = _manager.IsAllTaskFinished;
+            }
             var canContinue = _manager.IsAllTaskFinished && _manager.IsInited && !_manager.IsExited && !_isLeaving;
             if (_continueButton.interactable != canContinue)
             {
@@ -621,19 +628,6 @@ namespace MajdataPlay.Scenes.Result
             if (sender == null)
             {
                 return;
-            }
-            if (_likeButton != null)
-            {
-                _likeButton.interactable = !sender.IsAlreadyThumbUp;
-            }
-            if (_likeStatus != null)
-            {
-                var info = sender.InfoText;
-                var likeText = info == _likeInfoText ? string.Empty : info;
-                if (_likeStatus.text != likeText)
-                {
-                    _likeStatus.text = likeText;
-                }
             }
             if (_uploadButton != null)
             {

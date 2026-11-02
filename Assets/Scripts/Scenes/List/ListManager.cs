@@ -1,29 +1,25 @@
 using Cysharp.Threading.Tasks;
+using LitMotion;
 using MajdataPlay.Buffers;
+using MajdataPlay.Diagnostics;
 using MajdataPlay.IO;
-using MajdataPlay.Recording;
+using MajdataPlay.Net;
 using MajdataPlay.Scenes.Game;
-using MajdataPlay.Scenes.Setting;
 using MajdataPlay.Settings;
 using MajdataPlay.Settings.Runtime;
-using MajdataPlay.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using MajdataPlay.Net;
 using UnityEngine;
 using UnityEngine.Serialization;
-using LitMotion;
-using MajdataPlay.Diagnostics;
 #nullable enable
 namespace MajdataPlay.Scenes.List
 {
     public class ListManager : MonoBehaviour, ISceneManager
     {
-        const int MAX_ALLOWED_INACTIVE_TIME_MIN = 5;
+        private const int MAX_ALLOWED_INACTIVE_TIME_MIN = 5;
         public CancellationToken CancellationToken
         {
             get
@@ -33,108 +29,73 @@ namespace MajdataPlay.Scenes.List
         }
         public static List<Task> AllBackgroundTasks { get; } = new(8192);
 
-        float _pressTime = 0;
-        bool _isPressed = false;
+        private float _pressTime = 0;
+        private bool _isPressed = false;
 
         // Update control
-        bool _isInited = false;
-        bool _isExited = false;
+        private bool _isInited = false;
+        private bool _isExited = false;
 
-        bool _isOnlineEnabled = false;
+        private bool _isOnlineEnabled = false;
 
-        bool _isPlayedExplosion = false;
+        private bool _isPlayedExplosion = false;
 
-        float _enterPracticeTimer = 0f;
-        float _logoutTimer = 0f;
-        float _refreshTimer = 0f;
-        float _recommendRefreshTimer = 0f;
-        float _inactiveTimeSec = 0f;
+        private float _enterPracticeTimer = 0f;
+        private float _logoutTimer = 0f;
+        private float _refreshTimer = 0f;
+        private float _recommendRefreshTimer = 0f;
+        private float _inactiveTimeSec = 0f;
 
         [SerializeField]
         [FormerlySerializedAs("coverListManager")]
-        CoverListManager _coverListManager;
+        private CoverListManager _coverListManager;
 
         [SerializeField]
         [FormerlySerializedAs("collectionListManager")]
-        CollectionListManager _collectionListManager;
+        private CollectionListManager _collectionListManager;
 
         [SerializeField]
         [FormerlySerializedAs("userProfileDisplayer")]
-        UserInfoDisplayer _userProfileDisplayer;
+        private UserInfoDisplayer _userProfileDisplayer;
 
         [SerializeField]
         [FormerlySerializedAs("favoriteAdder")]
-        FavoriteAdder _favoriteAdder;
+        private FavoriteAdder _favoriteAdder;
 
-        const float AUTO_SLIDE_INTERVAL_SEC = 0.15f;
-        const float AUTO_SLIDE_TRIGGER_TIME_SEC = 0.4f;
-        const float LOGOUT_TRIGGER_TIME_SEC = 1f;
+        private const float AUTO_SLIDE_INTERVAL_SEC = 0.15f;
+        private const float AUTO_SLIDE_TRIGGER_TIME_SEC = 0.4f;
+        private const float LOGOUT_TRIGGER_TIME_SEC = 1f;
         // How often the List checks for recommendation feeds to fetch again (SongStorage refetches those older
         // than 10 minutes), so the server's 30-minute impression window does not lapse while the player browses
-        const float RECOMMEND_REFRESH_CHECK_SEC = 60f;
-        const int QUICK_SLIDE_POSITION_INCREASE = 9;
-        const float QUICK_SLIDE_DURATION_SEC = 0.5f;
+        private const float RECOMMEND_REFRESH_CHECK_SEC = 60f;
+        private const int QUICK_SLIDE_POSITION_INCREASE = 9;
+        private const float QUICK_SLIDE_DURATION_SEC = 0.5f;
 
-        int _quickSlideRemaining = 0;
-        int _quickSlideDirection = 0;
-        MotionHandle _quickSlideAnim;
+        private int _quickSlideRemaining = 0;
+        private int _quickSlideDirection = 0;
+        private MotionHandle _quickSlideAnim;
 
-        float _cAreaPressTime = -1f;
+        private float _cAreaPressTime = -1f;
 
-        readonly ListConfig _listConfig = MajEnv.RuntimeConfig?.List ?? new();
-        readonly CancellationTokenSource _cts = new();
-        readonly QuickSlideJudge _quickSlideJudge = new();
-        InputRepeatState _listSlideInput;
+        private readonly ListConfig _listConfig = MajEnv.RuntimeConfig.List;
+        private readonly CancellationTokenSource _cts = new();
+        private readonly QuickSlideJudge _quickSlideJudge = new();
+        private InputRepeatState _listSlideInput;
 
 
-        void Awake()
+        private void Awake()
         {
             Majdata<ListManager>.Instance = this;
             InputManager.TouchButtonRingEdge = 4.8f;
-            if (AllBackgroundTasks.Count > 4096)
+            try
             {
-                using var indexs = Pool<int>.Rent(AllBackgroundTasks.Count, true);
-                try
-                {
-                    var i2 = -1;
-                    var count = 0;
-                    Parallel.For(0, AllBackgroundTasks.Count, i =>
-                    {
-                        var task = AllBackgroundTasks[i];
-                        if (task is null || task.IsCompleted)
-                        {
-                            indexs[Interlocked.Increment(ref i2)] = i;
-                            Interlocked.Increment(ref count);
-                        }
-                    });
-                    for (var i = 0; i < count; i++)
-                    {
-                        AllBackgroundTasks.RemoveAt(indexs[i]);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MajDebug.LogError("[ListManager] [Awake] " + ex.Message);
-                }
+                // One linear pass. Removing by indices collected out of order shifted every later index and
+                // removed the wrong tasks once the list exceeded the old parallel threshold.
+                AllBackgroundTasks.RemoveAll(task => task is null || task.IsCompleted);
             }
-            else
+            catch (Exception ex)
             {
-                try
-                {
-                    for (var i = 0; i < AllBackgroundTasks.Count; i++)
-                    {
-                        var task = AllBackgroundTasks[i];
-                        if (task is null || task.IsCompleted)
-                        {
-                            AllBackgroundTasks.RemoveAt(i);
-                            i--;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MajDebug.LogError("[ListManager] [Awake] " + ex.Message);
-                }
+                MajDebug.LogError("[ListManager] [Awake] " + ex.Message);
             }
             _isOnlineEnabled = MajEnv.Settings.Online.Enable;
 
@@ -142,9 +103,11 @@ namespace MajdataPlay.Scenes.List
             _favoriteAdder.PressToAddTime = 0.5f;
             _favoriteAdder.PressToRemoveTime = 0.5f;
 
+            SongStorage.RestoreSelection();
+
             InputManager.BindAnyArea(OnAnyInput);
         }
-        void Start()
+        private void Start()
         {
             _coverListManager = Majdata<CoverListManager>.Instance!;
             _collectionListManager = Majdata<CollectionListManager>.Instance!;
@@ -161,7 +124,7 @@ namespace MajdataPlay.Scenes.List
             DisplayUserInfo();
         }
 
-        void DisplayUserInfo()
+        private void DisplayUserInfo()
         {
             //TODO: display multiple endpoints
             var apiEndpoint = MajEnv.ApiEndpoints.FirstOrDefault(x => x.RuntimeConfig.IsLoggedIn)
@@ -170,7 +133,7 @@ namespace MajdataPlay.Scenes.List
             _userProfileDisplayer.DisplayUserInfo(apiEndpoint);
         }
 
-        async UniTaskVoid InitializeCoverListAsync()
+        private async UniTaskVoid InitializeCoverListAsync()
         {
             try
             {
@@ -197,7 +160,7 @@ namespace MajdataPlay.Scenes.List
                 CabinetLed.SetButtonLight(Color.yellow, 1);
             }
         }
-        void OnDestroy()
+        private void OnDestroy()
         {
             _isExited = true;
             _cts.Cancel();
@@ -207,15 +170,10 @@ namespace MajdataPlay.Scenes.List
             Majdata<ListManager>.Free();
             MajEnv.SharedHttpClient.CancelPendingRequests();
         }
-        void Update()
+        private void Update()
         {
             if (_isExited || !_isInited)
             {
-                return;
-            }
-            else if (SongListBrowser.IsOpen)
-            {
-                // 列表式选歌打开时由它处理操作，圆圈上的按键不动封面轮播
                 return;
             }
             _recommendRefreshTimer += MajTimeline.UnscaledDeltaTime;
@@ -224,15 +182,20 @@ namespace MajdataPlay.Scenes.List
                 _recommendRefreshTimer = 0f;
                 _ = SongStorage.RefreshStaleRecommendAsync();
             }
+            if (SongListBrowser.IsOpen)
+            {
+                // 列表式选歌打开时由它处理操作，圆圈上的按键不动封面轮播
+                return;
+            }
             _quickSlideJudge.OnUpdate();
             var isMathed = false;
-            if(_quickSlideJudge.IsLeftMatch)
+            if (_quickSlideJudge.IsLeftMatch)
             {
                 isMathed = true;
                 if (_quickSlideDirection == -1)
                 {
                     _quickSlideRemaining -= QUICK_SLIDE_POSITION_INCREASE;
-                    if(_quickSlideRemaining < 0)
+                    if (_quickSlideRemaining < 0)
                     {
                         _quickSlideDirection = 1;
                         _quickSlideRemaining *= -1;
@@ -245,7 +208,7 @@ namespace MajdataPlay.Scenes.List
                 }
                 MajDebug.LogDebug($"[List] Quick slide remaining: {_quickSlideRemaining}");
             }
-            else if(_quickSlideJudge.IsRightMatch)
+            else if (_quickSlideJudge.IsRightMatch)
             {
                 isMathed = true;
                 if (_quickSlideDirection == 1)
@@ -264,7 +227,7 @@ namespace MajdataPlay.Scenes.List
                 }
                 MajDebug.LogDebug($"[List] Quick slide remaining: {_quickSlideRemaining}");
             }
-            if(isMathed)
+            if (isMathed)
             {
                 _quickSlideAnim.TryCancel();
                 var lastIndex = 0;
@@ -277,7 +240,7 @@ namespace MajdataPlay.Scenes.List
                                          })
                                          .Bind(x =>
                                          {
-                                             if(x == lastIndex)
+                                             if (x == lastIndex)
                                              {
                                                  return;
                                              }
@@ -298,13 +261,13 @@ namespace MajdataPlay.Scenes.List
                     EnterLogin();
                     return;
                 }
-            }            
+            }
         }
-        void OnAnyInput(object? sender, InputEventArgs args)
+        private void OnAnyInput(object? sender, InputEventArgs args)
         {
             _inactiveTimeSec = 0;
         }
-        void SensorCheck(ReadOnlySpan<bool> areaIgnoreList)
+        private void SensorCheck(ReadOnlySpan<bool> areaIgnoreList)
         {
             if (_isExited || !_isInited)
             {
@@ -316,7 +279,7 @@ namespace MajdataPlay.Scenes.List
                 _collectionListManager.PreviousCollection();
                 return;
             }
-            else if(InputManager.IsSensorPressedInThisFrame(SensorArea.B1))
+            else if (InputManager.IsSensorPressedInThisFrame(SensorArea.B1))
             {
                 _collectionListManager.NextCollection();
                 return;
@@ -377,7 +340,7 @@ namespace MajdataPlay.Scenes.List
                 }
             }
         }
-        void ButtonCheck()
+        private void ButtonCheck()
         {
             if (_isExited || !_isInited)
             {
@@ -407,7 +370,7 @@ namespace MajdataPlay.Scenes.List
                 {
                     EnterDan();
                 }
-                else if(_coverListManager.SelectedSong is not null)
+                else if (_coverListManager.SelectedSong is not null)
                 {
                     EnterGame();
                 }
@@ -470,7 +433,7 @@ namespace MajdataPlay.Scenes.List
 
             if (p1State.IsPressed)
             {
-                if(_refreshTimer >= 3f)
+                if (_refreshTimer >= 3f)
                 {
                     RefreshList();
                 }
@@ -515,7 +478,7 @@ namespace MajdataPlay.Scenes.List
                 _collectionListManager.SetDifficulty(level);
             }
             _coverListManager.SetCursor(song, true, true);
-            if (_coverListManager.SelectedSong?.Hash == song.Hash)
+            if (_coverListManager.SelectedSong?.Id == song.Id)
             {
                 EnterGame();
                 return;
@@ -524,7 +487,9 @@ namespace MajdataPlay.Scenes.List
             _cts.Cancel();
             MajInstances.AudioManager.StopSFX("bgm_select.mp3");
             _listConfig.SelectedDiff = level;
-            _listConfig.SelectedSongHash = song.Hash;
+            _listConfig.SelectedSongId = song.Id;
+            var recommendRefresh = SongStorage.RefreshStaleRecommendAsync();
+            RecommendImpressions.Commit(_collectionListManager.SelectedCollection, song, recommendRefresh);
             var info = new GameInfo(GameMode.Normal, new[] { song }, new[] { level });
             Majdata<GameInfo>.Instance = info;
             _pressTime = 0;
@@ -543,7 +508,7 @@ namespace MajdataPlay.Scenes.List
             MajInstances.SceneSwitcher.SwitchScene("Setting", false);
             _isExited = true;
         }
-        void EnterGame()
+        private void EnterGame()
         {
             _cts.Cancel();
             MajInstances.AudioManager.StopSFX("bgm_select.mp3");
@@ -566,7 +531,7 @@ namespace MajdataPlay.Scenes.List
             _isExited = true;
             MajInstances.SceneSwitcher.SwitchScene("Game", false);
         }
-        void EnterPractice()
+        private void EnterPractice()
         {
             _cts.Cancel();
             var levels = new ChartLevel[]
@@ -592,13 +557,13 @@ namespace MajdataPlay.Scenes.List
             _isExited = true;
             MajInstances.SceneSwitcher.SwitchScene("Practice", false);
         }
-        void EnterSortAndFind()
+        private void EnterSortAndFind()
         {
             _cts.Cancel();
             MajInstances.SceneSwitcher.SwitchScene("SortFind");
             _isExited = true;
         }
-        void RefreshList()
+        private void RefreshList()
         {
             _cts.Cancel();
             MajInstances.AudioManager.StopSFX("bgm_select.mp3");
@@ -606,7 +571,8 @@ namespace MajdataPlay.Scenes.List
             _isExited = true;
             RefreshListBackgroundAsync();
         }
-        static async void RefreshListBackgroundAsync()
+        /// <summary>Refreshes local collections, online collections, and online favorites before returning to the list scene.</summary>
+        private static async void RefreshListBackgroundAsync()
         {
             var sceneSwitcher = MajInstances.SceneSwitcher;
             await sceneSwitcher.FadeInAsync();
@@ -615,7 +581,7 @@ namespace MajdataPlay.Scenes.List
             sceneSwitcher.SetLoadingText("MAJTEXT_WAITING_FOR_BACKGROUND_TASKS_SUSPEND".i18n());
             await UniTask.Delay(100);
             var bTasks = WaitForBackgroundTaskSuspendAsync();
-            while(!bTasks.IsCompleted)
+            while (!bTasks.IsCompleted)
             {
                 await UniTask.Yield();
             }
@@ -624,12 +590,17 @@ namespace MajdataPlay.Scenes.List
             {
                 MajInstances.SceneSwitcher.SetLoadingText(e);
             };
-            var refreshTask = SongStorage.RefreshAsync(progress);
-            while(!refreshTask.IsCompleted)
+            var localRefreshTask = SongStorage.RefreshLocal(progress);
+            while (!localRefreshTask.IsCompleted)
             {
                 await UniTask.Yield();
             }
-            var isListRefreshSuccessful = refreshTask.IsCompletedSuccessfully;
+            var onlineRefreshTask = SongStorage.RefreshOnline(progress);
+            while (!onlineRefreshTask.IsCompleted)
+            {
+                await UniTask.Yield();
+            }
+            var isListRefreshSuccessful = localRefreshTask.IsCompletedSuccessfully && onlineRefreshTask.IsCompletedSuccessfully;
             if (!isListRefreshSuccessful)
             {
                 sceneSwitcher.SetLoadingText("MAJTEXT_ERR_SCAN_CHARTS_FAILED".i18n(), Color.red);
@@ -663,7 +634,7 @@ namespace MajdataPlay.Scenes.List
             await UniTask.Delay(3000);
             sceneSwitcher.SwitchScene("List", false);
         }
-        void EnterDan()
+        private void EnterDan()
         {
             _cts.Cancel();
             var danInfo = _collectionListManager.SelectedCollection.DanInfo;
@@ -696,7 +667,7 @@ namespace MajdataPlay.Scenes.List
             _isExited = true;
             MajInstances.SceneSwitcher.SwitchScene("Game", false);
         }
-        void EnterLogin()
+        private void EnterLogin()
         {
             _cts.Cancel();
             _pressTime = 0;
@@ -705,7 +676,7 @@ namespace MajdataPlay.Scenes.List
             ScoreManager.UnloadOnlineScores();
             EnterLoginBackgroundAsync();
         }
-        async void EnterLoginBackgroundAsync()
+        private async void EnterLoginBackgroundAsync()
         {
             var sceneSwitcher = MajInstances.SceneSwitcher;
             await sceneSwitcher.FadeInAsync();
@@ -737,7 +708,7 @@ namespace MajdataPlay.Scenes.List
             }
             var isAnyRunning = false;
             using var tasks = new PooledList<Task>();
-            foreach(var task in AllBackgroundTasks)
+            foreach (var task in AllBackgroundTasks)
             {
                 if (!task.IsCompleted)
                 {
@@ -752,12 +723,12 @@ namespace MajdataPlay.Scenes.List
             return Task.WhenAll(tasks);
         }
 
-        class QuickSlideJudge
+        private class QuickSlideJudge
         {
             public bool IsLeftMatch { get; private set; }
             public bool IsRightMatch { get; private set; }
 
-            readonly Path[] _leftPathList = new Path[]
+            private readonly Path[] _leftPathList = new Path[]
             {
                 // Left
                 new Path(SensorArea.C, SensorArea.B7, new SensorArea[] { SensorArea.E7 }),
@@ -765,7 +736,7 @@ namespace MajdataPlay.Scenes.List
 
                 new Path(SensorArea.B2, SensorArea.C, new SensorArea[] { SensorArea.B7 }),
                 new Path(SensorArea.B2, SensorArea.C, new SensorArea[] { SensorArea.B6 }),
-                
+
                 new Path(SensorArea.B3, SensorArea.C, new SensorArea[] { SensorArea.B7 }),
                 new Path(SensorArea.B3, SensorArea.C, new SensorArea[] { SensorArea.B6 }),
 
@@ -779,7 +750,7 @@ namespace MajdataPlay.Scenes.List
                 new Path(SensorArea.D3, SensorArea.E3, new SensorArea[] { SensorArea.B2, SensorArea.C }),
                 new Path(SensorArea.D3, SensorArea.E3, new SensorArea[] { SensorArea.B3, SensorArea.C }),
             };
-            readonly Path[] _rightPathList = new Path[]
+            private readonly Path[] _rightPathList = new Path[]
             {
                 // Right
                 new Path(SensorArea.C, SensorArea.B2, new SensorArea[] { SensorArea.E3 }),
@@ -803,7 +774,7 @@ namespace MajdataPlay.Scenes.List
                 for (var i = 0; i < _leftPathList.Length; i++)
                 {
                     ref var path = ref _leftPathList[i];
-                    if(IsLeftMatch || IsRightMatch)
+                    if (IsLeftMatch || IsRightMatch)
                     {
                         path.Reset();
                     }
@@ -816,7 +787,7 @@ namespace MajdataPlay.Scenes.List
                 for (var i = 0; i < _rightPathList.Length; i++)
                 {
                     ref var path = ref _rightPathList[i];
-                    if(IsLeftMatch || IsRightMatch)
+                    if (IsLeftMatch || IsRightMatch)
                     {
                         path.Reset();
                     }
@@ -824,7 +795,7 @@ namespace MajdataPlay.Scenes.List
                     {
                         path.OnUpdate();
                         IsRightMatch |= path.IsMatch;
-                    }                        
+                    }
                 }
             }
             public void GenerateIgnoreAreaList(Span<bool> areaList)
@@ -845,18 +816,18 @@ namespace MajdataPlay.Scenes.List
                 }
             }
 
-            struct Path
+            private struct Path
             {
                 public bool IsMatch { get; private set; }
 
-                byte _state;
-                TimeSpan _detectStartAt;
+                private byte _state;
+                private TimeSpan _detectStartAt;
 
-                readonly SensorArea _headArea;
-                readonly SensorArea _area2;
-                readonly SensorArea[] _tailAreaList;
-                readonly TimeSpan _timeout;
-                public Path(SensorArea headArea, SensorArea area2, SensorArea[] tailAreaList) 
+                private readonly SensorArea _headArea;
+                private readonly SensorArea _area2;
+                private readonly SensorArea[] _tailAreaList;
+                private readonly TimeSpan _timeout;
+                public Path(SensorArea headArea, SensorArea area2, SensorArea[] tailAreaList)
                     : this(headArea, area2, tailAreaList, TimeSpan.FromMilliseconds(300))
                 {
 
@@ -888,12 +859,12 @@ namespace MajdataPlay.Scenes.List
                             return;
                         }
                     }
-                    else if(currentTimestamp - _detectStartAt > _timeout)
+                    else if (currentTimestamp - _detectStartAt > _timeout)
                     {
                         Reset();
                         return;
                     }
-                    if((_state & (1 << 1)) == 0)
+                    if ((_state & (1 << 1)) == 0)
                     {
                         if (InputManager.IsSensorClickedInThisFrame(_area2))
                         {
@@ -920,9 +891,9 @@ namespace MajdataPlay.Scenes.List
                             {
                                 break;
                             }
-                        }                            
+                        }
                     }
-                    if(_state == allFinished)
+                    if (_state == allFinished)
                     {
                         IsMatch = true;
                     }
@@ -935,11 +906,11 @@ namespace MajdataPlay.Scenes.List
                 }
                 public bool IsShouldBeIgnored(SensorArea area)
                 {
-                    if((_state & (1 << 1)) == 0)
+                    if ((_state & (1 << 1)) == 0)
                     {
                         return false;
                     }
-                    if(area == _area2 || area == _headArea)
+                    if (area == _area2 || area == _headArea)
                     {
                         return true;
                     }
@@ -947,7 +918,7 @@ namespace MajdataPlay.Scenes.List
                     {
                         for (var i = 0; i < _tailAreaList.Length; i++)
                         {
-                            if(area == _tailAreaList[i] && ((_state & (1 << (i + 2))) != 0))
+                            if (area == _tailAreaList[i] && ((_state & (1 << (i + 2))) != 0))
                             {
                                 return true;
                             }

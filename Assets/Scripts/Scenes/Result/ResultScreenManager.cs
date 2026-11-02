@@ -27,6 +27,7 @@ using MajdataPlay.Diagnostics;
 
 #if UNITY_EDITOR
 using System.Globalization;
+using MajdataPlay.i18n;
 #endif
 
 #nullable enable
@@ -94,6 +95,12 @@ namespace MajdataPlay.Scenes.Result
         [FormerlySerializedAs("onlineInteractionSender")]
         OnlineInteractionSender _onlineInteractionSender;
 
+        [SerializeField]
+        SongFeedbackPanel _feedbackPanel;
+
+        bool _isAdvancePending;
+        int _lastNavigationFrame = -1;
+
         GameInfo _gameInfo = Majdata<GameInfo>.Instance!;
 
         Task _scoreSaveTask = Task.CompletedTask;
@@ -132,6 +139,16 @@ namespace MajdataPlay.Scenes.Result
         {
             base.Awake();
             InputManager.TouchButtonRingEdge = 4.8f;
+#if UNITY_EDITOR
+            // Direct scene previews bypass the startup scene's localization setup.
+            if (string.IsNullOrEmpty(Localization.Current.Code))
+            {
+                Localization.Init();
+                if (!Localization.SetLang(MajEnv.Settings.Display.Language)
+                 && !Localization.SetLangByCode(Application.systemLanguage.ToLocale()))
+                    Localization.SetLangByCode("en-US");
+            }
+#endif
         }
         void Start()
         {
@@ -179,6 +196,7 @@ namespace MajdataPlay.Scenes.Result
             _levelBGDisplayer.color = diffColor;
             _onlineInteractionSender.Init(song, score);
             favoriteAdder.SetSong(song);
+            _feedbackPanel.Init(song, !_gameInfo.IsDanMode);
             userInfoDisplayer.DisplayFromSong(song);
 
 
@@ -309,32 +327,30 @@ namespace MajdataPlay.Scenes.Result
             }
         }
         /// <summary>
-        /// 离开结算（A4 或新结算界面的“继续”）：开场 3 秒内或保存、上传未完成时不响应，只会执行一次
+        /// 新结算界面的“继续”：与 A4 相同（<see cref="Advance"/>）。首次游玩可评价时会先打开评价面板，此时返回 false
         /// </summary>
+        /// <returns>是否已开始离开结算</returns>
         internal bool TryExit()
         {
-            if (!_isInited || !_isAllTaskFinished || _isExited)
-            {
-                return false;
-            }
-            var canNextRound = _gameInfo.NextRound();
-            if (_gameInfo.IsDanMode)
-            {
-                if (!canNextRound)
-                {
-                    _isExited = true;
-                    MajInstances.SceneSwitcher.SwitchScene("TotalResult");
-                    return true;
-                }
-                MajInstances.AudioManager.StopSFX("bgm_result.mp3");
-                _isExited = true;
-                MajInstances.SceneSwitcher.SwitchScene("Game", false);
-                return true;
-            }
-            _isExited = true;
-            MajInstances.AudioManager.StopSFX("bgm_result.mp3");
-            MajInstances.SceneSwitcher.SwitchScene("List", false);
-            return true;
+            Advance();
+            return _isExited;
+        }
+        /// <summary>
+        /// 可以对这首网络谱面评价（点赞、点踩、评论）
+        /// </summary>
+        internal bool IsFeedbackAvailable => _feedbackPanel != null && _feedbackPanel.IsAvailable && !_isExited;
+        /// <summary>
+        /// 评价面板已打开或正在打开：新结算界面需要让出画面
+        /// </summary>
+        internal bool IsFeedbackShowing => _feedbackPanel != null && (_feedbackPanel.IsOpen || _isAdvancePending);
+        /// <summary>
+        /// 新结算界面的“评价”：打开上游的评价面板（与 B4/E4 相同，首次游玩也可以提前打开）
+        /// </summary>
+        internal void RequestFeedback()
+        {
+            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending
+             || !_feedbackPanel.IsAvailable || _feedbackPanel.IsOpen) return;
+            OpenFeedbackAsync().Forget();
         }
         void PlayResultAnimation(double targetAchievement, bool isClassic)
         {
@@ -486,11 +502,11 @@ namespace MajdataPlay.Scenes.Result
             _isInited = true;
             CabinetLed.SetButtonLight(Color.yellow, 4);
             var t1 = _scoreSaveTask;
-            if (RecordHelper.IsEnabled)
+            if (Recorder.IsEnabled)
             {
                 await UniTask.Delay(3000);
             }
-            var t2 = RecordHelper.StopRecordAsync();
+            var t2 = Recorder.StopRecordAsync();
             while (!t1.IsCompleted || !t2.IsCompleted)
             {
                 await UniTask.Yield();
@@ -589,22 +605,106 @@ namespace MajdataPlay.Scenes.Result
 
         void Update()
         {
-            if(!_isInited || _isExited)
+            if (!_isInited || _isExited) return;
+            if (InputManager.IsButtonPressedInThisFrame(ButtonZone.A5))
             {
-                return;
+                BackOrFavorite();
             }
-            if(InputManager.IsButtonPressedInThisFrame(ButtonZone.A5))
+            if (InputManager.IsButtonClickCompletedInThisFrame(ButtonZone.A4))
+            {
+                Advance();
+            }
+            else if (InputManager.IsSensorClickCompletedInThisFrame(SensorArea.B4)
+                  || InputManager.IsSensorClickCompletedInThisFrame(SensorArea.E4))
+            {
+                OpenFeedback();
+            }
+        }
+
+        public void BackOrFavorite()
+        {
+            if (!_isInited || _isExited || _isAdvancePending || _lastNavigationFrame == Time.frameCount) return;
+            _lastNavigationFrame = Time.frameCount;
+            if (_feedbackPanel.IsOpen)
+            {
+                ExitResults();
+            }
+            else
             {
                 favoriteAdder.FavoratePressed();
             }
-            if(!_isAllTaskFinished)
+        }
+
+        public void Advance()
+        {
+            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending
+             || _lastNavigationFrame == Time.frameCount) return;
+            _lastNavigationFrame = Time.frameCount;
+            if (_feedbackPanel.IsAvailable && _feedbackPanel.IsFirstPlay && !_feedbackPanel.IsOpen)
             {
+                OpenFeedbackAsync().Forget();
                 return;
             }
-            if(InputManager.IsButtonClickCompletedInThisFrame(ButtonZone.A4))
+            if (_feedbackPanel.IsOpen)
             {
-                TryExit();
+                SubmitFeedbackAsync().Forget();
+                return;
             }
+            ExitResults();
+        }
+
+        public void OpenFeedback()
+        {
+            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending
+             || !_feedbackPanel.IsAvailable || _feedbackPanel.IsFirstPlay || _feedbackPanel.IsOpen
+             || _lastNavigationFrame == Time.frameCount) return;
+            _lastNavigationFrame = Time.frameCount;
+            OpenFeedbackAsync().Forget();
+        }
+
+        async UniTask OpenFeedbackAsync()
+        {
+            _isAdvancePending = true;
+            _onlineInteractionSender.enabled = false;
+            try
+            {
+                await _feedbackPanel.OpenAsync();
+            }
+            catch (OperationCanceledException) when (this == null) { }
+            finally
+            {
+                _isAdvancePending = false;
+            }
+        }
+
+        async UniTask SubmitFeedbackAsync()
+        {
+            _isAdvancePending = true;
+            try
+            {
+                if (await _feedbackPanel.SubmitAsync() && this != null)
+                {
+                    ExitResults();
+                }
+            }
+            finally
+            {
+                _isAdvancePending = false;
+            }
+        }
+
+        void ExitResults()
+        {
+            if (_isExited) return;
+            var canNextRound = _gameInfo.NextRound();
+            _isExited = true;
+            if (_gameInfo.IsDanMode && !canNextRound)
+            {
+                MajInstances.SceneSwitcher.SwitchScene("TotalResult");
+                return;
+            }
+            MajInstances.AudioManager.StopSFX("bgm_result.mp3");
+            MajInstances.SceneSwitcher.SwitchScene(_gameInfo.IsDanMode ? "Game" : "List", false);
         }
         void OnDestroy()
         {

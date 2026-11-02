@@ -17,6 +17,7 @@ using MajdataPlay.Scenes.Game.Notes.Slide;
 using MajdataPlay.Scenes.Game.Notes.Slide.Utils;
 using MajdataPlay.Scenes.Game.Notes.Touch;
 using MajdataPlay.Scenes.Game.Parsing;
+using MajdataPlay.Scenes.Game.Parsing.Slide;
 using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.Settings;
 using MajSimai;
@@ -38,6 +39,19 @@ namespace MajdataPlay.Scenes.Game
         public double Progress { get; set; } = 0;
         public float NoteSpeed { get; set; } = 7f;
         public int ChartRotation { get; set; } = 0;
+        /// <summary>
+        /// Gets or sets whether simai slides other than wifi are translated into slide code and built as extend slides.
+        /// When <see langword="false"/> they are built natively from the slide prefabs, a chain becoming connected
+        /// <see cref="SlideDrop"/> parts. The game always translates; the slide test scene switches to the native path
+        /// to compare the two.
+        /// </summary>
+        internal bool IsSimaiSlideTranslated { get; set; } = true;
+        /// <summary>
+        /// Gets or sets how the arrows of a translated simai connection slide are placed along its segments. Slides
+        /// written as slide code and simai slides with a single segment do not depend on it. The game and view scenes
+        /// set it from <see cref="DisplayOptions.SlidePathStyle"/>; the slide test scene switches it to compare styles.
+        /// </summary>
+        internal SlidePathStyle SlidePathStyle { get; set; } = SlidePathStyle.Classic;
         public float TouchSpeed
         {
             get => _touchSpeed;
@@ -126,6 +140,10 @@ namespace MajdataPlay.Scenes.Game
             {SimaiNoteType.Touch, 6 },
             {SimaiNoteType.TouchHold, 6 },
         };
+        /// <summary>
+        /// The indexes of the slide prefabs by shape name. Wifi slides and slides written as slide code always use their
+        /// prefabs; the other shapes are used only when <see cref="IsSimaiSlideTranslated"/> is <see langword="false"/>.
+        /// </summary>
         readonly static IReadOnlyDictionary<string, int> SLIDE_PREFAB_MAP = new Dictionary<string, int>()
         {
             {"line3", 0 },
@@ -380,13 +398,13 @@ namespace MajdataPlay.Scenes.Game
                                         TouchArea = note.TouchArea,
                                         Count = 1
                                     };
-                                    if (foldedSlide.RawContent.Contains('K'))
+                                    if (SimaiSlideTranslator.IsSingleSlideCode(foldedSlide.RawContent))
                                     {
                                         CreateExtendSlide(timing, foldedSlide, eachNotes);
                                     }
                                     else
                                     {
-                                        CreateSlideGroup(timing, foldedSlide, eachNotes); // 星星组
+                                        CreateSlideGroup(timing, foldedSlide, eachNotes); // 星星组，可以包含 slide code 段
                                     }
                                     _noteCount += foldedSlide.Count - 1;
                                     break;
@@ -975,6 +993,17 @@ namespace MajdataPlay.Scenes.Game
             });
         }
 
+        /// <summary>
+        /// Builds a simai slide. Wifi slides keep their own behaviour; every other slide, including a connection slide,
+        /// is translated into one slide code and built as an extend slide, or built natively from the slide prefabs when
+        /// <see cref="IsSimaiSlideTranslated"/> is <see langword="false"/>. A connection slide may contain slide code
+        /// segments, such as <c>Q9K4</c> in <c>1^2^3Q9K4[1:100]</c>; it is always translated, because slide code has no
+        /// prefab.
+        /// </summary>
+        /// <param name="timing">The timing point of the slide note.</param>
+        /// <param name="note">The folded simai slide note.</param>
+        /// <param name="eachNotes">Receives the stars created for the slide head.</param>
+        /// <exception cref="InvalidSimaiSyntaxException">Thrown when the slide or its durations are malformed.</exception>
         private void CreateSlideGroup(SimaiTimingPoint timing, FoldedSimaiNote note, in IList<NotePoolingInfo?> eachNotes)
         {
             try
@@ -985,8 +1014,7 @@ namespace MajdataPlay.Scenes.Game
                 }
 
                 using var preprocessSubSlides = new PooledList<SubSlideNote>();
-                using var subBarCount = new PooledList<int>();
-                var sumBarCount = 0;
+                using var shapeTexts = new PooledList<string>();
 
                 var noteContent = note.RawContent;
                 var latestStartIndex = charIntParse(noteContent[0]); // 存储上一个Slide的结尾 也就是下一个Slide的起点
@@ -997,6 +1025,7 @@ namespace MajdataPlay.Scenes.Game
                                       // 1-读取到了一个未指定时长的段落
                                       // 2-读取到了一个指定时长的段落
                                       // 3-（期望）读取到了最后一个时长指定
+                var hasSlideCodeSegment = false; // slide code 段没有 prefab，只能翻译成 extend slide
                 using (var sb = ZString.CreateStringBuilder())
                 {
                     while (ptr < noteContent.Length)
@@ -1010,45 +1039,60 @@ namespace MajdataPlay.Scenes.Game
                                                                   "组合星星有错误\nSLIDE CHAIN ERROR");
                         }
                         sb.Clear();
-                        // 读取到字符
-                        var slideTypeChar = noteContent[ptr++].ToString();
                         var slidePart = new SubSlideNote();
                         slidePart.Type = SimaiNoteType.Slide;
                         slidePart.StartPosition = latestStartIndex;
-                        if (slideTypeChar == "V")
+                        var slideTypeChar = string.Empty;
+                        if (SimaiSlideTranslator.IsSlideCodeCommand(noteContent[ptr]))
                         {
-                            // 转折星星
-                            var middlePos = noteContent[ptr++];
-                            var endPos = noteContent[ptr++];
+                            // slide code 段，例如 1^2^3Q9K4 中的 Q9K4：从上一段的终点开始，到 K 后面的终点键位为止
+                            var segmentEnd = SimaiSlideTranslator.FindSlideCodeEnd(noteContent, ptr);
                             sb.Append(latestStartIndex);
-                            sb.Append(slideTypeChar);
-                            sb.Append(middlePos);
-                            sb.Append(endPos);
-
-                            //slidePart.RawContent = sb.ToString();
-                            latestStartIndex = charIntParse(endPos);
+                            sb.Append(noteContent.AsSpan(ptr, segmentEnd - ptr));
+                            latestStartIndex = charIntParse(noteContent[segmentEnd - 1]);
+                            ptr = segmentEnd;
+                            hasSlideCodeSegment = true;
                         }
                         else
                         {
-                            // 其他普通星星
-                            // 额外检查pp和qq
-                            if (noteContent[ptr] == slideTypeChar[0])
+                            // 读取到字符
+                            slideTypeChar = noteContent[ptr++].ToString();
+                            if (slideTypeChar == "V")
                             {
-                                if (ptr + 1 < noteContent.Length)
-                                {
-                                    slideTypeChar += noteContent[ptr++];
-                                }
+                                // 转折星星
+                                var middlePos = noteContent[ptr++];
+                                var endPos = noteContent[ptr++];
+                                sb.Append(latestStartIndex);
+                                sb.Append(slideTypeChar);
+                                sb.Append(middlePos);
+                                sb.Append(endPos);
+
+                                //slidePart.RawContent = sb.ToString();
+                                latestStartIndex = charIntParse(endPos);
                             }
-                            var endPos = noteContent[ptr++];
+                            else
+                            {
+                                // 其他普通星星
+                                // 额外检查pp和qq
+                                if (noteContent[ptr] == slideTypeChar[0])
+                                {
+                                    if (ptr + 1 < noteContent.Length)
+                                    {
+                                        slideTypeChar += noteContent[ptr++];
+                                    }
+                                }
+                                var endPos = noteContent[ptr++];
 
-                            sb.Append(latestStartIndex);
-                            sb.Append(slideTypeChar);
-                            sb.Append(endPos);
+                                sb.Append(latestStartIndex);
+                                sb.Append(slideTypeChar);
+                                sb.Append(endPos);
 
-                            //slidePart.RawContent = sb.ToString();
-                            latestStartIndex = charIntParse(endPos);
+                                //slidePart.RawContent = sb.ToString();
+                                latestStartIndex = charIntParse(endPos);
+                            }
                         }
 
+                        var shapeText = sb.ToString(); // 不含时长的形状，例如 1-4
                         if (noteContent[ptr] == '[')// 如果指定了速度
                         {
                             switch (specTimeFlag)
@@ -1097,20 +1141,11 @@ namespace MajdataPlay.Scenes.Game
                         {
                             slidePart.RawContent = sb.ToString();
                         }
-                        string slideShape = NoteCreateHelper.DetectShapeFromText(slidePart.RawContent);
-                        if (slideShape.StartsWith("-"))
+                        if (slideTypeChar == "w")
                         {
-                            slideShape = slideShape.Substring(1);
+                            SimaiSlideTranslator.ValidateWifi(shapeText);
                         }
-                        int slideIndex = SLIDE_PREFAB_MAP[slideShape];
-                        if (slideIndex < 0)
-                        {
-                            slideIndex = -slideIndex;
-                        }
-
-                        var barCount = slidePrefab[slideIndex].transform.childCount;
-                        subBarCount.Add(barCount);
-                        sumBarCount += barCount;
+                        shapeTexts.Add(shapeText);
 
                         slidePart.Origin = note;
                         preprocessSubSlides.Add(slidePart);
@@ -1135,110 +1170,39 @@ namespace MajdataPlay.Scenes.Game
                                                           "组合星星有错误\nSLIDE CHAIN ERROR");
                 }
                 // 此时 flag为2表示每条指定语法 为3表示整体指定语法
+                // 两种写法下 note.SlideTime 都已经是整条星星的总时长
 
-                // 整体指定语法 使用slideTime来计算
-                var tempBarCount = 0;
-                for (var i = 0; i < preprocessSubSlides.Count; i++)
+                if (noteContent.Contains('w')) //wifi
                 {
-                    preprocessSubSlides[i].SlideStartTime = note.SlideStartTime + (double)tempBarCount / sumBarCount * note.SlideTime;
-                    preprocessSubSlides[i].SlideTime = (double)subBarCount[i] / sumBarCount * note.SlideTime;
-                    tempBarCount += subBarCount[i];
-                }
-
-                IConnectableSlide? parent = null;
-                using var subSlides = new PooledList<SlideDrop>();
-                float totalLen = (float)preprocessSubSlides.Select(x => x.SlideTime).Sum();
-                float startTiming = (float)preprocessSubSlides[0].SlideStartTime;
-                float totalSlideLen = 0;
-                int? extraRotation = null;
-                CreateSlideResult<SlideDrop>? slideResult = null;
-                for (var i = 0; i <= preprocessSubSlides.Count - 1; i++)
-                {
-                    bool isConn = preprocessSubSlides.Count != 1;
-                    bool isGroupHead = i == 0;
-                    bool isGroupEnd = i == preprocessSubSlides.Count - 1;
-                    SlideBase sliObj;
-
-                    if (note.RawContent!.Contains('w')) //wifi
+                    if (preprocessSubSlides.Count != 1)
                     {
-                        if (isConn)
-                        {
-                            throw new InvalidOperationException("不允许Wifi Slide作为Connection Slide的一部分");
-                        }
-                        var result = CreateWifi(timing, preprocessSubSlides[i], note.Count);
-                        sliObj = result.SlideInstance;
-                        foreach (var starInfo in result.StarInfos)
-                        {
-                            if (starInfo is null)
-                            {
-                                continue;
-                            }
-                            eachNotes.Add(starInfo);
-                        }
-                        //AddSlideToQueue(timing, result.SlideInstance);
-                        UpdateStarRotateSpeed(result, (float)preprocessSubSlides[i].SlideTime, 20);
-                        sliObj.Init();
+                        throw new InvalidOperationException("不允许Wifi Slide作为Connection Slide的一部分");
                     }
-                    else
+                    var wifiPart = preprocessSubSlides[0];
+                    wifiPart.SlideStartTime = note.SlideStartTime;
+                    wifiPart.SlideTime = note.SlideTime;
+                    var result = CreateWifi(timing, wifiPart, note.Count);
+                    foreach (var starInfo in result.StarInfos)
                     {
-                        var info = new ConnSlideInfo()
+                        if (starInfo is null)
                         {
-                            TotalLength = totalLen,
-                            IsGroupPart = isConn,
-                            IsGroupPartHead = isGroupHead,
-                            IsGroupPartEnd = isGroupEnd,
-                            Parent = parent,
-                            StartTiming = startTiming
-                        };
-                        var result = CreateSlide(timing, preprocessSubSlides[i], info, note.Count, ref extraRotation);
-                        parent = result.SlideInstance;
-                        sliObj = result.SlideInstance;
-                        foreach (var starInfo in result.StarInfos)
-                        {
-                            if (starInfo is null)
-                            {
-                                continue;
-                            }
-                            eachNotes.Add(starInfo);
+                            continue;
                         }
-                        subSlides.Add(result.SlideInstance);
-                        if (i == 0)
-                        {
-                            slideResult = result;
-                        }
+                        eachNotes.Add(starInfo);
                     }
-                    AddSlideToQueue(timing, sliObj);
+                    UpdateStarRotateSpeed(result, (float)wifiPart.SlideTime, 20);
+                    result.SlideInstance.Init();
+                    AddSlideToQueue(timing, result.SlideInstance);
                 }
-                long judgeQueueLen = 0;
-                var slideCount = subSlides.Count;
-                foreach (var (i, s) in subSlides.WithIndex())
+                else if (IsSimaiSlideTranslated || hasSlideCodeSegment)
                 {
-                    var isFirst = i == 0;
-                    var isEnd = i == slideCount - 1;
-                    var table = SlideTables.FindTableByName(s.SlideType);
-
-                    totalSlideLen += s.SlideLength;
-                    if (isEnd)
-                    {
-                        judgeQueueLen += table!.JudgeQueue.Length;
-                    }
-                    else
-                    {
-                        judgeQueueLen += table!.JudgeQueue.Length - 1;
-                    }
+                    // 其余 simai 星星（包括连锁星星和含 slide code 段的连锁星星）直接翻译成一条 slide code，交给 extend slide 处理
+                    var slideCode = SimaiSlideTranslator.TranslateChain(shapeTexts);
+                    CreateExtendSlideFromCode(timing, note, slideCode, shapeTexts, eachNotes);
                 }
-                foreach (var subSlide in subSlides)
+                else
                 {
-                    //subSlide.ConnectInfo.TotalSlideLen = totalSlideLen;
-                    subSlide.ConnectInfo.TotalJudgeQueueLen = judgeQueueLen;
-                }
-                foreach (var subSlide in subSlides)
-                {
-                    subSlide.Init();
-                }
-                if (slideResult is not null)
-                {
-                    UpdateStarRotateSpeed((CreateSlideResult<SlideDrop>)slideResult, totalLen, totalSlideLen);
+                    CreateNativeSlideGroup(timing, note, preprocessSubSlides, eachNotes);
                 }
             }
             catch (UnityException)
@@ -1283,13 +1247,125 @@ namespace MajdataPlay.Scenes.Game
                 AppearTiming = Math.Min(appearTiming, slideFadeInTiming)
             });
         }
+        /// <summary>
+        /// Builds a simai slide natively from the slide prefabs: each segment becomes a <see cref="SlideDrop"/>, the
+        /// segments share the duration in proportion to their arrow counts and are chained as one connection slide.
+        /// </summary>
+        /// <param name="timing">The timing point of the slide note.</param>
+        /// <param name="note">The folded simai slide note.</param>
+        /// <param name="subSlideNotes">The segments of the slide, in path order.</param>
+        /// <param name="eachNotes">Receives the stars created for the slide head.</param>
+        /// <exception cref="Exception">Thrown when a segment is not a shape a slide prefab draws.</exception>
+        private void CreateNativeSlideGroup(SimaiTimingPoint timing,
+                                            FoldedSimaiNote note,
+                                            PooledList<SubSlideNote> subSlideNotes,
+                                            in IList<NotePoolingInfo?> eachNotes)
+        {
+            using var subBarCount = new PooledList<int>();
+            var sumBarCount = 0;
+            foreach (var subSlideNote in subSlideNotes)
+            {
+                var barCount = slidePrefab[GetSlidePrefabIndex(subSlideNote.RawContent)].transform.childCount;
+                subBarCount.Add(barCount);
+                sumBarCount += barCount;
+            }
+            // 整体指定语法 使用slideTime来计算
+            var tempBarCount = 0;
+            for (var i = 0; i < subSlideNotes.Count; i++)
+            {
+                subSlideNotes[i].SlideStartTime = note.SlideStartTime + (double)tempBarCount / sumBarCount * note.SlideTime;
+                subSlideNotes[i].SlideTime = (double)subBarCount[i] / sumBarCount * note.SlideTime;
+                tempBarCount += subBarCount[i];
+            }
+
+            IConnectableSlide? parent = null;
+            using var subSlides = new PooledList<SlideDrop>();
+            var totalLen = (float)note.SlideTime;
+            var startTiming = (float)subSlideNotes[0].SlideStartTime;
+            var totalSlideLen = 0f;
+            int? extraRotation = null;
+            CreateSlideResult<SlideDrop>? slideResult = null;
+            for (var i = 0; i < subSlideNotes.Count; i++)
+            {
+                var info = new ConnSlideInfo()
+                {
+                    TotalLength = totalLen,
+                    IsGroupPart = subSlideNotes.Count != 1,
+                    IsGroupPartHead = i == 0,
+                    IsGroupPartEnd = i == subSlideNotes.Count - 1,
+                    Parent = parent,
+                    StartTiming = startTiming
+                };
+                var result = CreateSlide(timing, subSlideNotes[i], info, note.Count, ref extraRotation);
+                parent = result.SlideInstance;
+                foreach (var starInfo in result.StarInfos)
+                {
+                    if (starInfo is null)
+                    {
+                        continue;
+                    }
+                    eachNotes.Add(starInfo);
+                }
+                subSlides.Add(result.SlideInstance);
+                if (i == 0)
+                {
+                    slideResult = result;
+                }
+                AddSlideToQueue(timing, result.SlideInstance);
+            }
+            // 连接星星的每段共用相邻的判定区，所以除最后一段外每段少算一个
+            long judgeQueueLen = 0;
+            for (var i = 0; i < subSlides.Count; i++)
+            {
+                var subSlide = subSlides[i];
+                using var table = SlideTables.FindTableByName(subSlide.SlideType);
+                totalSlideLen += subSlide.SlideLength;
+                judgeQueueLen += i == subSlides.Count - 1 ? table!.JudgeQueue.Length : table!.JudgeQueue.Length - 1;
+            }
+            foreach (var subSlide in subSlides)
+            {
+                subSlide.ConnectInfo.TotalJudgeQueueLen = judgeQueueLen;
+            }
+            foreach (var subSlide in subSlides)
+            {
+                subSlide.Init();
+            }
+            if (slideResult is CreateSlideResult<SlideDrop> headResult)
+            {
+                UpdateStarRotateSpeed(headResult, totalLen, totalSlideLen);
+            }
+        }
+        /// <summary>Gets the index in <see cref="slidePrefab"/> of the prefab that draws a simai slide segment.</summary>
+        /// <param name="content">The segment, for example <c>1-4[4:1]</c>.</param>
+        /// <returns>The prefab index.</returns>
+        /// <exception cref="Exception">Thrown when the segment is not a shape a slide prefab draws.</exception>
+        private static int GetSlidePrefabIndex(string content)
+        {
+            var slideShape = NoteCreateHelper.DetectShapeFromText(content);
+            if (slideShape.StartsWith("-"))
+            {
+                slideShape = slideShape.Substring(1);
+            }
+            return Math.Abs(SLIDE_PREFAB_MAP[slideShape]);
+        }
+        /// <summary>Instantiates the slide prefab of one simai slide segment and configures it as a part of a connection slide.</summary>
+        /// <param name="timing">The timing point of the slide note.</param>
+        /// <param name="note">The segment.</param>
+        /// <param name="info">The connection information of the segment.</param>
+        /// <param name="multiple">How many identical slides were folded into this one.</param>
+        /// <param name="extraRotation">
+        /// The rotation random mode applied to the first segment; <see langword="null"/> for the first segment, which
+        /// computes it for the following segments.
+        /// </param>
+        /// <returns>The slide part and the stars created for its head.</returns>
+        /// <exception cref="Exception">Thrown when the segment is not a shape a slide prefab draws.</exception>
         private CreateSlideResult<SlideDrop> CreateSlide(SimaiTimingPoint timing,
                                                          SubSlideNote note,
                                                          ConnSlideInfo info,
                                                          in int multiple,
                                                          ref int? extraRotation)
         {
-            string slideShape = NoteCreateHelper.DetectShapeFromText(note.RawContent);
+            var slideShape = NoteCreateHelper.DetectShapeFromText(note.RawContent);
             var isMirror = false;
             var isMine = note.IsMineSlide;
             var isEach = NoteCreateHelper.IsEachNote(note, timing.Notes);
@@ -1300,12 +1376,10 @@ namespace MajdataPlay.Scenes.Game
             }
             var slideIndex = SLIDE_PREFAB_MAP[slideShape];
             var slide = Instantiate(slidePrefab[slideIndex], notes.transform.GetChild(3));
-            //var slide_star = Instantiate(star_slidePrefab, notes.transform.GetChild(3));
-            var SliCompo = slide.GetComponent<SlideDrop>();
+            var sliCompo = slide.GetComponent<SlideDrop>();
             var isJustR = NoteCreateHelper.DetectJustType(note.RawContent, out int endPos);
             var startPos = note.StartPosition;
 
-            //slide_star.SetActive(true);
             slide.SetActive(true);
             if (extraRotation is null)
             {
@@ -1330,19 +1404,16 @@ namespace MajdataPlay.Scenes.Game
                 endPos = NoteCreateHelper.Rotation(endPos, ChartRotation + eR);
             }
 
-            TapPoolingInfo?[] starInfos = new TapPoolingInfo?[multiple];
+            var starInfos = new TapPoolingInfo?[multiple];
             if (!note.IsSlideNoHead)
             {
-
                 for (var i = 0; i < multiple; i++)
                 {
-                    var _info = CreateStar(startPos, note, timing);
-                    _poolManager.AddTap(_info);
-                    starInfos[i] = _info;
+                    var starInfo = CreateStar(startPos, note, timing);
+                    _poolManager.AddTap(starInfo);
+                    starInfos[i] = starInfo;
                 }
             }
-
-            //SliCompo.SlideType = slideShape;
 
             if (isEach)
             {
@@ -1357,39 +1428,36 @@ namespace MajdataPlay.Scenes.Game
                 }
             }
 
-            SliCompo.ConnectInfo = info;
-            SliCompo.IsBreak = note.IsSlideBreak;
-            SliCompo.IsEach = !isMine && (isEach || multiple > 1);
-            SliCompo.IsMirror = isMirror;
-            SliCompo.IsMine = isMine;
-            SliCompo.IsJustR = isJustR;
-            SliCompo.EndPos = endPos;
-            SliCompo.Speed = Math.Abs(NoteSpeed * timing.HSpeed);
-            SliCompo.StartTiming = (float)note.SlideStartTime;
-            SliCompo.StartPos = startPos;
-            //SliCompo._stars = new GameObject[] { slide_star };
-            SliCompo.Timing = (float)timing.Timing;
-            SliCompo.Length = (float)note.SlideTime;
-            SliCompo.IsSlideNoHead = _isSlideNoHead;
-            SliCompo.IsSlideNoTrack = _isSlideNoTrack;
-            SliCompo.Multiple = multiple;
-            //SliCompo.sortIndex = -7000 + (int)((lastNoteTime - timing.Timing) * -100) + sort * 5;
+            sliCompo.ConnectInfo = info;
+            sliCompo.IsBreak = note.IsSlideBreak;
+            sliCompo.IsEach = !isMine && (isEach || multiple > 1);
+            sliCompo.IsMirror = isMirror;
+            sliCompo.IsMine = isMine;
+            sliCompo.IsJustR = isJustR;
+            sliCompo.EndPos = endPos;
+            sliCompo.Speed = Math.Abs(NoteSpeed * timing.HSpeed);
+            sliCompo.StartTiming = (float)note.SlideStartTime;
+            sliCompo.StartPos = startPos;
+            sliCompo.Timing = (float)timing.Timing;
+            sliCompo.Length = (float)note.SlideTime;
+            sliCompo.IsSlideNoHead = _isSlideNoHead;
+            sliCompo.IsSlideNoTrack = _isSlideNoTrack;
+            sliCompo.Multiple = multiple;
             var slideBarCount = slide.transform.childCount - 1;
             if (MajEnv.Settings.Display.SlideSortOrder == JudgeModeOption.Classic)
             {
                 _slideLayer += slideBarCount;
-                SliCompo.SortOrder = _slideLayer;
+                sliCompo.SortOrder = _slideLayer;
             }
             else
             {
-                SliCompo.SortOrder = _slideLayer;
+                sliCompo.SortOrder = _slideLayer;
                 _slideLayer -= slideBarCount;
             }
-            //slideLayer += 5;
 
             return new()
             {
-                SlideInstance = SliCompo,
+                SlideInstance = sliCompo,
                 StarInfos = starInfos
             };
         }
@@ -1482,6 +1550,12 @@ namespace MajdataPlay.Scenes.Game
             };
         }
 
+        /// <summary>Builds a slide written as slide code, for example <c>1P3K6[8:1]</c>.</summary>
+        /// <param name="timing">The timing point of the slide note.</param>
+        /// <param name="note">The folded slide note.</param>
+        /// <param name="eachNotes">Receives the stars created for the slide head.</param>
+        /// <exception cref="InvalidSimaiSyntaxException">Thrown when the start key or the end key is missing or out of range.</exception>
+        /// <exception cref="ArgumentException">Thrown when the slide code is invalid.</exception>
         private void CreateExtendSlide(SimaiTimingPoint timing, FoldedSimaiNote note, in IList<NotePoolingInfo?> eachNotes)
         {
             var slideText = note.RawContent.AsSpan();
@@ -1491,17 +1565,49 @@ namespace MajdataPlay.Scenes.Game
             var isInvalid = endFlagPos == -1 ||
                             endFlagPos == slideText.Length - 1 ||
                             !int.TryParse(slideText.Slice(0, 1), out startPos) ||
-                            !int.TryParse(slideText.Slice(endFlagPos + 1, 1), out endPos);
+                            !int.TryParse(slideText.Slice(endFlagPos + 1, 1), out endPos) ||
+                            !startPos.InRange(1, 8) ||
+                            !endPos.InRange(1, 8);
             if (isInvalid)
             {
                 throw new InvalidSimaiSyntaxException(timing.RawTextPositionX, timing.RawTextPositionY, note.RawContent);
             }
             var slideCode = note.RawContent.Substring(0, endFlagPos + 2);
+            CreateExtendSlideFromCode(timing, note, slideCode, null, eachNotes);
+        }
+        /// <summary>
+        /// Builds an extend slide from a slide code: rotates the code with the chart, parses it, uses the judge table
+        /// predefined in <see cref="SlideTables"/> for its shape when there is one (the generated table otherwise), and
+        /// queues the slide with the stars of its head.
+        /// </summary>
+        /// <param name="timing">The timing point of the slide note.</param>
+        /// <param name="note">The slide note, which carries the start time, duration and flags of the whole slide.</param>
+        /// <param name="slideCode">The slide code without duration, as written in the chart or translated from simai.</param>
+        /// <param name="simaiSegments">
+        /// The simai segments <paramref name="slideCode"/> was translated from, such as <c>1-4</c> and <c>4q7</c>, or
+        /// <see langword="null"/> when the slide was written as slide code.
+        /// </param>
+        /// <param name="eachNotes">Receives the stars created for the slide head.</param>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="slideCode"/> is not valid slide code.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the slide code does not start at a key between 1 and 8.</exception>
+        private void CreateExtendSlideFromCode(SimaiTimingPoint timing,
+                                               FoldedSimaiNote note,
+                                               string slideCode,
+                                               IReadOnlyList<string>? simaiSegments,
+                                               in IList<NotePoolingInfo?> eachNotes)
+        {
+            // 谱面旋转和随机模式让整条星星绕圆心旋转
+            var rotation = GetSlideRotation(slideCode[0] - '0');
+            var rotatedCode = SlideCodeShape.Rotate(slideCode, rotation);
+            var slideMetadata = CreateSlideMetadata(rotatedCode, simaiSegments, rotation);
+            // 解析完毕后按形状查询预定义表；没有预定义表时 ExtendSlideDrop 使用 slide code 算法生成的判定表
+            var predefinedTable = SlideTables.FindTableBySlideCode(rotatedCode);
+            var judgeAreas = slideMetadata.JudgeAreaQueue;
+            var startPos = (int)judgeAreas[0].SensorA + 1;
+            var endPos = (int)judgeAreas[judgeAreas.Length - 1].SensorA + 1;
             var multiple = note.Count;
             var isMine = note.IsMineSlide;
             var isEach = NoteCreateHelper.IsEachNote(note, timing.Notes);
-            var pathMetadata = SlideCodeParser.Parse(slideCode);
-            var slideMetadata = ExtendSlideHelper.CreateSlideEntry(pathMetadata);
             var extendSlideObject = Instantiate(slidePrefab[SLIDE_PREFAB_MAP["Ex"]], notes.transform.GetChild(3));
             var extendSlide = extendSlideObject.GetComponent<ExtendSlideDrop>();
             var starInfos = new TapPoolingInfo?[multiple];
@@ -1515,8 +1621,28 @@ namespace MajdataPlay.Scenes.Game
                     starInfos[i] = _info;
                 }
             }
+            if (isEach)
+            {
+                var slides = NoteCreateHelper.GetEachSlides(note, timing.Notes);
+                var index = slides.FindIndex(x => x == note) + 1;
+                if (_gpManager is not null && _gpManager.IsClassicMode)
+                {
+                    if (index == slides.Length && index % 2 != 0)
+                    {
+                        isEach = false;
+                    }
+                }
+            }
 
             extendSlide.Metadata = slideMetadata;
+            extendSlide.PredefinedTable = predefinedTable;
+            extendSlide.SlideCode = rotatedCode;
+            // 判定时用 StartTiming 判断星星是否已经出发，与原来的 simai 星星一致
+            extendSlide.ConnectInfo = new ConnSlideInfo()
+            {
+                TotalLength = (float)note.SlideTime,
+                StartTiming = (float)note.SlideStartTime
+            };
             extendSlide.StartPos = startPos;
             extendSlide.EndPos = endPos;
             extendSlide.IsBreak = note.IsSlideBreak;
@@ -1530,7 +1656,8 @@ namespace MajdataPlay.Scenes.Game
             extendSlide.IsSlideNoTrack = _isSlideNoTrack;
             extendSlide.Multiple = multiple;
 
-            var slideBarCount = slideMetadata.ArrowPoses.Length - 2;
+            // 显示的箭头不含路径起点、终点，以及离终点太近而不显示的最后一个箭头
+            var slideBarCount = slideMetadata.ArrowPoses.Length - 2 - (slideMetadata.ConditionalLastArrow ? 1 : 0);
             if (MajEnv.Settings.Display.SlideSortOrder == JudgeModeOption.Classic)
             {
                 _slideLayer += slideBarCount;
@@ -1550,12 +1677,56 @@ namespace MajdataPlay.Scenes.Game
                 }
                 eachNotes.Add(starInfo);
             }
+            // 与原来的 simai 星星相同，按箭头数估算引导星星的旋转速度
             UpdateStarRotateSpeed(new CreateSlideResult<ExtendSlideDrop>()
             {
                 SlideInstance = extendSlide,
                 StarInfos = starInfos
-            }, extendSlide.Length, slideMetadata.SlideLength);
+            }, extendSlide.Length, extendSlide.SlideLength);
             AddSlideToQueue(timing, extendSlide);
+        }
+        /// <summary>
+        /// Parses a rotated slide code into extend slide metadata; a simai connection slide places its arrows in the
+        /// style of <see cref="SlidePathStyle"/>.
+        /// </summary>
+        /// <param name="rotatedCode">The slide code of the whole slide, already rotated with the chart.</param>
+        /// <param name="simaiSegments">
+        /// The simai segments the slide code was translated from, or <see langword="null"/> when it was written as slide code.
+        /// </param>
+        /// <param name="rotation">The clockwise rotation in keys that turned the slide code into <paramref name="rotatedCode"/>.</param>
+        /// <returns>The metadata of the slide.</returns>
+        /// <exception cref="ArgumentException">Thrown when a slide code or a simai segment is invalid.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="SlidePathStyle"/> is not a defined style.</exception>
+        private ExtendSlideMetadata CreateSlideMetadata(string rotatedCode, IReadOnlyList<string>? simaiSegments, int rotation)
+        {
+            var slidePath = SlideCodeParser.Parse(rotatedCode);
+            if (simaiSegments is null || simaiSegments.Count < 2)
+            {
+                return ExtendSlideHelper.CreateSlideEntry(slidePath);
+            }
+            // 每一段单独解析，以便按单独的 slide 放箭头
+            var segmentPaths = new ParametricSlidePath[simaiSegments.Count];
+            for (var i = 0; i < simaiSegments.Count; i++)
+            {
+                var segmentCode = SlideCodeShape.Rotate(SimaiSlideTranslator.Translate(simaiSegments[i]), rotation);
+                segmentPaths[i] = SlideCodeParser.Parse(segmentCode);
+            }
+            return ExtendSlideHelper.CreateConnSlideEntry(slidePath, segmentPaths, SlidePathStyle);
+        }
+        /// <summary>
+        /// Gets the clockwise rotation, in keys, that chart rotation and random mode apply to a slide starting at a key.
+        /// </summary>
+        /// <param name="startPos">The start key written in the chart.</param>
+        /// <returns>The rotation in keys; it may exceed one turn.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="startPos"/> is not between 1 and 8.</exception>
+        private int GetSlideRotation(int startPos)
+        {
+            var rotatedStartPos = NoteCreateHelper.Rotation(startPos, ChartRotation);
+            var newStartPos = rotatedStartPos;
+            var newEndPos = rotatedStartPos;
+            // 随机模式只改变起点，整条星星随起点一起旋转
+            NoteCreateHelper.SetSlideNewPositionIfRequested(ref newStartPos, ref newEndPos, _buttonRingMappingTable);
+            return ChartRotation + newStartPos - rotatedStartPos;
         }
 
         string BuildSyntaxErrorMessage(int line, int column, string noteContent)
@@ -1706,6 +1877,13 @@ namespace MajdataPlay.Scenes.Game
 
                 }
             }
+            /// <summary>Finds the slide prefab shape a simai slide segment draws, relative to its start key.</summary>
+            /// <param name="content">The segment, for example <c>1-4[4:1]</c>.</param>
+            /// <returns>
+            /// The shape name in <see cref="SLIDE_PREFAB_MAP"/>, prefixed with <c>-</c> when the prefab must be mirrored, or
+            /// an empty string when the segment has no known shape.
+            /// </returns>
+            /// <exception cref="Exception">Thrown when the end key or the turn key of the segment is not allowed for its shape.</exception>
             public static string DetectShapeFromText(string content)
             {
                 int getRelativeEndPos(int startPos, int endPos)
@@ -1716,7 +1894,6 @@ namespace MajdataPlay.Scenes.Game
                     return endPos + 1;
                 }
 
-                //print(content);
                 if (content.Contains('-'))
                 {
                     // line
@@ -1725,7 +1902,10 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (endPos < 3 || endPos > 7) throw new Exception("-星星至少隔开一键\n-スライドエラー");
+                    if (endPos < 3 || endPos > 7)
+                    {
+                        throw new Exception("-星星至少隔开一键\n-スライドエラー");
+                    }
                     return "line" + endPos;
                 }
 
@@ -1737,12 +1917,12 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (NoteCreateHelper.IsUpperHalf(startPos))
+                    if (IsUpperHalf(startPos))
                     {
                         return "circle" + endPos;
                     }
 
-                    endPos = NoteCreateHelper.MirrorKeys(endPos);
+                    endPos = MirrorKeys(endPos);
                     return "-circle" + endPos; //Mirror
                 }
 
@@ -1754,12 +1934,12 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (!NoteCreateHelper.IsUpperHalf(startPos))
+                    if (!IsUpperHalf(startPos))
                     {
                         return "circle" + endPos;
                     }
 
-                    endPos = NoteCreateHelper.MirrorKeys(endPos);
+                    endPos = MirrorKeys(endPos);
                     return "-circle" + endPos; //Mirror
                 }
 
@@ -1782,7 +1962,7 @@ namespace MajdataPlay.Scenes.Game
                     }
                     if (endPos > 5)
                     {
-                        return "-circle" + NoteCreateHelper.MirrorKeys(endPos);
+                        return "-circle" + MirrorKeys(endPos);
                     }
                 }
 
@@ -1794,7 +1974,10 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (endPos == 5) throw new Exception("v星星不合法\nvスライドエラー");
+                    if (endPos == 5)
+                    {
+                        throw new Exception("v星星不合法\nvスライドエラー");
+                    }
                     return "v" + endPos;
                 }
 
@@ -1817,7 +2000,7 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[2]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    endPos = NoteCreateHelper.MirrorKeys(endPos);
+                    endPos = MirrorKeys(endPos);
                     return "-ppqq" + endPos;
                 }
 
@@ -1840,7 +2023,7 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    endPos = NoteCreateHelper.MirrorKeys(endPos);
+                    endPos = MirrorKeys(endPos);
                     return "-pq" + endPos;
                 }
 
@@ -1852,7 +2035,10 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (endPos != 5) throw new Exception("s星星尾部错误\nsスライドエラー");
+                    if (endPos != 5)
+                    {
+                        throw new Exception("s星星尾部错误\nsスライドエラー");
+                    }
                     return "s";
                 }
 
@@ -1864,7 +2050,10 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (endPos != 5) throw new Exception("z星星尾部错误\nzスライドエラー");
+                    if (endPos != 5)
+                    {
+                        throw new Exception("z星星尾部错误\nzスライドエラー");
+                    }
                     return "-s";
                 }
 
@@ -1881,14 +2070,20 @@ namespace MajdataPlay.Scenes.Game
                     endPos = getRelativeEndPos(startPos, endPos);
                     if (turnPos == 7)
                     {
-                        if (endPos < 2 || endPos > 5) throw new Exception("V星星终点不合法\nVスライドエラー");
+                        if (endPos < 2 || endPos > 5)
+                        {
+                            throw new Exception("V星星终点不合法\nVスライドエラー");
+                        }
                         return "L" + endPos;
                     }
 
                     if (turnPos == 3)
                     {
-                        if (endPos < 5) throw new Exception("V星星终点不合法\nVスライドエラー");
-                        return "-L" + NoteCreateHelper.MirrorKeys(endPos);
+                        if (endPos < 5)
+                        {
+                            throw new Exception("V星星终点不合法\nVスライドエラー");
+                        }
+                        return "-L" + MirrorKeys(endPos);
                     }
 
                     throw new Exception("V星星拐点只能隔开一键\nVスライドエラー");
@@ -1902,7 +2097,10 @@ namespace MajdataPlay.Scenes.Game
                     var startPos = int.Parse(digits[0]);
                     var endPos = int.Parse(digits[1]);
                     endPos = getRelativeEndPos(startPos, endPos);
-                    if (endPos != 5) throw new Exception("w星星尾部错误\nwスライドエラー");
+                    if (endPos != 5)
+                    {
+                        throw new Exception("w星星尾部错误\nwスライドエラー");
+                    }
                     return "wifi";
                 }
 
@@ -2190,11 +2388,14 @@ namespace MajdataPlay.Scenes.Game
                         continue;
                     }
                 }
-                var groupedSlides = buffer.GroupBy(x => x);
+                // Group only the slots filled for this timing point: a pooled array that EnsureLength grows into is not
+                // cleared, so slots past bufferIndex may still hold notes of an earlier timing point.
+                var usedSlides = new ArraySegment<FoldingSimaiNote>(buffer.AsArray(), 0, bufferIndex);
+                var groupedSlides = usedSlides.GroupBy(x => x);
                 foreach (var slides in groupedSlides)
                 {
                     var key = slides.Key;
-                    if (key.Origin == null)
+                    if (!key.IsValid)
                     {
                         continue;
                     }
@@ -2305,6 +2506,14 @@ namespace MajdataPlay.Scenes.Game
             public SimaiNote? Origin
             {
                 get => _origin;
+            }
+            /// <summary>
+            /// Gets whether the folding note wraps a simai note. A default instance, such as a cleared slot of a pooled
+            /// buffer, is not valid and must not be folded.
+            /// </summary>
+            public bool IsValid
+            {
+                get => _origin is not null;
             }
 
             readonly SimaiNote? _origin;

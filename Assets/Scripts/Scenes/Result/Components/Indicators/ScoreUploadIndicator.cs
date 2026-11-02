@@ -48,6 +48,12 @@ namespace MajdataPlay.Scenes.Result.Components.Indicators
                                      });
         }
 
+        void OnDestroy()
+        {
+            // The looping motion binds to the uploading icon, which is destroyed with this indicator.
+            _iconAnimHandle.TryCancel();
+        }
+
         /// <summary>
         /// 当前的上传状态文字（新结算界面照抄）
         /// </summary>
