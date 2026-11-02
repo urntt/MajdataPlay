@@ -34,7 +34,6 @@ namespace MajdataPlay.Scenes.List
         Button _detailPlayButton = null!;
         Image? _detailHeart;
         TextMeshProUGUI _detailLevelText = null!;
-        Button? _detailPickButton;
 
         ISongDetail? _detailSong;
         ChartLevel _detailLevel;
@@ -160,7 +159,6 @@ namespace MajdataPlay.Scenes.List
         }
         void FinishCloseDetail()
         {
-            _detailPickButton = null;
             _isDetailClosing = false;
             _detailSong = null;
             _detailHeart = null;
@@ -280,31 +278,6 @@ namespace MajdataPlay.Scenes.List
                 }
             }
         }
-        /// <summary>
-        /// “加入自选 / 移出自选”：作用于详情页当前显示的难度
-        /// </summary>
-        void ToggleDetailPick()
-        {
-            var song = _detailSong;
-            if (song is null || _isDetailClosing || !HasLevel(song, _detailLevel))
-            {
-                return;
-            }
-            TogglePick(song, _detailLevel);
-        }
-        void UpdateDetailPickButton()
-        {
-            if (_detailPickButton == null || _detailSong is null)
-            {
-                return;
-            }
-            var isPicked = ScoreExchange.IsSelected(_detailSong.Hash, _detailLevel);
-            var label = _detailPickButton.GetComponentInChildren<TextMeshProUGUI>();
-            label.text = (isPicked ? "MAJTEXT_LIST_REMOVE_PICK" : "MAJTEXT_LIST_ADD_PICK").i18n();
-            label.color = isPicked ? Color.white : TEXT_COLOR;
-            ((Image)_detailPickButton.targetGraphic).color = isPicked ? ACCENT_COLOR : PAPER_COLOR;
-            _detailPickButton.interactable = HasLevel(_detailSong, _detailLevel);
-        }
         void SetDetailLevel(ChartLevel level)
         {
             if (level == _detailLevel || _isDetailClosing)
@@ -356,15 +329,12 @@ namespace MajdataPlay.Scenes.List
             PlaceTopLeft(heartRect, DETAIL_MARGIN + leftWidth - 74f, DETAIL_TOP + 14f, 60f, 60f);
 
             var leftY = DETAIL_TOP + leftWidth + 18f;
-            // 分享成绩、导出成绩、加入自选三个并排
-            var buttonWidth = (leftWidth - 20f) / 3f;
+            // 分享成绩、导出成绩两个并排
+            var buttonWidth = (leftWidth - 10f) / 2f;
             var share = CreateButton(_detailContent, "MAJTEXT_LIST_SHARE".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, () => ShowShareModal(false));
             PlaceTopLeft((RectTransform)share.transform, DETAIL_MARGIN, leftY, buttonWidth, 56f);
             var export = CreateButton(_detailContent, "MAJTEXT_LIST_EXPORT".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, () => ShowShareModal(true));
             PlaceTopLeft((RectTransform)export.transform, DETAIL_MARGIN + buttonWidth + 10f, leftY, buttonWidth, 56f);
-            _detailPickButton = CreateButton(_detailContent, string.Empty, PAPER_COLOR, TEXT_COLOR, 19f, ToggleDetailPick);
-            PlaceTopLeft((RectTransform)_detailPickButton.transform, DETAIL_MARGIN + (buttonWidth + 10f) * 2f, leftY, buttonWidth, 56f);
-            UpdateDetailPickButton();
             UpdateDetailLevelText();
             leftY += 56f + 18f;
 

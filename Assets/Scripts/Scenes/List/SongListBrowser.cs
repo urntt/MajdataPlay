@@ -85,7 +85,7 @@ namespace MajdataPlay.Scenes.List
         /// <summary>
         /// The width of the selection bar, limited by the space right of the pager.
         /// </summary>
-        const float SELECTION_BAR_MAX_WIDTH = 470f;
+        const float SELECTION_BAR_MAX_WIDTH = 380f;
         const float SCROLLBAR_WIDTH = 16f;
         const float TOAST_DURATION_SEC = 2.4f;
 
@@ -347,6 +347,7 @@ namespace MajdataPlay.Scenes.List
             _searchMotion.TryCancel();
             ResetPreviewVolume();
             SaveSelectionIfNeeded();
+            SaveShareSettingsIfNeeded();
             DestroyCreatedTextures();
             DestroySprite(_heartFilledSprite);
             DestroySprite(_heartOutlineSprite);
@@ -642,7 +643,7 @@ namespace MajdataPlay.Scenes.List
         {
             _shareHolder = CreateFloatingHolder(main, new Vector2(0f, 0f), SideButtonsRightX);
             var panel = CreateFloatingPanel(_shareHolder, out _);
-            CreateIconButton(panel.rectTransform, UiSprites.Share, 30f, EnterSelectMode, out _);
+            CreateIconButton(panel.rectTransform, UiSprites.Share, 30f, ShowShareDialog, out _);
         }
         /// <summary>
         /// The left edge of the share button and the selection bar: right of the pager.
@@ -650,7 +651,7 @@ namespace MajdataPlay.Scenes.List
         static float SideButtonsRightX => PagerCenterX + PAGER_WIDTH * 0.5f + FLOAT_GAP;
         /// <summary>
         /// Builds the selection bar shown in selection mode in place of the share button:
-        /// the number of selected charts, then Clear, Share and Done.
+        /// the number of selected charts, then Clear and Done.
         /// </summary>
         /// <param name="main">The main area of the list.</param>
         void BuildSelectionBar(RectTransform main)
@@ -666,14 +667,12 @@ namespace MajdataPlay.Scenes.List
             selectionInner.raycastTarget = true;
             var done = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SELECT_DONE".i18n(), ACCENT_COLOR, Color.white, 18f, ExitSelectMode);
             PlaceMiddleRight((RectTransform)done.transform, EDGE, BUTTON_WIDTH, 46f);
-            var shareSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SHARE_SELECTED".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, ShowSelectionShareModal);
-            PlaceMiddleRight((RectTransform)shareSelected.transform, EDGE + BUTTON_WIDTH + BUTTON_GAP, BUTTON_WIDTH, 46f);
             var clearSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_CLEAR".i18n(), PAGE_COLOR, TEXT_COLOR, 18f, ClearSelection);
-            PlaceMiddleRight((RectTransform)clearSelected.transform, EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f, BUTTON_WIDTH, 46f);
+            PlaceMiddleRight((RectTransform)clearSelected.transform, EDGE + BUTTON_WIDTH + BUTTON_GAP, BUTTON_WIDTH, 46f);
             _selectionCountText = CreateText(selectionInner.rectTransform, string.Empty, 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             Stretch(_selectionCountText.rectTransform);
             _selectionCountText.rectTransform.offsetMin = new Vector2(20f, 0f);
-            _selectionCountText.rectTransform.offsetMax = new Vector2(-(EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 3f), 0f);
+            _selectionCountText.rectTransform.offsetMax = new Vector2(-(EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f), 0f);
             _selectionCountText.enableAutoSizing = true;
             _selectionCountText.fontSizeMin = 13f;
             _selectionCountText.fontSizeMax = 19f;
@@ -1014,7 +1013,7 @@ namespace MajdataPlay.Scenes.List
         }
         #region Selection
         /// <summary>
-        /// Enters selection mode from the share button: tapping difficulty tags then picks or unpicks charts to share.
+        /// Enters selection mode: tapping difficulty tags then picks or unpicks charts to share.
         /// </summary>
         void EnterSelectMode()
         {
@@ -1022,10 +1021,16 @@ namespace MajdataPlay.Scenes.List
         }
         /// <summary>
         /// Leaves selection mode from the Done button, keeping and saving the picked charts.
+        /// Returns to the share dialog when the charts were picked from it.
         /// </summary>
         void ExitSelectMode()
         {
             SetSelectMode(false);
+            if (_isPickingForShare)
+            {
+                _isPickingForShare = false;
+                ShowShareDialog();
+            }
         }
         /// <summary>
         /// Switches selection mode and rebuilds the difficulty tags on this page, which show "+" or "−" while selecting.
@@ -1100,7 +1105,6 @@ namespace MajdataPlay.Scenes.List
             }
             _selectionBar.gameObject.SetActive(_isSelecting);
             _selectionCountText.text = "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount);
-            UpdateDetailPickButton();
         }
         /// <summary>
         /// 自选列表保存在设置文件里：退出选择模式、分享前或离开选歌时写入
@@ -1221,35 +1225,263 @@ namespace MajdataPlay.Scenes.List
             ShowFormatModal(isExport ? "MAJTEXT_LIST_CHOOSE_EXPORT" : "MAJTEXT_LIST_CHOOSE_SHARE", formats,
                             format => ScoreExchange.StartShareChart(song, level, format));
         }
+        #region Share dialog
         /// <summary>
-        /// 选择模式的“分享”：按设置里的“自选排序”分享已选谱面
+        /// The width of the share dialog.
         /// </summary>
-        void ShowSelectionShareModal()
+        const float SHARE_DIALOG_WIDTH = 560f;
+        /// <summary>
+        /// The height of one option row in the share dialog.
+        /// </summary>
+        const float SHARE_ROW_HEIGHT = 58f;
+        /// <summary>
+        /// The share scopes offered by the dialog, in cycling order.
+        /// </summary>
+        static readonly ScoreShareScopeOption[] SHARE_DIALOG_SCOPES = { ScoreShareScopeOption.Best, ScoreShareScopeOption.All, ScoreShareScopeOption.Custom };
+        /// <summary>
+        /// Whether the Done button of selection mode reopens the share dialog.
+        /// </summary>
+        bool _isPickingForShare = false;
+        /// <summary>
+        /// Whether the share options were changed in the dialog since they were last saved.
+        /// </summary>
+        bool _isShareSettingsDirty = false;
+        /// <summary>
+        /// Whether the share dialog is the content of the modal.
+        /// </summary>
+        bool _isShareDialogShown = false;
+
+        /// <summary>
+        /// Shows the share dialog: the share options, which are saved with the settings, then Cancel and Share.
+        /// The rows follow the share scope, so changing the scope rebuilds the dialog.
+        /// </summary>
+        void ShowShareDialog()
         {
-            if (ScoreExchange.SelectionCount == 0)
+            var options = MajEnv.Settings.Score;
+            if (Array.IndexOf(SHARE_DIALOG_SCOPES, options.ShareScope) < 0)
             {
-                return;
+                // “当前谱面”改由详情页的“分享成绩”负责
+                options.ShareScope = ScoreShareScopeOption.Best;
+                _isShareSettingsDirty = true;
             }
-            SaveSelectionIfNeeded();
-            var formats = new[] { ScoreShareFormatOption.Image, ScoreShareFormatOption.Text, ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json };
-            ShowFormatModal("MAJTEXT_LIST_CHOOSE_SHARE", formats, ScoreExchange.StartShareSelection);
+            var scope = options.ShareScope;
+            var rowCount = scope switch
+            {
+                ScoreShareScopeOption.Best => 5,
+                ScoreShareScopeOption.All => 4,
+                _ => 5,
+            };
+            var height = 24f + 50f + rowCount * SHARE_ROW_HEIGHT + 20f + 56f + 24f;
+            var panel = CreateModalPanel(SHARE_DIALOG_WIDTH, height);
+            var title = CreateText(panel, "MAJTEXT_LIST_SHARE_DIALOG".i18n(), 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
+
+            var y = 74f;
+            AddCycleRow(panel, ref y, "ShareScope", SHARE_DIALOG_SCOPES, () => options.ShareScope, value =>
+            {
+                options.ShareScope = value;
+                ShowShareDialog();
+            });
+            if (scope == ScoreShareScopeOption.Best)
+            {
+                AddCountRow(panel, ref y, options);
+            }
+            if (scope is ScoreShareScopeOption.Best or ScoreShareScopeOption.All)
+            {
+                AddCycleRow(panel, ref y, "ShareSort", (ScoreShareSortOption[])Enum.GetValues(typeof(ScoreShareSortOption)),
+                            () => options.ShareSort, value => options.ShareSort = value);
+            }
+            if (scope == ScoreShareScopeOption.Custom)
+            {
+                AddPickRow(panel, ref y);
+                AddCycleRow(panel, ref y, "ShareCustomSort", (ScoreShareCustomSortOption[])Enum.GetValues(typeof(ScoreShareCustomSortOption)),
+                            () => options.ShareCustomSort, value => options.ShareCustomSort = value);
+            }
+            AddCycleRow(panel, ref y, "ShareFormat", (ScoreShareFormatOption[])Enum.GetValues(typeof(ScoreShareFormatOption)),
+                        () => options.ShareFormat, value => options.ShareFormat = value);
+            AddCycleRow(panel, ref y, "ScoreStore", (ScoreStoreOption[])Enum.GetValues(typeof(ScoreStoreOption)),
+                        () => options.ScoreStore, value => options.ScoreStore = value);
+
+            var buttonWidth = (SHARE_DIALOG_WIDTH - 28f * 2f - 12f) * 0.5f;
+            var cancel = CreateButton(panel, "MAJTEXT_LIST_CANCEL".i18n(), PAGE_COLOR, TEXT_COLOR, 19f, HideModal);
+            PlaceTopLeft((RectTransform)cancel.transform, 28f, height - 24f - 56f, buttonWidth, 56f);
+            var confirm = CreateButton(panel, "MAJTEXT_LIST_CONFIRM_SHARE".i18n(), ACCENT_COLOR, Color.white, 19f, ConfirmShare);
+            PlaceTopLeft((RectTransform)confirm.transform, 28f + buttonWidth + 12f, height - 24f - 56f, buttonWidth, 56f);
+            confirm.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
+            // 自选但一张都没选时不能分享
+            confirm.interactable = scope != ScoreShareScopeOption.Custom || ScoreExchange.SelectionCount > 0;
+            _isShareDialogShown = true;
         }
         /// <summary>
-        /// 选择分享或导出格式的弹窗
+        /// Clears the modal and creates a centered white panel that keeps taps from closing the modal.
         /// </summary>
-        void ShowFormatModal(string titleKey, ScoreShareFormatOption[] formats, Action<ScoreShareFormatOption> onPick)
+        /// <param name="width">The width of the panel.</param>
+        /// <param name="height">The height of the panel.</param>
+        /// <returns>The panel rectangle; place the content inside it.</returns>
+        RectTransform CreateModalPanel(float width, float height)
         {
             ClearChildren(_modal);
-            var height = 100f + formats.Length * 64f + 74f;
+            _isShareDialogShown = false;
             var panel = CreatePanel(_modal, PAPER_COLOR, 18f);
             var panelRect = panel.rectTransform;
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(480f, height);
+            panelRect.sizeDelta = new Vector2(width, height);
             // 拦截面板上的点击，免得冒泡到背后的遮罩把弹窗关掉
             panel.raycastTarget = true;
             panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
+            _modal.gameObject.SetActive(true);
+            _modal.SetAsLastSibling();
+            return panelRect;
+        }
+        /// <summary>
+        /// Adds an option row with its name on the left and "&lt; value &gt;" on the right; the arrows cycle through the values.
+        /// </summary>
+        /// <typeparam name="T">The option type.</typeparam>
+        /// <param name="panel">The dialog panel.</param>
+        /// <param name="y">The top of the row; moved below the row afterwards.</param>
+        /// <param name="property">The setting property name, used for the translation keys of the name and the values.</param>
+        /// <param name="values">The values to cycle through.</param>
+        /// <param name="getValue">Reads the current value.</param>
+        /// <param name="setValue">Stores a new value.</param>
+        void AddCycleRow<T>(RectTransform panel, ref float y, string property, T[] values, Func<T> getValue, Action<T> setValue) where T : struct, Enum
+        {
+            var valueText = AddRowControls(panel, y, $"MAJSETTING_PROPERTY_{property}".i18n(), out var previous, out var next);
+            void Show()
+            {
+                valueText.text = $"MAJSETTING_PROPERTY_{property}_OPTION_{getValue()}".i18n();
+            }
+            void Step(int direction)
+            {
+                var index = Array.IndexOf(values, getValue());
+                index = ((index < 0 ? 0 : index + direction) % values.Length + values.Length) % values.Length;
+                _isShareSettingsDirty = true;
+                setValue(values[index]);
+                if (valueText != null)
+                {
+                    Show();
+                }
+            }
+            previous.onClick.AddListener(() => Step(-1));
+            next.onClick.AddListener(() => Step(1));
+            Show();
+            y += SHARE_ROW_HEIGHT;
+        }
+        /// <summary>
+        /// Adds the row of the number of best charts to share, with "−" and "+" that repeat while held.
+        /// </summary>
+        /// <param name="panel">The dialog panel.</param>
+        /// <param name="y">The top of the row; moved below the row afterwards.</param>
+        /// <param name="options">The score options holding the number.</param>
+        void AddCountRow(RectTransform panel, ref float y, ScoreOptions options)
+        {
+            const int MIN = 5;
+            const int MAX = 200;
+            const int STEP = 5;
+            var valueText = AddRowControls(panel, y, "MAJSETTING_PROPERTY_ShareBestCount".i18n(), out var minus, out var plus);
+            minus.GetComponentInChildren<TextMeshProUGUI>().text = "−";
+            plus.GetComponentInChildren<TextMeshProUGUI>().text = "+";
+            void Show()
+            {
+                valueText.text = options.ShareBestCount.ToString(CultureInfo.InvariantCulture);
+            }
+            void Step(int direction)
+            {
+                options.ShareBestCount = Mathf.Clamp(options.ShareBestCount + direction * STEP, MIN, MAX);
+                _isShareSettingsDirty = true;
+                Show();
+            }
+            // 按下即调整，按住连续调整
+            minus.gameObject.AddComponent<RepeatButton>().OnRepeat = () => Step(-1);
+            plus.gameObject.AddComponent<RepeatButton>().OnRepeat = () => Step(1);
+            Show();
+            y += SHARE_ROW_HEIGHT;
+        }
+        /// <summary>
+        /// Adds the row showing how many charts are picked, with the button that enters selection mode to pick them.
+        /// </summary>
+        /// <param name="panel">The dialog panel.</param>
+        /// <param name="y">The top of the row; moved below the row afterwards.</param>
+        void AddPickRow(RectTransform panel, ref float y)
+        {
+            var count = CreateText(panel, "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount), 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceTopLeft(count.rectTransform, 28f, y, 220f, SHARE_ROW_HEIGHT - 8f);
+            var pick = CreateButton(panel, "MAJTEXT_LIST_PICK_CHARTS".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, PickChartsForShare);
+            PlaceTopRight((RectTransform)pick.transform, 28f, y + 2f, 200f, SHARE_ROW_HEIGHT - 12f);
+            y += SHARE_ROW_HEIGHT;
+        }
+        /// <summary>
+        /// Creates the name and "&lt; value &gt;" controls of one dialog row.
+        /// </summary>
+        /// <param name="panel">The dialog panel.</param>
+        /// <param name="y">The top of the row.</param>
+        /// <param name="name">The option name shown on the left.</param>
+        /// <param name="previous">The left button.</param>
+        /// <param name="next">The right button.</param>
+        /// <returns>The text showing the value between the buttons.</returns>
+        TextMeshProUGUI AddRowControls(RectTransform panel, float y, string name, out Button previous, out Button next)
+        {
+            const float BUTTON_WIDTH = 52f;
+            const float VALUE_WIDTH = 196f;
+            var height = SHARE_ROW_HEIGHT - 12f;
+            var label = CreateText(panel, name, 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            PlaceTopLeft(label.rectTransform, 28f, y, SHARE_DIALOG_WIDTH - 28f * 2f - BUTTON_WIDTH * 2f - VALUE_WIDTH, SHARE_ROW_HEIGHT - 8f);
+            next = CreateButton(panel, ">", PAGE_COLOR, TEXT_COLOR, 22f, null);
+            PlaceTopRight((RectTransform)next.transform, 28f, y + 2f, BUTTON_WIDTH, height);
+            var value = CreateText(panel, string.Empty, 18f, ACCENT_COLOR, TextAlignmentOptions.Center, FontStyles.Bold);
+            PlaceTopRight(value.rectTransform, 28f + BUTTON_WIDTH, y + 2f, VALUE_WIDTH, height);
+            value.enableAutoSizing = true;
+            value.fontSizeMin = 13f;
+            value.fontSizeMax = 18f;
+            previous = CreateButton(panel, "<", PAGE_COLOR, TEXT_COLOR, 22f, null);
+            PlaceTopRight((RectTransform)previous.transform, 28f + BUTTON_WIDTH + VALUE_WIDTH, y + 2f, BUTTON_WIDTH, height);
+            return value;
+        }
+        /// <summary>
+        /// Closes the share dialog and enters selection mode; Done then brings the dialog back.
+        /// </summary>
+        void PickChartsForShare()
+        {
+            _isPickingForShare = true;
+            HideModal();
+            EnterSelectMode();
+        }
+        /// <summary>
+        /// Saves the share options and shares the scores with them.
+        /// </summary>
+        void ConfirmShare()
+        {
+            var options = MajEnv.Settings.Score;
+            if (options.ShareScope == ScoreShareScopeOption.Custom && ScoreExchange.SelectionCount == 0)
+            {
+                return;
+            }
+            HideModal();
+            SaveSelectionIfNeeded();
+            _isWaitingShare = true;
+            ScoreExchange.StartShare(options);
+        }
+        /// <summary>
+        /// Saves the settings when the share options were changed in the dialog.
+        /// </summary>
+        void SaveShareSettingsIfNeeded()
+        {
+            if (!_isShareSettingsDirty)
+            {
+                return;
+            }
+            _isShareSettingsDirty = false;
+            GameManager.RequestSave(this);
+        }
+        #endregion
+        /// <summary>
+        /// 选择分享或导出格式的弹窗
+        /// </summary>
+        void ShowFormatModal(string titleKey, ScoreShareFormatOption[] formats, Action<ScoreShareFormatOption> onPick)
+        {
+            var height = 100f + formats.Length * 64f + 74f;
+            var panelRect = CreateModalPanel(480f, height);
             var title = CreateText(panelRect, titleKey.i18n(), 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
             for (var i = 0; i < formats.Length; i++)
@@ -1265,12 +1497,18 @@ namespace MajdataPlay.Scenes.List
             }
             var cancel = CreateButton(panelRect, "MAJTEXT_LIST_CANCEL".i18n(), PAPER_COLOR, MUTED_COLOR, 18f, HideModal);
             PlaceRow((RectTransform)cancel.transform, 28f, height - 74f, 28f, 50f);
-            _modal.gameObject.SetActive(true);
-            _modal.SetAsLastSibling();
         }
+        /// <summary>
+        /// Closes the modal; the share options changed in the share dialog are kept and saved.
+        /// </summary>
         void HideModal()
         {
             _modal.gameObject.SetActive(false);
+            if (_isShareDialogShown)
+            {
+                _isShareDialogShown = false;
+                SaveShareSettingsIfNeeded();
+            }
         }
         void BuildToast()
         {

@@ -342,7 +342,8 @@ namespace MajdataPlay.Scenes.Result
             var difficulty = ScoreExchange.GetDifficultyName(level);
             var levelColor = LightUi.GetDifficultyColor(level);
             var tag = LightUi.CreateImage(_content, LightUi.WithAlpha(levelColor, 0.12f), 12f);
-            LightUi.PlaceTopLeft(tag.rectTransform, x, cursor, 220f, 44f);
+            // 难度标签与曲绘同宽
+            LightUi.PlaceTopLeft(tag.rectTransform, x, cursor, width, 44f);
             var tagLabel = _ui.CreateText(tag.transform, string.IsNullOrEmpty(levelText) ? difficulty : $"{difficulty} {levelText}", 20f, levelColor, TextAlignmentOptions.Center, FontStyles.Bold);
             LightUi.Stretch(tagLabel.rectTransform, 4f);
             cursor += 56f;
@@ -358,12 +359,9 @@ namespace MajdataPlay.Scenes.Result
             LightUi.PlaceTopLeft(credits.rectTransform, x, cursor, width, 30f);
             cursor += 44f;
 
-            // 分享本局成绩
+            // 同一行：分享本局成绩；网络谱面可评价时右边是“评价”（打开原版的评价面板：点赞、点踩、评论）
             var shareButton = _ui.CreateButton(_content, "MAJTEXT_LIST_SHARE".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, ShowShareModal);
             LightUi.PlaceTopLeft((RectTransform)shareButton.transform, x, cursor, 150f, 50f);
-            cursor += 62f;
-
-            // 网络谱面：评价（打开原版的评价面板：点赞、点踩、评论）与上传
             var sender = _manager.OnlineSender;
             _feedbackButton = null;
             _uploadButton = null;
@@ -371,9 +369,11 @@ namespace MajdataPlay.Scenes.Result
             if (_manager.IsFeedbackAvailable)
             {
                 _feedbackButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_FEEDBACK".i18n(), LightUi.PAPER, LightUi.FAVORITE, 19f, _manager.RequestFeedback);
-                LightUi.PlaceTopLeft((RectTransform)_feedbackButton.transform, x, cursor, 150f, 50f);
-                cursor += 62f;
+                LightUi.PlaceTopLeft((RectTransform)_feedbackButton.transform, x + 162f, cursor, 150f, 50f);
             }
+            cursor += 62f;
+
+            // 网络谱面：上传成绩
             if (sender != null && sender.CanInteract)
             {
                 if (!MajEnv.Settings.IsAnyModActive())

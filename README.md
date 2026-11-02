@@ -65,19 +65,25 @@ Every falling-mode setting is in its own **Falling** category and is saved with 
 
 Settings → Display Settings → Screen Orientation, choose "Landscape". Every page is shown in landscape: the main screen is centered, the sub screen is shrunk into the top left corner, and the rest is covered.
 
-### Scores (Settings → Scores)
+### Scores
+
+Scores are shared from the share button on the Phigros style song list (see below). Settings → Scores only keeps the backups:
 
 | Setting | Description |
 |---|---|
-| Score Set | Follow Play Style (default), Standard or Falling. |
-| Share Range | Current Chart (the chart selected on the song list before opening settings), Best, All, or Selected (the charts you picked on the Phigros style song list). Each difficulty of a song is its own entry. |
-| Share Count | How many to share for Best (5–200, default 50). |
+| Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). Export Backup and Import Backup show "Done" or "Failed" for a few seconds, then return to "Press +". |
+| Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
+
+The share dialog has these options, saved with your settings (also when you cancel):
+
+| Option | Description |
+|---|---|
+| Share Range | Best, All, or Selected (the charts you picked). Each difficulty of a song is its own entry. A single chart is shared from its detail page. |
+| Share Count | How many to share for Best (5–200, default 50); hold "−" / "+" to change it quickly. |
 | Share Sort Order | How Best and All are sorted: difficulty level (e.g. 14+ > 14 > 13+; same level: Re:MASTER > MASTER > …), achievement and DX score, compared in any of the 6 possible orders, all from high to low (default: level → achievement → DX). Best is sorted first, then the top ones are taken. |
 | Selected Charts Order | Order of the selected charts: the order you picked them in (default), or the Share Sort Order. |
 | Share Format | Image, Text, Spreadsheet (CSV) or Data (JSON). The image shows your avatar and nickname at the top left (from the logged-in account, otherwise "Guest") and "Best X" or "All N" with the date at the top right, then score cards with cover art, achievement, grade, FC/AP, DX score and play count ("3 PC"), up to 50 per image. Text, CSV and JSON carry the same header (nickname, Best X / All N, date) and DX score and play count for every entry; files are named like `Nickname-Best50-2026-11-01.csv`. |
-| Share | Press + or − on this row to open the system share sheet (iOS/Android). Share, Export Backup and Import Backup show "Done" or "Failed" for a few seconds, then return to "Press +". |
-| Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). |
-| Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
+| Score Set | Follow Play Style (default), Standard or Falling. |
 
 ### Other
 
@@ -85,7 +91,7 @@ Settings → Display Settings → Screen Orientation, choose "Landscape". Every 
   - Categories take the left quarter of the screen; on the right, one song card per row with the cover, title (scrolls when too long), artist and charter, length and BPM (plus plays, likes and comments for online charts), difficulty tags with full names and each difficulty's achievement underneath, a heart to favorite, and the best score with a colored grade, FC/AP, DX score and "X PC · last played".
   - The top bar reads "Cover  −  difficulty  +  Settings" on the left, with your nickname and avatar on the right ("Guest" when not logged in). "−" / "+" switch the global difficulty without losing your scroll position; a draggable scrollbar on the right. Difficulty and pages wrap around at either end.
   - At the bottom, a floating pager sits between a magnifier and a share button. Tap the magnifier to expand a search bar (the keyboard opens); search with the keyboard's return key or by tapping the magnifier again, which also folds the bar back; "×" clears the search. While a search filters the list, the folded magnifier turns blue.
-  - The share button enters selection mode: tap difficulty tags to pick or unpick those charts. In selection mode every tag shows "+" (not picked) or "−" (picked); picked tags are filled with the difficulty color. Picks are kept across pages and categories and saved with your settings. In place of the share button a floating bar shows "N selected · Clear · Share · Done"; sharing uses the Selected Charts Order, and "Done" leaves selection mode and keeps your picks. The detail page also has an "Select / Unselect" button for the shown difficulty.
+  - The share button opens the share dialog (options above), with "Cancel" and "Share". With Share Range set to Selected, the dialog shows how many charts are picked and a "Pick Charts" button: it enters selection mode, where tapping difficulty tags picks or unpicks those charts (every tag shows "+" when not picked and "−" with the difficulty color when picked). Picks are kept across pages and categories and saved with your settings. A floating bar shows "N selected · Clear · Done"; "Done" keeps your picks, leaves selection mode and brings the dialog back. Outside selection mode the tags look as usual.
   - The detail page shows the same "Cover  −  difficulty  +  Settings" controls next to "Back" and your nickname and avatar at the top right; there "−" / "+" only cycle through the difficulties this song has, without changing the global difficulty. Opening settings from the detail page brings you back to it. Songs per page is a setting (Game Settings → Songs per List Page, default 20).
   - Tap a card for chart details: big cover with a heart, share/export buttons and an info card on the left; title, difficulty bar, score card, chart radar and note density on the right; "Back" at the top left and a floating "Play" button at the bottom right. Opening and closing details slides and fades, and the preview and background music fade in and out.
   - Pressing Play shows a new loading screen (cover, difficulty, title, artist and charter, best score and loading progress) that fades out as the game opens. After playing a chart started from its detail page, you come back to that detail page, with the list where you left it.
@@ -93,7 +99,7 @@ Settings → Display Settings → Screen Orientation, choose "Landscape". Every 
   - The category sidebar starts with a title bar (app icon, "MajdataPlay", "urntt edition"); tap the icon to open this repository on GitHub. All cover art has rounded, outlined corners, including the share image.
 - **New settings and result screens** (only when Interface Style is "Phigros style"):
   - **Settings**: categories on the left (chart settings first, with the current song's title), one card per option on the right with its name, the full description and the value between "−" and "+" (hold to repeat). "Calibrate" and "Done" at the top right. Cabinet buttons still work: A2/A7 switch categories, A3/A6 select options, the touch sensors change values, A4/A5 leave and A1 opens calibration. Tap the "Render Quality" card 10 times (or press A8 10 times on it) to unlock custom rendering.
-  - **Result**: your nickname and avatar at the top right; rounded cover with a favorite heart, difficulty, title, artist and charter; for online charts a "Feedback" button (opens the original feedback panel to like, dislike or comment) and an upload button; the achievement rolls up next to its grade and FC/AP, compared with your previous best; DX score with stars; a judgement table per note type (TAP, HOLD, SLIDE, TOUCH, BREAK and total); FAST/LATE, average offset and the timing distribution. "Continue" becomes available once the score is saved; on the first play of a chart you can rate, it opens the feedback panel first, like the original screen. "Share score" shares this play (image, text, CSV or JSON), and "Classic view" switches back to the original result screen for this result. Dan and practice keep the original screen.
+  - **Result**: your nickname and avatar at the top right; rounded cover with a favorite heart, difficulty, title, artist and charter; "Share score" and, for online charts, "Feedback" (opens the original feedback panel to like, dislike or comment) side by side, and an upload button; the achievement rolls up next to its grade and FC/AP, compared with your previous best; DX score with stars; a judgement table per note type (TAP, HOLD, SLIDE, TOUCH, BREAK and total); FAST/LATE, average offset and the timing distribution. "Continue" becomes available once the score is saved; on the first play of a chart you can rate, it opens the feedback panel first, like the original screen. "Share score" shares this play (image, text, CSV or JSON). The difficulty tag is as wide as the cover. "Classic view" switches back to the original result screen for this result. Dan and practice keep the original screen.
   - "Cover" switches back to the carousel for this visit.
 - **Instant Song Preview**: Settings → Game Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
 - **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.

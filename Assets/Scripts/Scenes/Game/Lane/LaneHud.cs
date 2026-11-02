@@ -44,7 +44,16 @@ namespace MajdataPlay.Scenes.Game.Lane
         const float DOUBLE_TAP_INTERVAL_SEC = 0.5f;
         const float RESUME_COUNTDOWN_SEC = 3f;
 
-        static readonly Color PAUSE_BUTTON_COLOR = new Color(1f, 1f, 1f, 0.9f);
+        static readonly Color PAUSE_BUTTON_COLOR = Color.white;
+        /// <summary>
+        /// The soft shadow behind the pause bars, so they stay visible on bright covers.
+        /// </summary>
+        static readonly Color PAUSE_BUTTON_SHADOW_COLOR = new Color(0f, 0f, 0f, 0.35f);
+        /// <summary>
+        /// The sorting layer of the HUD canvas: above everything in the game scene, below the global scene transition.
+        /// </summary>
+        const string HUD_SORTING_LAYER = "BlackCircle";
+        const int HUD_SORTING_ORDER = 100;
         static readonly Color PAUSE_BUTTON_ARMED_COLOR = new Color(0.45f, 0.85f, 1f, 1f);
         static readonly Color JUDGE_LINE_WHITE = new Color(1f, 1f, 1f, 0.9f);
         static readonly Color JUDGE_LINE_GOLD = new Color(1f, 0.82f, 0.3f, 0.9f);
@@ -177,6 +186,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             _root.sizeDelta = Vector2.zero;
             _root.anchoredPosition = Vector2.zero;
             _root.SetAsLastSibling();
+            // HUD 用自己的画布排在游戏场景所有画面之上（全局转场仍盖在它上面），不会被场景里的其他元素盖暗
+            var hudCanvas = gameObject.AddComponent<Canvas>();
+            hudCanvas.overrideSorting = true;
+            hudCanvas.sortingLayerName = HUD_SORTING_LAYER;
+            hudCanvas.sortingOrder = HUD_SORTING_ORDER;
+            gameObject.AddComponent<GraphicRaycaster>();
 
             // 背景铺满屏幕：在 LateUpdate 中按显示中的封面或视频尺寸缩放
             _background = bgManager.CoverRenderer.rectTransform.parent as RectTransform;
@@ -204,6 +219,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             _pauseButtonBars = new Image[2];
             for (var i = 0; i < _pauseButtonBars.Length; i++)
             {
+                var shadow = CreateImage($"BarShadow{i}", _pauseButton, layer, PAUSE_BUTTON_SHADOW_COLOR);
+                SetRect(shadow.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                        new Vector2((i == 0 ? -12f : 12f) + 2f, -2f), new Vector2(18f, 50f));
                 var bar = CreateImage($"Bar{i}", _pauseButton, layer, PAUSE_BUTTON_COLOR);
                 SetRect(bar.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                         new Vector2(i == 0 ? -12f : 12f, 0), new Vector2(14f, 46f));
@@ -234,6 +252,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                     new Vector2(800f, BUTTON_SIZE));
             // 按数字（大写字母）高度居中，数字与暂停键的两道竖线水平对齐
             SetHudTextStyle(score, SCORE_FONT_SIZE, TextAlignmentOptions.CaplineRight);
+            ApplyHudMaterial(score);
             if (!fallingOptions.FallingInfoFollowDisplay)
             {
                 // 分数下方小字：从 101% 往下掉的达成率，紧贴分数数字下方
@@ -242,6 +261,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                         new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f + SCORE_FONT_SIZE * 0.45f)),
                         new Vector2(600f, ACHIEVEMENT_FONT_SIZE * 1.5f));
                 SetHudTextStyle(achievement, ACHIEVEMENT_FONT_SIZE, TextAlignmentOptions.TopRight);
+                ApplyHudMaterial(achievement);
                 // 颜色由 ObjectCounter 按评级设置，透明度单独用 CanvasGroup 控制，互不覆盖
                 var achievementGroup = achievement.gameObject.AddComponent<CanvasGroup>();
                 achievementGroup.alpha = ACHIEVEMENT_ALPHA;
@@ -645,6 +665,18 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <summary>
         /// 固定字号、不自动缩放、不换行，避免沿用副屏文字原有的字号与边距
         /// </summary>
+        /// <summary>
+        /// Gives a HUD text the shared material with a soft dark shadow, independent of the scene font materials.
+        /// </summary>
+        /// <param name="text">The HUD text.</param>
+        static void ApplyHudMaterial(TMP_Text text)
+        {
+            var material = CleanTmpMaterial.GetHud(text.font);
+            if (material is not null)
+            {
+                text.fontSharedMaterial = material;
+            }
+        }
         static void SetHudTextStyle(TextMeshProUGUI text, float fontSize, TextAlignmentOptions alignment)
         {
             text.enableAutoSizing = false;
@@ -667,6 +699,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             textComponent.alignment = alignment;
             textComponent.raycastTarget = false;
             textComponent.text = text;
+            ApplyHudMaterial(textComponent);
             return textComponent;
         }
     }
