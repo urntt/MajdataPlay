@@ -55,8 +55,11 @@ namespace MajdataPlay
         /// <summary>
         /// 备份文件夹：iOS 可在“文件”App 中看到，Android 在 /sdcard/Documents/MajdataPlay 下
         /// </summary>
-        public static string BackupDirectory => Path.Combine(MajEnv.RootPath, "ScoreBackups");
-        static string ShareDirectory => Path.Combine(MajEnv.RootPath, "ScoreShares");
+        public static string BackupDirectory => MajEnv.RootDirectory.CreateDirectory("ScoreBackups").Location;
+        /// <summary>
+        /// 分享用的临时文件：放在本地缓存目录（始终是本地路径，系统分享需要文件路径）
+        /// </summary>
+        static string ShareDirectory => Path.Combine(MajEnv.TempDirectory.Location, "ScoreShares");
 
         readonly static JsonSerializerSettings _jsonSettings = new()
         {
@@ -466,7 +469,7 @@ namespace MajdataPlay
             if (options.ShareScope == ScoreShareScopeOption.CurrentChart)
             {
                 var listConfig = MajEnv.RuntimeConfig.List;
-                var hash = listConfig.SelectedSongHash;
+                var hash = SongStorage.FindSelectedSong()?.Hash;
                 if (!string.IsNullOrEmpty(hash))
                 {
                     var level = listConfig.SelectedDiff;

@@ -58,8 +58,11 @@ namespace MajdataPlay.Scenes.Setting
         bool _isLeaving = false;
         bool _needsRebuild = false;
         OffsetUnitOption _offsetUnit;
-        bool _lastCompatibilityMode;
-        RenderingQualityOption _lastRenderQuality;
+        /// <summary>
+        /// 当前分类各选项与各分类上次的可见状态：设置变化后（如渲染档位、录制方式）可见项不同时重建
+        /// </summary>
+        readonly List<bool> _optionVisibleState = new();
+        readonly List<bool> _menuVisibleState = new();
         int _renderingTapCount = 0;
         float _lastRenderingTapTime = -10f;
         bool _advancedInputHeld = false;
@@ -160,11 +163,14 @@ namespace MajdataPlay.Scenes.Setting
                 }
                 RenderRows(true);
             }
-            // 渲染分类：兼容模式或质量档位变化后，可见的选项不同
-            if (CurrentMenu.Instance is RenderingOptions rendering &&
-                (rendering.CompatibilityMode != _lastCompatibilityMode || rendering.RenderQuality != _lastRenderQuality))
+            // 选项的显示条件（ShowInSettingUIWhen）变化后，可见的选项或分类不同
+            if (HasVisibilityChanged(_optionVisibleState, GetOptionVisibility(CurrentMenu)))
             {
                 RenderRows(true);
+            }
+            if (HasVisibilityChanged(_menuVisibleState, GetMenuVisibility()))
+            {
+                RenderSidebar();
             }
             RefreshValues();
             if (_manager.IsReady)
@@ -239,8 +245,14 @@ namespace MajdataPlay.Scenes.Setting
         {
             LightUi.ClearChildren(_sidebarContent);
             var menus = _manager.Menus;
+            _menuVisibleState.Clear();
+            _menuVisibleState.AddRange(GetMenuVisibility());
             for (var i = 0; i < menus.Count; i++)
             {
+                if (!_menuVisibleState[i])
+                {
+                    continue;
+                }
                 var index = i;
                 var isSelected = i == _menuIndex;
                 var name = GetMenuTitle(menus[i]);
@@ -268,26 +280,74 @@ namespace MajdataPlay.Scenes.Setting
         }
         static string GetMenuTitle(Menu menu)
         {
-            return $"MAJSETTING_CATEGORY_{menu.Name}".i18n();
+            return menu.GetLocalizedTitle();
+        }
+        /// <summary>
+        /// 分类是否显示（与原设置页相同：当前分类总是显示，其余按 ShowInSettingUIWhen 条件）
+        /// </summary>
+        bool IsMenuVisible(int index)
+        {
+            var menus = _manager.Menus;
+            return index == _menuIndex || menus[index].Visibility.IsVisible(MajEnv.Settings);
+        }
+        IEnumerable<bool> GetMenuVisibility()
+        {
+            for (var i = 0; i < _manager.Menus.Count; i++)
+            {
+                yield return IsMenuVisible(i);
+            }
+        }
+        IEnumerable<bool> GetOptionVisibility(Menu menu)
+        {
+            foreach (var data in menu.Options)
+            {
+                yield return IsVisible(menu, data.PropertyInfo);
+            }
+        }
+        static bool HasVisibilityChanged(List<bool> last, IEnumerable<bool> current)
+        {
+            var index = 0;
+            var isChanged = false;
+            foreach (var isVisible in current)
+            {
+                if (index >= last.Count || last[index] != isVisible)
+                {
+                    isChanged = true;
+                    break;
+                }
+                index++;
+            }
+            if (!isChanged && index != last.Count)
+            {
+                isChanged = true;
+            }
+            if (isChanged)
+            {
+                last.Clear();
+                last.AddRange(current);
+            }
+            return isChanged;
+        }
+        /// <summary>
+        /// 从当前分类按方向找下一个显示的分类（到头循环）
+        /// </summary>
+        int FindVisibleMenu(int from, int direction)
+        {
+            var count = _manager.Menus.Count;
+            var index = from;
+            for (var step = 0; step < count; step++)
+            {
+                index = ((index + direction) % count + count) % count;
+                if (_manager.Menus[index].Visibility.IsVisible(MajEnv.Settings))
+                {
+                    return index;
+                }
+            }
+            return from;
         }
         static string? FindSelectedSongTitle()
         {
-            var hash = MajEnv.RuntimeConfig?.List.SelectedSongHash;
-            if (string.IsNullOrEmpty(hash))
-            {
-                return null;
-            }
-            foreach (var collection in SongStorage.Collections)
-            {
-                foreach (var song in collection)
-                {
-                    if (song.Hash == hash)
-                    {
-                        return song.Title;
-                    }
-                }
-            }
-            return null;
+            return SongStorage.FindSelectedSong()?.Title;
         }
         static string EscapeRichText(string text)
         {
@@ -333,11 +393,8 @@ namespace MajdataPlay.Scenes.Setting
                 title = $"{title} · {songTitle}";
             }
             _categoryTitle.text = title;
-            if (menu.Instance is RenderingOptions rendering)
-            {
-                _lastCompatibilityMode = rendering.CompatibilityMode;
-                _lastRenderQuality = rendering.RenderQuality;
-            }
+            _optionVisibleState.Clear();
+            _optionVisibleState.AddRange(GetOptionVisibility(menu));
             foreach (var data in menu.Options)
             {
                 if (!IsVisible(menu, data.PropertyInfo))
@@ -360,25 +417,11 @@ namespace MajdataPlay.Scenes.Setting
             SetListScroll(isKeepingScroll ? scrollY : 0f);
         }
         /// <summary>
-        /// 渲染分类的可见规则与原设置页相同：兼容模式只显示常用项；普通档位只显示常用项与渲染质量；自定义显示全部
+        /// 选项的可见规则与原设置页相同：按选项的 ShowInSettingUIWhen 条件（渲染分类的兼容模式、质量档位等也由它声明）
         /// </summary>
         static bool IsVisible(Menu menu, PropertyInfo property)
         {
-            if (menu.Instance is not RenderingOptions rendering)
-            {
-                return true;
-            }
-            var name = property.Name;
-            var isCommon = name is nameof(RenderingOptions.FPSLimit) or nameof(RenderingOptions.VSync) or nameof(RenderingOptions.CompatibilityMode);
-            if (rendering.CompatibilityMode)
-            {
-                return isCommon;
-            }
-            if (rendering.RenderQuality != RenderingQualityOption.Custom)
-            {
-                return isCommon || name == nameof(RenderingOptions.RenderQuality);
-            }
-            return true;
+            return SettingReflectionCache.GetVisibility(property).IsVisible(menu.Instance);
         }
         RowView CreateRow(OptionData data, int rowIndex)
         {
@@ -662,7 +705,7 @@ namespace MajdataPlay.Scenes.Setting
             var previousCategory = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A7, SwitchStatus.On);
             if (_categoryInput.Update(nextCategory, previousCategory, deltaTime, 0.7f, 0.2f, out var categoryDirection))
             {
-                SelectMenu(_menuIndex + categoryDirection, null);
+                SelectMenu(FindVisibleMenu(_menuIndex, categoryDirection), null);
                 return;
             }
             var nextOption = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A3, SwitchStatus.On);

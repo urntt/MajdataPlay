@@ -178,7 +178,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     ringObj.name = $"RingTapEffect_{i + 1}";
                     ringObj.transform.rotation = rotation;
                     if (_gpManager != null && _gpManager.IsClassicMode)
-                        ringObj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 0);
+                        ringObj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 1f);
                     var ringDisplayer = ringObj.GetComponent<TapEffectDisplayer>();
                     ringDisplayer.DistanceRatio = MajEnv.Settings.Display.OuterJudgeDistance;
                     ringDisplayer.ResetAll();
@@ -297,7 +297,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         {
             root.rotation = Quaternion.identity;
             displayer.LocalPosition = new Vector3(0, -LANE_EFFECT_TEXT_ANCHOR_DISTANCE, 0);
-            root.position = target + new Vector3(0, LANE_EFFECT_TEXT_ANCHOR_DISTANCE, 0);
+            NoteHelper.Sorting.SetPosition(root, target + new Vector3(0, LANE_EFFECT_TEXT_ANCHOR_DISTANCE, 0));
         }
         [Il2CppSetOption(Option.NullChecks, false)]
         [Il2CppSetOption(Option.ArrayBoundsChecks, false)]

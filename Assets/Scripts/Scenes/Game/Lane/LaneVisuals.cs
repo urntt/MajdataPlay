@@ -1,5 +1,7 @@
 using System;
 using UnityEngine;
+using NoteLayer = MajdataPlay.Scenes.Game.Utils.NoteHelper.Sorting.NoteLayer;
+using Sorting = MajdataPlay.Scenes.Game.Utils.NoteHelper.Sorting;
 #nullable enable
 namespace MajdataPlay.Scenes.Game.Lane
 {
@@ -8,10 +10,15 @@ namespace MajdataPlay.Scenes.Game.Lane
     /// </summary>
     internal static class LaneVisuals
     {
-        const string BACKGROUND_SORTING_LAYER = "Outline";
-        const string SLIDE_PATH_SORTING_LAYER = "Slides";
-        // 在 Tap/Hold/星星所在的 Tap 层之上、Touch 之下
-        const string FLICK_MARKER_SORTING_LAYER = "TouchHold Border";
+        /// <summary>
+        /// 音符按深度（z）排序，越小越靠前。音符根节点 Notes 在世界 z = 100，圆形判定圈 Outline 在 108
+        /// </summary>
+        const float DEFAULT_NOTES_DEPTH = 100f;
+        /// <summary>
+        /// 轨道底色等放在判定圈之后：与原先画在 Outline 层、排序在判定圈之下一致
+        /// </summary>
+        const float BACKGROUND_DEPTH_BEHIND_OUTLINE = 1f;
+        const float DEFAULT_OUTLINE_DEPTH = 108f;
 
         /// <summary>
         /// 横贯整个屏幕的线条与底色使用的长度，任何宽高比都能盖满
@@ -128,20 +135,29 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// Break 转 Flick、星星尾转 Flick 的染色。星星用黄色的 Each 贴图来染：默认的星星是青色，染红后会发暗
         /// </summary>
         public static readonly Color FlickColor = new Color(1f, 0.22f, 0.22f);
-        public static int BackgroundSortingLayerId => SortingLayer.NameToID(BACKGROUND_SORTING_LAYER);
-        public static int SlidePathSortingLayerId => SortingLayer.NameToID(SLIDE_PATH_SORTING_LAYER);
         /// <summary>
-        /// 星星尾转 Flick 的标记画在所有 Tap、Hold、星星头之上，与它们叠在一起时也能看清
+        /// 当前游戏音符根节点的世界深度，由 <see cref="CreateBackground"/> 记录
         /// </summary>
-        public static int FlickMarkerSortingLayerId => SortingLayer.NameToID(FLICK_MARKER_SORTING_LAYER);
+        public static float NotesDepth { get; private set; } = DEFAULT_NOTES_DEPTH;
+        /// <summary>
+        /// Slide 箭头与音符的 Slide 同组（在所有 Tap、Hold、星星头之后）
+        /// </summary>
+        public static float GetSlidePathDepth(int sortOrder) => NotesDepth + Sorting.GetZIndex(NoteLayer.Slides, sortOrder);
+        /// <summary>
+        /// 星星尾转 Flick 的标记画在所有 Tap、Hold、星星头之上（TouchHold 边框组），与它们叠在一起时也能看清
+        /// </summary>
+        public static float GetFlickMarkerDepth(int sortOrder) => NotesDepth + Sorting.GetZIndex(NoteLayer.TouchHoldBorder, sortOrder);
 
-        public static SpriteRenderer CreateQuad(string name, Transform parent, Material material, int sortingLayerId, int sortingOrder, Color color)
+        public static SpriteRenderer CreateQuad(string name, Transform parent, Material material, float depth, Color color)
         {
-            var renderer = CreateSprite(name, parent, WhiteSprite, material, sortingLayerId, sortingOrder);
+            var renderer = CreateSprite(name, parent, WhiteSprite, material, depth);
             renderer.color = color;
             return renderer;
         }
-        public static SpriteRenderer CreateSprite(string name, Transform parent, Sprite sprite, Material material, int sortingLayerId, int sortingOrder)
+        /// <summary>
+        /// 创建一个精灵：与音符一样放在 Default 排序层、顺序为 0，前后由世界深度 <paramref name="depth"/> 决定（越小越靠前）
+        /// </summary>
+        public static SpriteRenderer CreateSprite(string name, Transform parent, Sprite sprite, Material material, float depth)
         {
             var obj = new GameObject(name);
             obj.layer = MajEnv.DEFAULT_LAYER;
@@ -149,9 +165,27 @@ namespace MajdataPlay.Scenes.Game.Lane
             var renderer = obj.AddComponent<SpriteRenderer>();
             renderer.sprite = sprite;
             renderer.sharedMaterial = material;
-            renderer.sortingLayerID = sortingLayerId;
-            renderer.sortingOrder = sortingOrder;
+            renderer.sortingLayerID = 0;
+            renderer.sortingOrder = 0;
+            renderer.spriteSortPoint = SpriteSortPoint.Pivot;
+            SetDepth(obj.transform, depth);
             return renderer;
+        }
+        /// <summary>
+        /// 只改世界深度，不动 X、Y
+        /// </summary>
+        public static void SetDepth(Transform transform, float depth)
+        {
+            var position = transform.position;
+            position.z = depth;
+            transform.position = position;
+        }
+        /// <summary>
+        /// 设置 X、Y，保留世界深度
+        /// </summary>
+        static void SetPositionKeepDepth(Transform transform, Vector2 position)
+        {
+            transform.position = new Vector3(position.x, position.y, transform.position.z);
         }
         /// <summary>
         /// 把 <paramref name="renderer"/> 摆成从 <paramref name="from"/> 到 <paramref name="to"/>、宽 <paramref name="width"/> 的线段
@@ -161,7 +195,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             var transform = renderer.transform;
             var delta = to - from;
             var length = delta.magnitude;
-            transform.position = (from + to) / 2f;
+            SetPositionKeepDepth(transform, (from + to) / 2f);
             transform.rotation = Quaternion.Euler(0, 0, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg - 90f);
             transform.localScale = new Vector3(width, length, 1f);
         }
@@ -176,28 +210,32 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <summary>
         /// 创建轨道底色、分隔线与横贯屏幕的判定线；垂直判定关闭时标出判定线附近的可按区域
         /// </summary>
-        public static GameObject CreateBackground(Material material)
+        /// <param name="notesDepth">音符根节点的世界深度</param>
+        /// <param name="outlineDepth">圆形判定圈的世界深度，没有时为 null；轨道底色等都画在它后面</param>
+        public static GameObject CreateBackground(Material material, float notesDepth, float? outlineDepth)
         {
+            NotesDepth = notesDepth;
             var root = new GameObject("LaneBackground");
             var parent = root.transform;
-            var layerId = BackgroundSortingLayerId;
+            // 由远到近：底色、可按区域、光柱、分隔线、判定线
+            var depth = (outlineDepth ?? notesDepth + (DEFAULT_OUTLINE_DEPTH - DEFAULT_NOTES_DEPTH)) + BACKGROUND_DEPTH_BEHIND_OUTLINE;
             var left = LaneLayout.LEFT;
             var right = LaneLayout.RIGHT;
             var bottom = LaneLayout.BOTTOM_Y;
 
             // 底色与分隔线上下贯穿屏幕，屏幕较窄、相机拉远时也不会露出边缘
-            var shade = CreateSprite("LaneShade", parent, LaneShadeSprite, material, layerId, -110);
+            var shade = CreateSprite("LaneShade", parent, LaneShadeSprite, material, depth + 0.5f);
             shade.color = new Color(0f, 0f, 0f, 0.35f);
-            shade.transform.position = new Vector3((left + right) / 2f, 0, 0);
+            SetPositionKeepDepth(shade.transform, new Vector2((left + right) / 2f, 0));
             // 贴图高 1 像素，即 1 / FADE_TEXTURE_WIDTH 世界单位
             shade.transform.localScale = new Vector3(LaneShadeWidth, FAR * 2f * FADE_TEXTURE_WIDTH, 1f);
 
             if (!LaneMode.IsVerticalJudge)
             {
-                var band = CreateQuad("JudgeBand", parent, material, layerId, -105, new Color(1f, 1f, 1f, 0.08f));
+                var band = CreateQuad("JudgeBand", parent, material, depth + 0.4f, new Color(1f, 1f, 1f, 0.08f));
                 var bandBottom = Mathf.Max(bottom, LaneLayout.JUDGE_LINE_Y - LaneLayout.JUDGE_BAND_HALF_HEIGHT);
                 var bandTop = LaneLayout.JUDGE_LINE_Y + LaneLayout.JUDGE_BAND_HALF_HEIGHT;
-                band.transform.position = new Vector3((left + right) / 2f, (bandBottom + bandTop) / 2f, 0);
+                SetPositionKeepDepth(band.transform, new Vector2((left + right) / 2f, (bandBottom + bandTop) / 2f));
                 band.transform.localScale = new Vector3(right - left, bandTop - bandBottom, 1f);
             }
             LaneHighlights = Array.Empty<SpriteRenderer>();
@@ -207,9 +245,9 @@ namespace MajdataPlay.Scenes.Game.Lane
                 var highlights = new SpriteRenderer[LaneLayout.LANE_COUNT];
                 for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
                 {
-                    var highlight = CreateSprite($"LaneHighlight_{lane}", parent, LaneHighlightSprite, material, layerId, -102);
+                    var highlight = CreateSprite($"LaneHighlight_{lane}", parent, LaneHighlightSprite, material, depth + 0.3f);
                     highlight.color = new Color(1f, 1f, 1f, 0f);
-                    highlight.transform.position = new Vector3(LaneLayout.GetLaneX(lane), LaneLayout.JUDGE_LINE_Y, 0);
+                    SetPositionKeepDepth(highlight.transform, new Vector2(LaneLayout.GetLaneX(lane), LaneLayout.JUDGE_LINE_Y));
                     // 贴图高 FADE_TEXTURE_WIDTH 像素、每像素 1 世界单位
                     highlight.transform.localScale = new Vector3(LaneLayout.LANE_WIDTH, LaneLayout.TRAVEL_LENGTH * 0.6f / FADE_TEXTURE_WIDTH, 1f);
                     highlights[lane - 1] = highlight;
@@ -219,10 +257,10 @@ namespace MajdataPlay.Scenes.Game.Lane
             for (var i = 0; LaneMode.IsLaneDividerVisible && i <= LaneLayout.LANE_COUNT; i++)
             {
                 var x = left + i * LaneLayout.LANE_WIDTH;
-                var divider = CreateQuad($"LaneDivider_{i}", parent, material, layerId, -100, new Color(1f, 1f, 1f, 0.25f));
+                var divider = CreateQuad($"LaneDivider_{i}", parent, material, depth + 0.2f, new Color(1f, 1f, 1f, 0.25f));
                 SetSegment(divider, new Vector2(x, -FAR), new Vector2(x, FAR), 0.03f);
             }
-            var judgeLine = CreateQuad("JudgeLine", parent, material, layerId, -90, new Color(1f, 1f, 1f, 0.9f));
+            var judgeLine = CreateQuad("JudgeLine", parent, material, depth + 0.1f, new Color(1f, 1f, 1f, 0.9f));
             SetSegment(judgeLine, new Vector2(-FAR, LaneLayout.JUDGE_LINE_Y), new Vector2(FAR, LaneLayout.JUDGE_LINE_Y), 0.06f);
             JudgeLine = judgeLine;
             return root;

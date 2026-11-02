@@ -266,6 +266,7 @@ namespace MajdataPlay.Scenes.List
         }
         void Update()
         {
+            ReloadEvictedCovers();
             if (_toastRemaining > 0f)
             {
                 _toastRemaining -= Time.unscaledDeltaTime;
@@ -530,8 +531,8 @@ namespace MajdataPlay.Scenes.List
             var scrollToIndex = -1;
             if (isRestoring)
             {
-                var hash = MajEnv.RuntimeConfig.List.SelectedSongHash;
-                var index = string.IsNullOrEmpty(hash) ? -1 : _filteredSongs.FindIndex(x => x.Hash == hash);
+                var id = MajEnv.RuntimeConfig.List.SelectedSongId;
+                var index = string.IsNullOrEmpty(id) ? -1 : _filteredSongs.FindIndex(x => x.Id == id);
                 _page = index < 0 ? 0 : index / PageSize;
                 scrollToIndex = index < 0 ? -1 : index % PageSize;
             }
@@ -632,11 +633,11 @@ namespace MajdataPlay.Scenes.List
             {
                 var start = _page * PageSize;
                 var end = Math.Min(_filteredSongs.Count, start + PageSize);
-                var selectedHash = MajEnv.RuntimeConfig.List.SelectedSongHash;
+                var selectedId = MajEnv.RuntimeConfig.List.SelectedSongId;
                 for (var i = start; i < end; i++)
                 {
                     var song = _filteredSongs[i];
-                    _cards.Add(CreateCard(song, level, song.Hash == selectedHash, token));
+                    _cards.Add(CreateCard(song, level, !string.IsNullOrEmpty(selectedId) && song.Id == selectedId, token));
                 }
                 LoadCardInfoAsync(_cards.ToArray(), level, _levelCts.Token).Forget();
             }

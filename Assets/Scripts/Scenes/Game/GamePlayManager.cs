@@ -945,7 +945,7 @@ namespace MajdataPlay.Scenes.Game
             {
                 LaneVisuals.SetLayerRecursively(outline.transform, MajEnv.HIDDEN_LAYER);
             }
-            LaneVisuals.CreateBackground(DefaultMaterial);
+            LaneVisuals.CreateBackground(DefaultMaterial, notes.position.z, outline != null ? (float?)outline.transform.position.z : null);
         }
         private async UniTask PrepareToPlay()
         {

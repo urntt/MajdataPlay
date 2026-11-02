@@ -9,6 +9,7 @@ using MajdataPlay.Scenes.Game.Lane;
 using MajdataPlay.Scenes.Game.Notes.Controllers;
 using MajdataPlay.Scenes.Game.Notes.Slide;
 using MajdataPlay.Settings;
+using MajdataPlay.Scenes.Game.Utils;
 using MajdataPlay.Utils;
 using System;
 using System.Collections.Generic;
@@ -665,7 +666,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             slideOK.SetR();
             // 星星尾转 Flick 时显示在 Flick 所在的列
             var lane = _isLaneFlick && GetLaneFlickOwner()._laneJudge is { IsFlick: true } flick ? flick.FlickLane : EndPos;
-            okTransform.SetPositionAndRotation(LaneLayout.GetJudgePosition(lane) + new Vector3(0, 1f, 0), Quaternion.identity);
+            NoteHelper.Sorting.SetPosition(okTransform, LaneLayout.GetJudgePosition(lane) + new Vector3(0, 1f, 0));
+            okTransform.rotation = Quaternion.identity;
             okTransform.localScale = Vector3.one;
             LaneVisuals.SetLayerRecursively(okTransform, MajEnv.DEFAULT_LAYER);
         }

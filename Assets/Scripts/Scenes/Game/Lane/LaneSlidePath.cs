@@ -60,8 +60,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly float _heightPerSec;
         readonly Sprite _sprite;
         readonly Material _material;
-        readonly int _sortingOrder;
-        readonly int _sortingLayerId = LaneVisuals.SlidePathSortingLayerId;
+        /// <summary>
+        /// 世界深度：箭头与音符的 Slide 同组，Flick 标记在所有 Tap、Hold、星星头之上
+        /// </summary>
+        readonly float _depth;
         readonly Color _color = Color.white;
         readonly float _scale = 1f;
         /// <summary>
@@ -85,7 +87,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
-            _sortingOrder = sortingOrder;
+            _depth = LaneVisuals.GetSlidePathDepth(sortingOrder);
             _paths = new Arrow[paths.Length][];
             for (var i = 0; i < paths.Length; i++)
             {
@@ -111,8 +113,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
-            _sortingOrder = sortingOrder;
-            _sortingLayerId = LaneVisuals.FlickMarkerSortingLayerId;
+            _depth = LaneVisuals.GetFlickMarkerDepth(sortingOrder);
             _color = color;
             _scale = scale * FLICK_MARKER_SCALE;
             _bottomY = LaneLayout.BOTTOM_Y - TOP_MARGIN;
@@ -173,7 +174,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                         break;
                     }
                     var renderer = GetRenderer(used++);
-                    renderer.transform.SetPositionAndRotation(new Vector3(arrow.X, y, 0), arrow.Rotation);
+                    renderer.transform.SetPositionAndRotation(new Vector3(arrow.X, y, _depth), arrow.Rotation);
                 }
             }
             for (var k = used; k < _enabledCount; k++)
@@ -213,7 +214,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 }
                 return renderer;
             }
-            var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, _sortingLayerId, _sortingOrder);
+            var created = LaneVisuals.CreateSprite("LaneSlideArrow", GetRoot(), _sprite, _material, _depth);
             created.color = _color;
             created.transform.localScale = new Vector3(_scale, _scale, 1f);
             _renderers.Add(created);

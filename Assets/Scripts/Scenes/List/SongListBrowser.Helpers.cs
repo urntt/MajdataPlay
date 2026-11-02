@@ -3,6 +3,7 @@ using MajdataPlay.Diagnostics;
 using MajdataPlay.Misc.Base;
 using MajdataPlay.Scenes.Game;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using TMPro;
@@ -139,6 +140,10 @@ namespace MajdataPlay.Scenes.List
                     return;
                 }
                 SetCover(image, sprite);
+                if (isCompressed && sprite != null)
+                {
+                    _loadedCovers[image] = (song, token);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -146,6 +151,42 @@ namespace MajdataPlay.Scenes.List
             catch (Exception e)
             {
                 MajDebug.LogWarning($"[SongListBrowser] Failed to load cover of {song.Title}: {e.Message}");
+            }
+        }
+        /// <summary>
+        /// 已显示的小封面：封面缓存只保留有限张，被挤出缓存的封面会被销毁，需要重新加载
+        /// </summary>
+        readonly Dictionary<Image, (ISongDetail Song, CancellationToken Token)> _loadedCovers = new();
+        readonly List<Image> _evictedCovers = new();
+        float _coverCheckTimer = 0f;
+        const float COVER_CHECK_INTERVAL_SEC = 0.5f;
+        /// <summary>
+        /// 定期检查已显示的封面是否被缓存回收（精灵被销毁），被回收的重新加载
+        /// </summary>
+        void ReloadEvictedCovers()
+        {
+            _coverCheckTimer += Time.unscaledDeltaTime;
+            if (_coverCheckTimer < COVER_CHECK_INTERVAL_SEC || _loadedCovers.Count == 0)
+            {
+                return;
+            }
+            _coverCheckTimer = 0f;
+            _evictedCovers.Clear();
+            foreach (var pair in _loadedCovers)
+            {
+                if (pair.Key == null || pair.Value.Token.IsCancellationRequested || pair.Key.sprite == null)
+                {
+                    _evictedCovers.Add(pair.Key!);
+                }
+            }
+            foreach (var image in _evictedCovers)
+            {
+                var (song, token) = _loadedCovers[image];
+                _loadedCovers.Remove(image);
+                if (image != null && !token.IsCancellationRequested)
+                {
+                    LoadCoverAsync(song, image, true, token).Forget();
+                }
             }
         }
         #endregion

@@ -68,7 +68,7 @@ namespace MajdataPlay.Scenes.Game
             var textDistance = 0.66f * (2 - DistanceRatio);
             var fastLateDistance = textDistance + 0.56f;
             transform.rotation = Quaternion.identity;
-            transform.position = LaneLayout.GetSensorFloatPosition(SensorPos);
+            NoteHelper.Sorting.SetPosition(transform, LaneLayout.GetSensorFloatPosition(SensorPos));
 
             var textPos = _judgeTextDisplayer.LocalPosition;
             textPos.y = textDistance;

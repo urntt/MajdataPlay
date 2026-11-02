@@ -54,6 +54,14 @@ namespace MajdataPlay
                 {
                     covers[i] = await LoadCoverAsync(entries[start + i].Song);
                 }
+                // 封面缓存只保留有限张，加载后面的封面时前面的可能已被回收销毁：画之前补加载一次
+                for (var i = 0; i < count; i++)
+                {
+                    if (covers[i] == null && entries[start + i].Song is not null)
+                    {
+                        covers[i] = await LoadCoverAsync(entries[start + i].Song);
+                    }
+                }
                 var pageText = pageCount > 1 ? $"{page + 1}/{pageCount}" : string.Empty;
                 var png = RenderPage(entries, start, count, covers, header, pageText, circle, font);
                 var path = Path.Combine(directory, pageCount > 1 ? $"{baseName}-{page + 1}.png" : $"{baseName}.png");
