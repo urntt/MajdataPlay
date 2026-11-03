@@ -189,7 +189,7 @@ namespace MajdataPlay.Scenes.List
         float? _pendingScrollY;
 
         static ChartLevel GlobalLevel => MajEnv.RuntimeConfig.List.SelectedDiff;
-        static int PageSize => Mathf.Clamp(MajEnv.Settings.Game.ListPageSize, 5, 100);
+        static int PageSize => Mathf.Clamp(MajEnv.Settings.Display.ListPageSize, 5, 100);
 
         public static SongListBrowser? Create(ListManager listManager, CollectionListManager collections, CoverListManager covers)
         {
@@ -1322,6 +1322,7 @@ namespace MajdataPlay.Scenes.List
         {
             ClearChildren(_modal);
             _isShareDialogShown = false;
+            _feedbackSession = null;
             var panel = CreatePanel(_modal, PAPER_COLOR, 18f);
             var panelRect = panel.rectTransform;
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -1399,34 +1400,27 @@ namespace MajdataPlay.Scenes.List
             y += SHARE_ROW_HEIGHT;
         }
         /// <summary>
-        /// Adds the full-width button that enters selection mode to pick charts, showing how many charts are picked on its right.
+        /// Adds the row that tells the player to tap difficulties, with how many charts are picked, and the button that enters
+        /// selection mode: "Start Picking" while nothing is picked, otherwise "Edit Picks".
         /// </summary>
         /// <param name="panel">The dialog panel.</param>
         /// <param name="y">The top of the row; moved below the row afterwards.</param>
         void AddPickRow(RectTransform panel, ref float y)
         {
-            const float PADDING = 18f;
-            const float COUNT_WIDTH = 140f;
-            var pick = CreateButton(panel, "MAJTEXT_LIST_PICK_CHARTS".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, PickChartsForShare);
-            var pickRect = (RectTransform)pick.transform;
-            // 与上下各行左右对齐
-            PlaceTopLeft(pickRect, 28f, y + 2f, SHARE_DIALOG_WIDTH - 28f * 2f, SHARE_ROW_HEIGHT - 12f);
-            var label = pick.GetComponentInChildren<TextMeshProUGUI>();
-            label.alignment = TextAlignmentOptions.MidlineLeft;
-            label.fontStyle = FontStyles.Bold;
-            label.enableAutoSizing = true;
-            label.fontSizeMin = 13f;
-            label.fontSizeMax = 18f;
-            label.rectTransform.offsetMin = new Vector2(PADDING, 4f);
-            label.rectTransform.offsetMax = new Vector2(-(PADDING + COUNT_WIDTH), -4f);
-            // 右侧：已选数量
-            var count = CreateText(pickRect, "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount), 16f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
-            var countRect = count.rectTransform;
-            countRect.anchorMin = new Vector2(1f, 0f);
-            countRect.anchorMax = new Vector2(1f, 1f);
-            countRect.pivot = new Vector2(1f, 0.5f);
-            countRect.anchoredPosition = new Vector2(-PADDING, 0f);
-            countRect.sizeDelta = new Vector2(COUNT_WIDTH, -8f);
+            const float BUTTON_WIDTH = 140f;
+            const float GAP = 12f;
+            var selectionCount = ScoreExchange.SelectionCount;
+            var hint = CreateText(panel, "MAJTEXT_LIST_PICK_HINT".i18n(selectionCount), 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            hint.enableAutoSizing = true;
+            hint.fontSizeMin = 13f;
+            hint.fontSizeMax = 19f;
+            // 左边与上下各行的项目名对齐，右边留给按钮
+            PlaceTopLeft(hint.rectTransform, 28f, y, SHARE_DIALOG_WIDTH - 28f * 2f - BUTTON_WIDTH - GAP, SHARE_ROW_HEIGHT - 8f);
+            var buttonKey = selectionCount > 0 ? "MAJTEXT_LIST_EDIT_PICK" : "MAJTEXT_LIST_START_PICK";
+            var pick = CreateButton(panel, buttonKey.i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, PickChartsForShare);
+            pick.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
+            // 右边与上下各行的“< 值 >”对齐
+            PlaceTopRight((RectTransform)pick.transform, 28f, y + 2f, BUTTON_WIDTH, SHARE_ROW_HEIGHT - 12f);
             y += SHARE_ROW_HEIGHT;
         }
         /// <summary>
@@ -1522,6 +1516,7 @@ namespace MajdataPlay.Scenes.List
         void HideModal()
         {
             _modal.gameObject.SetActive(false);
+            _feedbackSession = null;
             if (_isShareDialogShown)
             {
                 _isShareDialogShown = false;

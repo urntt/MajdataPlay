@@ -55,7 +55,7 @@ namespace MajdataPlay.Scenes.List
             var selectSound = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             AudioSampleWrap? previewSample = null;
             // 选歌即时切换预览：切歌时背景音乐保持静音，直接接新歌的预览；只有加载失败时才恢复
-            var isInstantPreview = MajEnv.Settings.Game.ListInstantPreview;
+            var isInstantPreview = MajEnv.Settings.Display.ListInstantPreview;
             try
             {
                 if (!isInstantPreview)

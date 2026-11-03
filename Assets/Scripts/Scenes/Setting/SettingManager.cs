@@ -146,7 +146,7 @@ namespace MajdataPlay.Scenes.Setting
             UpdateMenuTitleDisplayerPosition();
             InitializeCurrentMenu().Forget();
             // 列表式选歌时使用新的设置界面（盖在原界面上，原界面停止渲染和响应输入）
-            if (MajEnv.Settings.Game.ListStyle == ListStyleOption.List)
+            if (MajEnv.Settings.Display.ListStyle == ListStyleOption.List)
             {
                 SettingBrowser.Create(this, Index);
             }

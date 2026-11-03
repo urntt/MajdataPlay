@@ -112,7 +112,7 @@ namespace MajdataPlay.Scenes.List
             _coverListManager = Majdata<CoverListManager>.Instance!;
             _collectionListManager = Majdata<CollectionListManager>.Instance!;
             // 列表式选歌：先标记为打开，封面轮播初始化时不播放预览，初始化完成后再创建界面
-            SongListBrowser.IsOpen = MajEnv.Settings.Game.ListStyle == ListStyleOption.List;
+            SongListBrowser.IsOpen = MajEnv.Settings.Display.ListStyle == ListStyleOption.List;
             InitializeCoverListAsync().Forget();
             var selectsfx = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             if (!selectsfx.IsPlaying)

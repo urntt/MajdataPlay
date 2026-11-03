@@ -13,6 +13,7 @@ using System.Globalization;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.UI;
 #nullable enable
 namespace MajdataPlay.Scenes.Result
@@ -106,9 +107,26 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         const float PROFILE_WIDTH = 300f;
         const float PROFILE_HEIGHT = 52f;
-        const float CONTINUE_WIDTH = 240f;
-        const float RETRY_WIDTH = 200f;
-        const float BOTTOM_BUTTON_GAP = 16f;
+        /// <summary>
+        /// The size of the icon buttons at the bottom right.
+        /// </summary>
+        const float ACTION_SIZE = 80f;
+        /// <summary>
+        /// The gap between two icon buttons at the bottom right.
+        /// </summary>
+        const float ACTION_GAP = 16f;
+        /// <summary>
+        /// The corner radius of the icon buttons at the bottom right.
+        /// </summary>
+        const float ACTION_RADIUS = 20f;
+        /// <summary>
+        /// The size of the icons inside the icon buttons.
+        /// </summary>
+        const float ACTION_ICON_SIZE = 40f;
+        /// <summary>
+        /// The distance of the icon buttons from the bottom edge.
+        /// </summary>
+        const float ACTION_BOTTOM = 36f;
         const float TOAST_DURATION_SEC = 2.4f;
 
         ResultScreenManager _manager = null!;
@@ -124,11 +142,26 @@ namespace MajdataPlay.Scenes.Result
         TextMeshProUGUI? _achievementText;
         Image? _coverImage;
         Image? _heart;
+        /// <summary>
+        /// The feedback icon button, or <see langword="null"/> when the chart does not accept feedback.
+        /// </summary>
         Button? _feedbackButton;
+        /// <summary>
+        /// The icon of <see cref="_feedbackButton"/>.
+        /// </summary>
+        Image? _feedbackIcon;
         Button? _uploadButton;
         TextMeshProUGUI? _uploadStatus;
         Button _continueButton = null!;
+        /// <summary>
+        /// The icon of <see cref="_continueButton"/>.
+        /// </summary>
+        Image _continueIcon = null!;
         Button _retryButton = null!;
+        /// <summary>
+        /// The icon of <see cref="_retryButton"/>.
+        /// </summary>
+        Image _retryIcon = null!;
         RectTransform _modal = null!;
         RectTransform _toast = null!;
         TextMeshProUGUI _toastText = null!;
@@ -136,7 +169,6 @@ namespace MajdataPlay.Scenes.Result
         bool _isWaitingShare = false;
         bool _isHidden = false;
         Vector2Int _graphSize;
-        TextMeshProUGUI _continueLabel = null!;
         Texture? _graphTexture;
         Sprite? _cover;
         MotionHandle _rollMotion;
@@ -176,20 +208,7 @@ namespace MajdataPlay.Scenes.Result
             _viewport = (RectTransform)_content.parent;
             scroll.movementType = ScrollRect.MovementType.Clamped;
 
-            // 右下角悬浮的“继续”：保存与上传完成之前不能点
-            // 柔和投影与按钮同一圆角、中心对齐
-            var continueHolder = LightUi.CreateShadowHolder(_root, 14f, 16f, 0.2f);
-            LightUi.PlaceBottomRight(continueHolder, MARGIN, 36f, CONTINUE_WIDTH, 80f);
-            _continueButton = _ui.CreateButton(continueHolder, "MAJTEXT_RESULT_CONTINUE".i18n(), LightUi.ACCENT, Color.white, 28f, Continue, 14f);
-            LightUi.Stretch((RectTransform)_continueButton.transform);
-            _continueLabel = _continueButton.GetComponentInChildren<TextMeshProUGUI>();
-            _continueLabel.fontStyle = FontStyles.Bold;
-            // “继续”左边：再玩一次同一张谱面（白底，次要操作）
-            var retryHolder = LightUi.CreateShadowHolder(_root, 14f, 16f, 0.16f);
-            LightUi.PlaceBottomRight(retryHolder, MARGIN + CONTINUE_WIDTH + BOTTOM_BUTTON_GAP, 36f, RETRY_WIDTH, 80f);
-            _retryButton = _ui.CreateButton(retryHolder, "MAJTEXT_RESULT_RETRY".i18n(), LightUi.PAPER, LightUi.TEXT, 26f, Retry, 14f);
-            LightUi.Stretch((RectTransform)_retryButton.transform);
-            _retryButton.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
+            BuildActionButtons();
 
             // 左上角：临时切回原版结算界面（只对这一次结算生效）
             var classicButton = _ui.CreateButton(_root, "MAJTEXT_RESULT_CLASSIC".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, SwitchToClassic, 12f);
@@ -204,6 +223,43 @@ namespace MajdataPlay.Scenes.Result
             // 屏幕触摸不再模拟机台按键（否则点按钮会同时触发 A4 退出、A5 收藏等）；实体按键照常可用
             InputManager.SuppressTouchPanelSimulation = true;
             LoadCoverAsync().Forget();
+        }
+        /// <summary>
+        /// Builds the icon buttons at the bottom right, from right to left: Continue, Play Again, Share and, when the chart accepts
+        /// feedback, Feedback. Continue, Play Again and Feedback stay faded until the score is saved and uploaded.
+        /// </summary>
+        void BuildActionButtons()
+        {
+            _continueButton = CreateActionButton(0, UiSprites.ArrowRight, LightUi.ACCENT, Color.white, 0.2f, Continue, out _continueIcon);
+            _retryButton = CreateActionButton(1, UiSprites.Retry, LightUi.PAPER, LightUi.TEXT, 0.16f, Retry, out _retryIcon);
+            CreateActionButton(2, UiSprites.Share, LightUi.PAPER, LightUi.TEXT, 0.16f, ShowShareModal, out _);
+            _feedbackButton = null;
+            _feedbackIcon = null;
+            // 评价面板在结算界面创建之前就已初始化，这里就能确定这首能否评价
+            if (_manager.IsFeedbackAvailable)
+            {
+                _feedbackButton = CreateActionButton(3, UiSprites.Comment, LightUi.PAPER, LightUi.FAVORITE, 0.16f, _manager.RequestFeedback, out var feedbackIcon);
+                _feedbackIcon = feedbackIcon;
+            }
+        }
+        /// <summary>
+        /// Creates one icon button at the bottom right with a soft shadow of the same shape.
+        /// </summary>
+        /// <param name="slot">The position counted from the right edge, starting at 0.</param>
+        /// <param name="icon">The icon sprite.</param>
+        /// <param name="fill">The background color.</param>
+        /// <param name="iconColor">The icon color.</param>
+        /// <param name="shadowOpacity">The opacity of the shadow.</param>
+        /// <param name="onClick">The action run when the button is tapped.</param>
+        /// <param name="iconImage">The icon image of the button.</param>
+        /// <returns>The button.</returns>
+        Button CreateActionButton(int slot, Sprite icon, Color fill, Color iconColor, float shadowOpacity, UnityAction onClick, out Image iconImage)
+        {
+            var holder = LightUi.CreateShadowHolder(_root, ACTION_RADIUS, 16f, shadowOpacity);
+            LightUi.PlaceBottomRight(holder, MARGIN + slot * (ACTION_SIZE + ACTION_GAP), ACTION_BOTTOM, ACTION_SIZE, ACTION_SIZE);
+            var button = LightUi.CreateIconButton(holder, icon, fill, iconColor, ACTION_ICON_SIZE, onClick, out iconImage, ACTION_RADIUS);
+            LightUi.Stretch((RectTransform)button.transform);
+            return button;
         }
         async UniTaskVoid LoadCoverAsync()
         {
@@ -370,19 +426,10 @@ namespace MajdataPlay.Scenes.Result
             LightUi.PlaceTopLeft(credits.rectTransform, x, cursor, width, 30f);
             cursor += 44f;
 
-            // 同一行：分享本局成绩；网络谱面可评价时右边是“评价”（打开原版的评价面板：点赞、点踩、评论）
-            var shareButton = _ui.CreateButton(_content, "MAJTEXT_LIST_SHARE".i18n(), LightUi.PAPER, LightUi.TEXT, 19f, ShowShareModal);
-            LightUi.PlaceTopLeft((RectTransform)shareButton.transform, x, cursor, 150f, 50f);
+            // 分享成绩、评价在右下角的图标键里
             var sender = _manager.OnlineSender;
-            _feedbackButton = null;
             _uploadButton = null;
             _uploadStatus = null;
-            if (_manager.IsFeedbackAvailable)
-            {
-                _feedbackButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_FEEDBACK".i18n(), LightUi.PAPER, LightUi.FAVORITE, 19f, _manager.RequestFeedback);
-                LightUi.PlaceTopLeft((RectTransform)_feedbackButton.transform, x + 162f, cursor, 150f, 50f);
-            }
-            cursor += 62f;
 
             // 网络谱面：上传成绩
             if (sender != null && sender.CanInteract)
@@ -628,24 +675,14 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         void UpdateDynamicParts()
         {
-            if (_feedbackButton != null && _feedbackButton.interactable != _manager.IsAllTaskFinished)
+            if (_feedbackButton != null && _feedbackIcon != null)
             {
-                _feedbackButton.interactable = _manager.IsAllTaskFinished;
+                LightUi.SetIconButtonInteractable(_feedbackButton, _feedbackIcon, _manager.IsAllTaskFinished);
             }
+            // 保存与上传完成之前，继续和再玩一次是淡的、不能点
             var canContinue = _manager.IsAllTaskFinished && _manager.IsInited && !_manager.IsExited && !_isLeaving;
-            if (_continueButton.interactable != canContinue)
-            {
-                _continueButton.interactable = canContinue;
-            }
-            if (_retryButton.interactable != canContinue)
-            {
-                _retryButton.interactable = canContinue;
-            }
-            var continueText = _manager.IsAllTaskFinished ? "MAJTEXT_RESULT_CONTINUE".i18n() : "MAJTEXT_RESULT_SAVING".i18n();
-            if (_continueLabel.text != continueText)
-            {
-                _continueLabel.text = continueText;
-            }
+            LightUi.SetIconButtonInteractable(_continueButton, _continueIcon, canContinue);
+            LightUi.SetIconButtonInteractable(_retryButton, _retryIcon, canContinue);
             UpdateHeart();
             var sender = _manager.OnlineSender;
             if (sender == null)

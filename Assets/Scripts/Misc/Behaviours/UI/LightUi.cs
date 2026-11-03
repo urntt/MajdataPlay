@@ -152,6 +152,63 @@ namespace MajdataPlay
             Stretch(text.rectTransform, 4f);
             return button;
         }
+        /// <summary>
+        /// The opacity of an icon button and its icon while the button cannot be pressed.
+        /// </summary>
+        const float DISABLED_ICON_ALPHA = 0.4f;
+        /// <summary>
+        /// Creates a button with a rounded background and a centered icon and no text.
+        /// </summary>
+        /// <param name="parent">The parent the button is created in; place or stretch the button afterwards.</param>
+        /// <param name="icon">The white icon sprite, tinted with <paramref name="iconColor"/>.</param>
+        /// <param name="fill">The background color.</param>
+        /// <param name="iconColor">The icon color.</param>
+        /// <param name="iconSize">The width and height of the icon.</param>
+        /// <param name="onClick">The action run when the button is tapped.</param>
+        /// <param name="iconImage">The icon image, passed to <see cref="SetIconButtonInteractable"/>.</param>
+        /// <param name="radius">The corner radius of the background.</param>
+        /// <returns>The button.</returns>
+        public static Button CreateIconButton(Transform parent, Sprite icon, Color fill, Color iconColor, float iconSize, UnityAction onClick,
+                                              out Image iconImage, float radius = 20f)
+        {
+            var background = CreateImage(parent, fill, radius);
+            background.gameObject.name = "IconButton";
+            background.raycastTarget = true;
+            var button = background.gameObject.AddComponent<Button>();
+            button.targetGraphic = background;
+            SetButtonColors(button);
+            button.onClick.AddListener(onClick);
+            iconImage = CreateImage(background.transform, iconColor, 0f);
+            iconImage.gameObject.name = "Icon";
+            iconImage.sprite = icon;
+            iconImage.preserveAspect = true;
+            iconImage.raycastTarget = false;
+            var iconRect = iconImage.rectTransform;
+            iconRect.anchorMin = new Vector2(0.5f, 0.5f);
+            iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+            iconRect.pivot = new Vector2(0.5f, 0.5f);
+            iconRect.sizeDelta = new Vector2(iconSize, iconSize);
+            iconRect.anchoredPosition = Vector2.zero;
+            return button;
+        }
+        /// <summary>
+        /// Enables or disables an icon button created by <see cref="CreateIconButton"/>; a disabled button fades its icon
+        /// together with its background.
+        /// </summary>
+        /// <param name="button">The button.</param>
+        /// <param name="iconImage">The icon image of the button.</param>
+        /// <param name="interactable">Whether the button can be pressed.</param>
+        public static void SetIconButtonInteractable(Button button, Image iconImage, bool interactable)
+        {
+            if (button.interactable == interactable)
+            {
+                return;
+            }
+            button.interactable = interactable;
+            var color = iconImage.color;
+            color.a = interactable ? 1f : DISABLED_ICON_ALPHA;
+            iconImage.color = color;
+        }
         public static void SetButtonColors(Selectable selectable)
         {
             var colors = selectable.colors;

@@ -319,7 +319,7 @@ namespace MajdataPlay.Scenes.Result
             }
             WaitForTaskAsync().Forget();
             // 列表式选歌时使用新的结算界面（段位、练习不使用），本组件照常负责保存、上传、语音和 BGM
-            if (MajEnv.Settings.Game.ListStyle == ListStyleOption.List && !_gameInfo.IsDanMode && !_gameInfo.IsPracticeMode)
+            if (MajEnv.Settings.Display.ListStyle == ListStyleOption.List && !_gameInfo.IsDanMode && !_gameInfo.IsPracticeMode)
             {
                 var viewData = ResultViewData.Create(result, isClassic, overlayHistoryAchievement, overlayHistoryPlayCount,
                                                      settings.IsAnyModActiveExceptPlayStyle());

@@ -20,7 +20,8 @@ namespace MajdataPlay.Settings
     /// A setting category written as <c>null</c> is removed, so it falls back to its defaults instead of leaving
     /// <see cref="GameSetting"/> without it. The rendering keys that older versions stored in the <c>Display</c>
     /// category, <c>RenderQuality</c>, <c>RenderScale</c>, <c>FPSLimit</c> and <c>VSync</c>, move to the
-    /// <c>Rendering</c> category.
+    /// <c>Rendering</c> category. The interface keys that older versions stored in the <c>Game</c> category,
+    /// <c>ListStyle</c>, <c>ListPageSize</c> and <c>ListInstantPreview</c>, move to the <c>Display</c> category.
     /// </para>
     /// </remarks>
     internal static class GameSettingMigration
@@ -69,8 +70,71 @@ namespace MajdataPlay.Settings
             var removedNullCategories = RemoveNullCategories(root);
             var movedRenderingKeys = MoveLegacyRenderingKeys(root, serializer);
             var movedFallingKeys = MoveLegacyFallingKeys(root);
+            var movedListKeys = MoveLegacyListKeys(root);
             var droppedMod = DropUnsavedMod(root);
-            return removedNullCategories || movedRenderingKeys || movedFallingKeys || droppedMod;
+            return removedNullCategories || movedRenderingKeys || movedFallingKeys || movedListKeys || droppedMod;
+        }
+
+        /// <summary>
+        /// 旧版放在 Game 中、现行布局放在 Display 中的界面设置（键名相同）
+        /// </summary>
+        private static readonly string[] LegacyGameListKeys =
+        {
+            nameof(DisplayOptions.ListStyle),
+            nameof(DisplayOptions.ListPageSize),
+            nameof(DisplayOptions.ListInstantPreview),
+        };
+
+        /// <summary>
+        /// 把旧版放在 Game 中的界面样式、选歌列表每页数量、选歌即时切换预览移到 Display。
+        /// Display 已有同名键时以 Display 为准，只删除 Game 中的旧键
+        /// </summary>
+        /// <param name="root">The root object of the document.</param>
+        /// <returns>True when a legacy key was found and removed.</returns>
+        private static bool MoveLegacyListKeys(JObject root)
+        {
+            if (root[nameof(GameSetting.Game)] is not JObject game)
+            {
+                return false;
+            }
+            var hasLegacyKeys = false;
+            JObject? display = null;
+            foreach (var key in LegacyGameListKeys)
+            {
+                var value = TakeLegacyValue(game, key, ref hasLegacyKeys);
+                if (value is null)
+                {
+                    continue;
+                }
+                display ??= GetOrCreateCategory(root, nameof(GameSetting.Display));
+                if (display is not null)
+                {
+                    CopyIfMissing(display, key, value);
+                }
+            }
+            if (!hasLegacyKeys)
+            {
+                return false;
+            }
+            MajDebug.LogInfo(nameof(GameSettingMigration), "Moved the legacy list settings from Game to Display");
+            return true;
+        }
+
+        /// <summary>
+        /// Gets a setting category, creating it when the document does not have it.
+        /// </summary>
+        /// <param name="root">The root object of the document.</param>
+        /// <param name="name">The name of the category.</param>
+        /// <returns>The category, or null when the document holds a value that is not an object, which is left for the deserializer to reject.</returns>
+        private static JObject? GetOrCreateCategory(JObject root, string name)
+        {
+            if (!root.TryGetValue(name, out var token))
+            {
+                var category = new JObject();
+                root[name] = category;
+                return category;
+            }
+            return token as JObject;
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using LitMotion;
 using MajdataPlay.Diagnostics;
+using MajdataPlay.Net;
 using MajdataPlay.Utils;
 using MajdataPlay.Utils.ChartRadar;
 using System;
@@ -25,6 +26,18 @@ namespace MajdataPlay.Scenes.List
         const float INFO_ROW_HEIGHT = 46f;
         const float SCORE_CARD_HEIGHT = 156f;
         const float CHART_PANEL_HEIGHT = 400f;
+        /// <summary>
+        /// The size of the play and feedback icon buttons at the bottom right of the detail page.
+        /// </summary>
+        const float DETAIL_ICON_SIZE = 80f;
+        /// <summary>
+        /// The corner radius of the play and feedback icon buttons.
+        /// </summary>
+        const float DETAIL_ICON_RADIUS = 20f;
+        /// <summary>
+        /// The gap between the feedback and play icon buttons.
+        /// </summary>
+        const float DETAIL_ICON_GAP = 16f;
 
         RectTransform _detailView = null!;
         RectTransform _detailViewport = null!;
@@ -32,6 +45,18 @@ namespace MajdataPlay.Scenes.List
         ScrollRect _detailScroll = null!;
         CanvasGroup _detailGroup = null!;
         Button _detailPlayButton = null!;
+        /// <summary>
+        /// The play icon, faded together with the play button when the song has no chart of the chosen difficulty.
+        /// </summary>
+        Image _detailPlayIcon = null!;
+        /// <summary>
+        /// The feedback button left of the play button, shown only for charts that accept feedback.
+        /// </summary>
+        RectTransform _detailFeedbackHolder = null!;
+        /// <summary>
+        /// The values of the info card on the detail page; the like and comment counts are updated after feedback is sent.
+        /// </summary>
+        TextMeshProUGUI[]? _detailInfoValues;
         Image? _detailHeart;
         TextMeshProUGUI _detailLevelText = null!;
 
@@ -78,16 +103,16 @@ namespace MajdataPlay.Scenes.List
             var profile = new LightUi(_font).CreatePlayerProfile(_detailView, TOPBAR_HEIGHT, PAGE_COLOR);
             PlaceTopRight(profile, MAIN_RIGHT_PADDING, 24f, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
-            // 柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
-            var playHolder = LightUi.CreateShadowHolder(_detailView, 10f, 16f, 0.2f);
-            playHolder.anchorMin = new Vector2(1f, 0f);
-            playHolder.anchorMax = new Vector2(1f, 0f);
-            playHolder.pivot = new Vector2(1f, 0f);
-            playHolder.sizeDelta = new Vector2(240f, 80f);
-            playHolder.anchoredPosition = new Vector2(-DETAIL_MARGIN, 36f);
-            _detailPlayButton = CreateButton(playHolder, "▶  " + "MAJTEXT_LIST_PLAY".i18n(), ACCENT_COLOR, Color.white, 28f, PlaySelected);
+            // 右下角：评价、游玩两个图标键；柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
+            var playHolder = LightUi.CreateShadowHolder(_detailView, DETAIL_ICON_RADIUS, 16f, 0.2f);
+            LightUi.PlaceBottomRight(playHolder, DETAIL_MARGIN, 36f, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE);
+            _detailPlayButton = LightUi.CreateIconButton(playHolder, UiSprites.Play, ACCENT_COLOR, Color.white, 40f, PlaySelected, out _detailPlayIcon, DETAIL_ICON_RADIUS);
             Stretch((RectTransform)_detailPlayButton.transform);
-            _detailPlayButton.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
+            _detailFeedbackHolder = LightUi.CreateShadowHolder(_detailView, DETAIL_ICON_RADIUS, 16f, 0.16f);
+            LightUi.PlaceBottomRight(_detailFeedbackHolder, DETAIL_MARGIN + DETAIL_ICON_SIZE + DETAIL_ICON_GAP, 36f, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE);
+            var feedbackButton = LightUi.CreateIconButton(_detailFeedbackHolder, UiSprites.Comment, PAPER_COLOR, FAVORITE_COLOR, 40f, ShowFeedbackDialog, out _, DETAIL_ICON_RADIUS);
+            Stretch((RectTransform)feedbackButton.transform);
+            _detailFeedbackHolder.gameObject.SetActive(false);
             _detailView.gameObject.SetActive(false);
         }
         /// <param name="level">为空时用全局难度；这首歌没有这个难度时用最高难度</param>
@@ -357,6 +382,7 @@ namespace MajdataPlay.Scenes.List
             var infoCard = CreatePanel(_detailContent, PAPER_COLOR, 16f);
             PlaceTopLeft(infoCard.rectTransform, DETAIL_MARGIN, leftY, leftWidth, infoHeight);
             var values = new TextMeshProUGUI[rowLabels.Count];
+            _detailInfoValues = values;
             for (var i = 0; i < rowLabels.Count; i++)
             {
                 var rowTop = 10f + i * INFO_ROW_HEIGHT;
@@ -467,7 +493,8 @@ namespace MajdataPlay.Scenes.List
 
             // 底部给悬浮的游玩按钮留出空间
             _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + 150f);
-            _detailPlayButton.interactable = hasLevel;
+            LightUi.SetIconButtonInteractable(_detailPlayButton, _detailPlayIcon, hasLevel);
+            _detailFeedbackHolder.gameObject.SetActive(ChartFeedbackSession.IsAvailable(song));
             LayoutRebuilder.ForceRebuildLayoutImmediate(_detailContent);
             var maxY = Mathf.Max(0f, _detailContent.rect.height - _detailViewport.rect.height);
             _detailScroll.StopMovement();
@@ -528,11 +555,32 @@ namespace MajdataPlay.Scenes.List
             values[6].text = GetLikeCount(interact).ToString(CultureInfo.InvariantCulture);
             values[7].text = (interact.Comments?.Length ?? 0).ToString(CultureInfo.InvariantCulture);
         }
-        async UniTaskVoid LoadDetailInteractAsync(OnlineSongDetail song, TextMeshProUGUI[] values, CancellationToken token)
+        /// <summary>
+        /// Loads the like and comment counts of the chart on the detail page again from the server, after feedback was sent.
+        /// </summary>
+        /// <param name="song">The chart the feedback was sent for.</param>
+        /// <param name="token">Cancels the request when the browser is destroyed.</param>
+        void RefreshDetailInteract(OnlineSongDetail song, CancellationToken token)
+        {
+            var values = _detailInfoValues;
+            if (values is null || !ReferenceEquals(_detailSong, song))
+            {
+                return;
+            }
+            LoadDetailInteractAsync(song, values, token, true).Forget();
+        }
+        /// <summary>
+        /// Loads the plays, likes and comments of an online chart into the info card of the detail page and into its song card.
+        /// </summary>
+        /// <param name="song">The chart.</param>
+        /// <param name="values">The values of the info card.</param>
+        /// <param name="token">Cancels the request.</param>
+        /// <param name="forceRefresh">Bypasses the cached counts, used after the player sent feedback.</param>
+        async UniTaskVoid LoadDetailInteractAsync(OnlineSongDetail song, TextMeshProUGUI[] values, CancellationToken token, bool forceRefresh = false)
         {
             try
             {
-                var interact = await GetInteractAsync(song, token);
+                var interact = await GetInteractAsync(song, token, forceRefresh);
                 await UniTask.SwitchToMainThread();
                 if (token.IsCancellationRequested || interact is not MajNetSongInteract value)
                 {

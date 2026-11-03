@@ -28,6 +28,10 @@ namespace MajdataPlay
         static Sprite? _magnifier;
         static Sprite? _share;
         static Sprite? _person;
+        static Sprite? _play;
+        static Sprite? _arrowRight;
+        static Sprite? _retry;
+        static Sprite? _comment;
         static readonly Dictionary<int, Sprite> _rings = new();
         static readonly Dictionary<int, Sprite> _shadows = new();
 
@@ -63,6 +67,22 @@ namespace MajdataPlay
         /// Gets the white person silhouette used when the player has no avatar.
         /// </summary>
         public static Sprite Person => _person != null ? _person : (_person = CreateIconSprite("UiPerson", PersonDistance));
+        /// <summary>
+        /// Gets the white play icon: a filled triangle with rounded corners pointing right.
+        /// </summary>
+        public static Sprite Play => _play != null ? _play : (_play = CreateIconSprite("UiPlay", PlayDistance));
+        /// <summary>
+        /// Gets the white arrow icon pointing right, used by Continue.
+        /// </summary>
+        public static Sprite ArrowRight => _arrowRight != null ? _arrowRight : (_arrowRight = CreateIconSprite("UiArrowRight", ArrowRightDistance));
+        /// <summary>
+        /// Gets the white retry icon: an open circle with an arrow head turning clockwise.
+        /// </summary>
+        public static Sprite Retry => _retry != null ? _retry : (_retry = CreateIconSprite("UiRetry", RetryDistance));
+        /// <summary>
+        /// Gets the white comment icon: an outlined speech bubble with three dots and a tail at the bottom left.
+        /// </summary>
+        public static Sprite Comment => _comment != null ? _comment : (_comment = CreateIconSprite("UiComment", CommentDistance));
 
         /// <summary>
         /// 把 Image 变成半径为 <paramref name="radius"/> 的圆角矩形
@@ -354,6 +374,118 @@ namespace MajdataPlay
             var head = (point - new Vector2(0f, 0.3f)).magnitude - 0.32f;
             var shoulders = (point - new Vector2(0f, -1.08f)).magnitude - 0.8f;
             return Mathf.Min(head, shoulders);
+        }
+        /// <summary>
+        /// Gets the signed distance to a filled triangle.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <param name="a">The first corner.</param>
+        /// <param name="b">The second corner.</param>
+        /// <param name="c">The third corner.</param>
+        /// <returns>The signed distance in icon units; negative inside the triangle.</returns>
+        static float TriangleDistance(Vector2 point, Vector2 a, Vector2 b, Vector2 c)
+        {
+            var edge = Mathf.Min(SegmentDistance(point, a, b), Mathf.Min(SegmentDistance(point, b, c), SegmentDistance(point, c, a)));
+            var sideA = Cross(b - a, point - a);
+            var sideB = Cross(c - b, point - b);
+            var sideC = Cross(a - c, point - c);
+            var isInside = (sideA >= 0f && sideB >= 0f && sideC >= 0f) || (sideA <= 0f && sideB <= 0f && sideC <= 0f);
+            return isInside ? -edge : edge;
+        }
+        /// <summary>
+        /// Gets the z component of the cross product of two vectors.
+        /// </summary>
+        /// <param name="first">The first vector.</param>
+        /// <param name="second">The second vector.</param>
+        /// <returns>The cross product; positive when <paramref name="second"/> turns counterclockwise from <paramref name="first"/>.</returns>
+        static float Cross(Vector2 first, Vector2 second)
+        {
+            return first.x * second.y - first.y * second.x;
+        }
+        /// <summary>
+        /// Gets the signed distance to a rectangle with rounded corners.
+        /// </summary>
+        /// <param name="point">The point relative to the rectangle center, in icon units.</param>
+        /// <param name="halfSize">Half the width and height of the rectangle.</param>
+        /// <param name="radius">The corner radius.</param>
+        /// <returns>The signed distance in icon units; negative inside the rectangle.</returns>
+        static float RoundedBoxDistance(Vector2 point, Vector2 halfSize, float radius)
+        {
+            var q = new Vector2(Mathf.Abs(point.x), Mathf.Abs(point.y)) - halfSize + new Vector2(radius, radius);
+            var outside = new Vector2(Mathf.Max(q.x, 0f), Mathf.Max(q.y, 0f)).magnitude;
+            return outside + Mathf.Min(Mathf.Max(q.x, q.y), 0f) - radius;
+        }
+        /// <summary>
+        /// Gets the signed distance to the play icon: a triangle pointing right whose corners are rounded.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float PlayDistance(Vector2 point)
+        {
+            const float ROUNDING = 0.12f;
+            return TriangleDistance(point, new Vector2(-0.32f, 0.5f), new Vector2(-0.32f, -0.5f), new Vector2(0.6f, 0f)) - ROUNDING;
+        }
+        /// <summary>
+        /// Gets the signed distance to the arrow icon: a horizontal shaft with a two-stroke head on the right.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float ArrowRightDistance(Vector2 point)
+        {
+            const float STROKE = 0.1f;
+            var tip = new Vector2(0.62f, 0f);
+            var shaft = SegmentDistance(point, new Vector2(-0.62f, 0f), tip);
+            var head = Mathf.Min(SegmentDistance(point, tip, new Vector2(0.18f, 0.44f)),
+                                 SegmentDistance(point, tip, new Vector2(0.18f, -0.44f)));
+            return Mathf.Min(shaft, head) - STROKE;
+        }
+        /// <summary>
+        /// Gets the signed distance to the retry icon: a circle open at the top right whose upper end carries an arrow head
+        /// pointing clockwise.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float RetryDistance(Vector2 point)
+        {
+            const float RADIUS = 0.56f;
+            const float STROKE = 0.1f;
+            // 圆弧从右侧（0°）逆时针画到 60°以外的全部角度，缺口在右上方的 0°–60°
+            const float GAP_DEGREES = 60f;
+            var angle = Mathf.Atan2(point.y, point.x) * Mathf.Rad2Deg;
+            if (angle < 0f)
+            {
+                angle += 360f;
+            }
+            var headAngle = GAP_DEGREES * Mathf.Deg2Rad;
+            var radial = new Vector2(Mathf.Cos(headAngle), Mathf.Sin(headAngle));
+            var headEnd = radial * RADIUS;
+            var tailEnd = new Vector2(RADIUS, 0f);
+            var arc = angle >= GAP_DEGREES
+                ? Mathf.Abs(point.magnitude - RADIUS)
+                : Mathf.Min((point - headEnd).magnitude, (point - tailEnd).magnitude);
+            // 顺时针方向的切线
+            var tangent = new Vector2(radial.y, -radial.x);
+            var tip = headEnd + tangent * 0.3f;
+            var baseCenter = headEnd - tangent * 0.04f;
+            var head = TriangleDistance(point, baseCenter + radial * 0.25f, baseCenter - radial * 0.25f, tip) - 0.02f;
+            return Mathf.Min(arc - STROKE, head);
+        }
+        /// <summary>
+        /// Gets the signed distance to the comment icon: an outlined rounded speech bubble with three dots inside and a tail
+        /// at its bottom left.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float CommentDistance(Vector2 point)
+        {
+            const float STROKE = 0.085f;
+            const float DOT_RADIUS = 0.085f;
+            var center = new Vector2(0f, 0.12f);
+            var bubble = Mathf.Abs(RoundedBoxDistance(point - center, new Vector2(0.72f, 0.5f), 0.24f)) - STROKE;
+            var tail = TriangleDistance(point, new Vector2(-0.42f, -0.36f), new Vector2(-0.1f, -0.36f), new Vector2(-0.5f, -0.74f));
+            var dots = Mathf.Min((point - new Vector2(-0.3f, 0.12f)).magnitude,
+                                 Mathf.Min((point - center).magnitude, (point - new Vector2(0.3f, 0.12f)).magnitude)) - DOT_RADIUS;
+            return Mathf.Min(Mathf.Min(bubble, tail), dots);
         }
         static Sprite CreateCircleSprite()
         {

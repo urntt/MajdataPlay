@@ -288,11 +288,19 @@ namespace MajdataPlay.Scenes.List
                 MajDebug.LogError(e);
             }
         }
-        static async UniTask<MajNetSongInteract?> GetInteractAsync(OnlineSongDetail song, CancellationToken token)
+        /// <summary>
+        /// Gets the plays, likes and comments of an online chart.
+        /// </summary>
+        /// <param name="song">The chart.</param>
+        /// <param name="token">Cancels the request.</param>
+        /// <param name="forceRefresh">Bypasses the cache of <see cref="Online.GetChartInteractAsync"/>.</param>
+        /// <returns>The interaction data, or <see langword="null"/> when it could not be loaded.</returns>
+        /// <exception cref="OperationCanceledException"><paramref name="token"/> was canceled.</exception>
+        static async UniTask<MajNetSongInteract?> GetInteractAsync(OnlineSongDetail song, CancellationToken token, bool forceRefresh = false)
         {
             try
             {
-                return await Online.GetChartInteractAsync(song, token);
+                return await Online.GetChartInteractAsync(song, token, forceRefresh);
             }
             catch (OperationCanceledException)
             {

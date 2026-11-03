@@ -209,6 +209,53 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             Assert.That(restored.OutputMode, Is.EqualTo(RenderingOutputMode.Intermediate));
         }
 
+        /// <summary>Checks that the legacy interface keys leave Game and move to Display, keeping the other Game keys.</summary>
+        [Test]
+        public void Migrate_MovesLegacyListKeysToDisplay()
+        {
+            var document = JObject.Parse("{\"Game\":{\"TapSpeed\":8,\"ListStyle\":\"List\",\"ListPageSize\":30,\"ListInstantPreview\":true}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            var game = (JObject)document["Game"]!;
+            var display = (JObject)document["Display"]!;
+            Assert.That(changed, Is.True);
+            Assert.That(game.Count, Is.EqualTo(1));
+            Assert.That(game["TapSpeed"]!.Value<float>(), Is.EqualTo(8f));
+            Assert.That(display["ListStyle"]!.Value<string>(), Is.EqualTo("List"));
+            Assert.That(display["ListPageSize"]!.Value<int>(), Is.EqualTo(30));
+            Assert.That(display["ListInstantPreview"]!.Value<bool>(), Is.True);
+            Assert.That(GameSettingMigration.Migrate(document, CreateSerializer()), Is.False, "a migrated document is current");
+        }
+
+        /// <summary>Checks that interface keys already in Display win over the legacy keys in Game, which are removed.</summary>
+        [Test]
+        public void Migrate_ExistingDisplayListKeysWin()
+        {
+            var document = JObject.Parse("{\"Game\":{\"ListStyle\":\"List\",\"ListPageSize\":30},\"Display\":{\"ListStyle\":\"Cover\"}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            var game = (JObject)document["Game"]!;
+            var display = (JObject)document["Display"]!;
+            Assert.That(changed, Is.True);
+            Assert.That(game.ContainsKey("ListStyle"), Is.False);
+            Assert.That(game.ContainsKey("ListPageSize"), Is.False);
+            Assert.That(display["ListStyle"]!.Value<string>(), Is.EqualTo("Cover"));
+            Assert.That(display["ListPageSize"]!.Value<int>(), Is.EqualTo(30));
+        }
+
+        /// <summary>Checks that settings written before the move keep the interface values.</summary>
+        [Test]
+        public void Read_LegacyListKeysKeepTheirValues()
+        {
+            var setting = Read("{\"Game\":{\"ListStyle\":\"List\",\"ListPageSize\":30,\"ListInstantPreview\":true}}");
+
+            Assert.That(setting.Display.ListStyle, Is.EqualTo(ListStyleOption.List));
+            Assert.That(setting.Display.ListPageSize, Is.EqualTo(30));
+            Assert.That(setting.Display.ListInstantPreview, Is.True);
+        }
+
         /// <summary>Checks that null categories are removed and reported as a change.</summary>
         [Test]
         public void Migrate_RemovesNullCategories()
