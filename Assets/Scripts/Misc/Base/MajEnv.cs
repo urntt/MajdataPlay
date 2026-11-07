@@ -563,6 +563,7 @@ namespace MajdataPlay
             Settings.Display.OuterJudgeDistance = Settings.Display.OuterJudgeDistance.Clamp(0, 1);
 
             MajDebug.MinLogLevel = Settings.Debug.DebugLevel;
+            MajDebug.LogInfo(nameof(MajEnv), $"[Settings]Play style {Settings.Falling.PlayStyle}, falling slide style {Settings.Falling.FallingSlideStyle}");
         }
         /// <summary>Deserializes the text of settings.json, upgrading a document written by an older version to the current layout first.</summary>
         /// <remarks>The legacy keys are migrated by <see cref="GameSettingMigration"/>; the file itself is rewritten by the next save.</remarks>

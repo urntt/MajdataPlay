@@ -606,12 +606,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
             // 扫键保护：命中过检查点的手指记下来，这条星星结算前每帧报告，这些手指划过的列不扫键
             var isGuardEnabled = LaneMode.IsSweepEnabled && LaneMode.IsSweepSlideGuardEnabled;
-            var isNewlyHit = laneJudge.Update(judgeSec, NoteManager.LaneSlideFingers, isGuardEnabled ? _laneGuardKeys : null);
+            laneJudge.Update(judgeSec, NoteManager.LaneSlideFingers, isGuardEnabled ? _laneGuardKeys : null);
             if (isGuardEnabled && !laneJudge.IsResolved)
             {
                 ReportLaneGuardFingers();
             }
-            if (isNewlyHit && (ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide))
+            // 音效在命中的检查点到达判定线时才播放：手指提前停在星星经过的位置也不会早响；
+            // 命中的点要到达判定线才结算，所以星星结束前一定会播放
+            if ((ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide) &&
+                laneJudge.FirstHitTiming is float firstHitTiming && judgeSec >= firstHitTiming)
             {
                 PlaySFX();
             }
@@ -704,7 +707,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _lanePath?.Update(ThisFrameSec);
         }
         /// <summary>
-        /// 下落式：Slide 判定文字显示在终点轨道（星星尾转 Flick 时为 Flick 所在的列）的判定线上方
+        /// 下落式：Slide 判定文字显示在终点轨道（星星尾转 Flick 时为 Flick 所在的列）箭头到达的判定线上方：
+        /// 悬空式为第二判定线，星星尾转 Flick 时为 Flick 所在的主判定线
         /// </summary>
         void PlaceSlideOKInLane(SlideOK slideOK)
         {
@@ -713,7 +717,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             slideOK.SetR();
             // 星星尾转 Flick 时显示在 Flick 所在的列
             var lane = _isLaneFlick && GetLaneFlickOwner()._laneJudge is { IsFlick: true } flick ? flick.FlickLane : EndPos;
-            NoteHelper.Sorting.SetPosition(okTransform, LaneLayout.GetJudgePosition(lane) + new Vector3(0, 1f, 0));
+            var position = LaneLayout.GetJudgePosition(lane);
+            if (!_isLaneFlick)
+            {
+                position.y = LaneLayout.SlideLineY;
+            }
+            NoteHelper.Sorting.SetPosition(okTransform, position + new Vector3(0, 1f, 0));
             okTransform.rotation = Quaternion.identity;
             okTransform.localScale = Vector3.one;
             LaneVisuals.SetLayerRecursively(okTransform, MajEnv.DEFAULT_LAYER);

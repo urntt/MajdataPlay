@@ -24,7 +24,8 @@ namespace MajdataPlay.Settings
     /// <c>ListStyle</c>, <c>ListPageSize</c> and <c>ListInstantPreview</c>, move to the <c>Display</c> category.
     /// The falling chart options <c>FallingBreakToFlick</c>, <c>FallingSlideTailToFlick</c> and <c>FallingTouchToTap</c> move from
     /// the <c>Falling</c> category to the <c>Mod</c> category, the old slide-tail switch becomes a Flick position, and the old
-    /// <c>FallingSlideOriginal</c> switch becomes the <c>FallingSlideStyle</c> option.
+    /// <c>FallingSlideOriginal</c> switch is dropped. Falling settings written before <see cref="FallingOptions.CURRENT_REVISION"/>
+    /// have their slide style reset to Falling once.
     /// </para>
     /// </remarks>
     internal static class GameSettingMigration
@@ -76,9 +77,10 @@ namespace MajdataPlay.Settings
             var movedListKeys = MoveLegacyListKeys(root);
             var movedFallingModKeys = MoveFallingModKeys(root);
             var convertedSlideKeys = ConvertLegacySlideKeys(root);
+            var resetSlideStyle = ResetFallingSlideStyleOnce(root);
             var droppedMod = DropUnsavedMod(root);
             return removedNullCategories || movedRenderingKeys || movedFallingKeys || movedListKeys ||
-                   movedFallingModKeys || convertedSlideKeys || droppedMod;
+                   movedFallingModKeys || convertedSlideKeys || resetSlideStyle || droppedMod;
         }
 
         /// <summary>
@@ -133,7 +135,7 @@ namespace MajdataPlay.Settings
 
         /// <summary>
         /// 旧版开关改为选项：Mod 中星星尾转 Flick 的 true/false 改为“起点”/“关”；
-        /// Falling 中“Slide 保持原样”的 true/false 改为 Slide 样式“标准”/“下落式”（已有 Slide 样式时只删除旧键）
+        /// Falling 中“Slide 保持原样”的旧开关直接删除，不再继承（Slide 样式取默认的下落式）
         /// </summary>
         /// <param name="root">The root object of the document.</param>
         /// <returns>True when a legacy value was converted or removed.</returns>
@@ -150,12 +152,7 @@ namespace MajdataPlay.Settings
             if (root[nameof(GameSetting.Falling)] is JObject falling)
             {
                 var hasLegacyKey = false;
-                var original = TakeLegacyValue(falling, LegacySlideOriginalKey, ref hasLegacyKey);
-                if (original is JValue { Type: JTokenType.Boolean } isOriginal)
-                {
-                    var style = (bool)isOriginal ? FallingSlideStyleOption.Standard : FallingSlideStyleOption.Falling;
-                    CopyIfMissing(falling, nameof(FallingOptions.FallingSlideStyle), style.ToString());
-                }
+                TakeLegacyValue(falling, LegacySlideOriginalKey, ref hasLegacyKey);
                 isChanged |= hasLegacyKey;
             }
             if (isChanged)
@@ -163,6 +160,31 @@ namespace MajdataPlay.Settings
                 MajDebug.LogInfo(nameof(GameSettingMigration), "Converted the legacy slide switches to options");
             }
             return isChanged;
+        }
+
+        /// <summary>
+        /// 旧版本写的下落式设置（没有修订号或修订号较旧）：删除 Slide 样式，让它取默认的下落式，并写入当前修订号。
+        /// 只发生一次，之后玩家自己改的 Slide 样式会保留
+        /// </summary>
+        /// <param name="root">The root object of the document.</param>
+        /// <returns>True when the falling settings were older than <see cref="FallingOptions.CURRENT_REVISION"/>.</returns>
+        private static bool ResetFallingSlideStyleOnce(JObject root)
+        {
+            if (root[nameof(GameSetting.Falling)] is not JObject falling)
+            {
+                return false;
+            }
+            var revision = falling[nameof(FallingOptions.FallingSettingsRevision)] is JValue { Type: JTokenType.Integer } value
+                ? (long)value
+                : 0L;
+            if (revision >= FallingOptions.CURRENT_REVISION)
+            {
+                return false;
+            }
+            falling.Remove(nameof(FallingOptions.FallingSlideStyle));
+            falling[nameof(FallingOptions.FallingSettingsRevision)] = FallingOptions.CURRENT_REVISION;
+            MajDebug.LogInfo(nameof(GameSettingMigration), $"Reset the falling slide style of settings revision {revision} to Falling");
+            return true;
         }
 
         /// <summary>

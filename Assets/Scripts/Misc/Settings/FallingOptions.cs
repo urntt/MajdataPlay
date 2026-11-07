@@ -53,5 +53,18 @@ namespace MajdataPlay.Settings
         public bool FallingScoreColor { get; set; } = false;
 
         public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
+
+        /// <summary>
+        /// The revision of the falling settings written by this version; <see cref="GameSettingMigration"/> applies one-time
+        /// changes to settings written with an older revision.
+        /// </summary>
+        public const int CURRENT_REVISION = 1;
+
+        /// <summary>
+        /// Gets or sets the revision of the falling settings in the file: 1 since the slide style was reset to Falling once.
+        /// Files without it were written by older versions.
+        /// </summary>
+        [HideInSettingUI]
+        public int FallingSettingsRevision { get; set; } = CURRENT_REVISION;
     }
 }

@@ -164,14 +164,18 @@ namespace MajdataPlay.Scenes.List
             return DETAIL_TOP;
         }
         /// <summary>
-        /// Places the play button at the bottom right and the feedback button left of it, sized for the height of the page.
+        /// Places the play button at the bottom right and the feedback button left of it, sized for the height of the page and as far
+        /// from the bottom of the screen as from the right edge.
         /// </summary>
+        /// <param name="bottom">The distance of the buttons from the bottom of the safe area.</param>
         /// <returns>The size of the buttons, see <see cref="LightUi.GetActionButtonSize"/>.</returns>
-        float PlaceDetailActionButtons()
+        float PlaceDetailActionButtons(out float bottom)
         {
             var size = LightUi.GetActionButtonSize(_detailView.rect.height);
-            LightUi.PlaceActionButton(_detailPlayHolder, _detailPlayIcon, DETAIL_MARGIN, size);
-            LightUi.PlaceActionButton(_detailFeedbackHolder, _detailFeedbackIcon, DETAIL_MARGIN + size + LightUi.ACTION_BUTTON_GAP, size);
+            bottom = LightUi.GetActionButtonBottom(_root, DETAIL_MARGIN);
+            var gap = LightUi.GetActionButtonGap(size);
+            LightUi.PlaceActionButton(_detailPlayHolder, _detailPlayIcon, DETAIL_MARGIN, bottom, size);
+            LightUi.PlaceActionButton(_detailFeedbackHolder, _detailFeedbackIcon, DETAIL_MARGIN + size + gap, bottom, size);
             return size;
         }
         /// <param name="level">为空时用全局难度；这首歌没有这个难度时用最高难度</param>
@@ -589,8 +593,8 @@ namespace MajdataPlay.Scenes.List
             var rightBottom = densityY + CHART_PANEL_HEIGHT;
 
             // 底部给右下角悬浮的图标键留出空间
-            var actionButtonSize = PlaceDetailActionButtons();
-            _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(actionButtonSize));
+            var actionButtonSize = PlaceDetailActionButtons(out var actionButtonBottom);
+            _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(actionButtonSize, actionButtonBottom));
             LightUi.SetIconButtonInteractable(_detailPlayButton, _detailPlayIcon, hasLevel);
             _detailFeedbackHolder.gameObject.SetActive(ChartFeedbackSession.IsAvailable(song));
             LayoutRebuilder.ForceRebuildLayoutImmediate(_detailContent);

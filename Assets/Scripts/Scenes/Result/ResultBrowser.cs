@@ -163,6 +163,10 @@ namespace MajdataPlay.Scenes.Result
         /// The current size of the icon buttons at the bottom right.
         /// </summary>
         float _actionButtonSize = LightUi.ACTION_BUTTON_SIZE;
+        /// <summary>
+        /// The current distance of the icon buttons from the bottom of the safe area.
+        /// </summary>
+        float _actionButtonBottom = MARGIN;
         RectTransform _modal = null!;
         RectTransform _toast = null!;
         TextMeshProUGUI _toastText = null!;
@@ -262,17 +266,19 @@ namespace MajdataPlay.Scenes.Result
             return button;
         }
         /// <summary>
-        /// Places the icon buttons from the right edge leftwards; they are <see cref="LightUi.ACTION_BUTTON_SIZE"/> wide unless the
-        /// screen is short, see <see cref="LightUi.GetActionButtonSize"/>.
+        /// Places the icon buttons from the right edge leftwards, as far from the bottom of the screen as from the right edge; they
+        /// are <see cref="LightUi.ACTION_BUTTON_SIZE"/> wide unless the screen is short, see <see cref="LightUi.GetActionButtonSize"/>.
         /// </summary>
         /// <param name="height">The height of the page.</param>
         void PlaceActionButtons(float height)
         {
             _actionButtonSize = LightUi.GetActionButtonSize(height);
+            _actionButtonBottom = LightUi.GetActionButtonBottom(_root, MARGIN);
+            var gap = LightUi.GetActionButtonGap(_actionButtonSize);
             for (var slot = 0; slot < _actionButtons.Count; slot++)
             {
                 var (holder, icon) = _actionButtons[slot];
-                LightUi.PlaceActionButton(holder, icon, MARGIN + slot * (_actionButtonSize + LightUi.ACTION_BUTTON_GAP), _actionButtonSize);
+                LightUi.PlaceActionButton(holder, icon, MARGIN + slot * (_actionButtonSize + gap), _actionButtonBottom, _actionButtonSize);
             }
         }
         async UniTaskVoid LoadCoverAsync()
@@ -358,7 +364,7 @@ namespace MajdataPlay.Scenes.Result
             if (isLandscape)
             {
                 // 曲绘边长同时受高度限制，横屏手机等矮屏上不占满整屏高度
-                var coverLimit = (height - CONTENT_TOP - LightUi.GetActionButtonClearance(_actionButtonSize)) * COVER_HEIGHT_SHARE;
+                var coverLimit = (height - CONTENT_TOP - LightUi.GetActionButtonClearance(_actionButtonSize, _actionButtonBottom)) * COVER_HEIGHT_SHARE;
                 leftWidth = Mathf.Min(Mathf.Clamp(width * 0.3f, 360f, 520f), Mathf.Max(240f, coverLimit));
                 leftX = MARGIN;
                 rightX = leftX + leftWidth + COLUMN_GAP;
@@ -380,7 +386,7 @@ namespace MajdataPlay.Scenes.Result
             }
             var rightBottom = BuildRightColumn(rightX, rightTop, rightWidth);
             // 底部给右下角悬浮的图标键留出空间
-            _content.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(_actionButtonSize));
+            _content.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(_actionButtonSize, _actionButtonBottom));
             if (_hasRolled)
             {
                 SetAchievementText(_data.Achievement);

@@ -85,6 +85,14 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public bool IsLastHit => _samples.Length != 0 && _samples[^1].IsHit;
         /// <summary>
+        /// Gets when the earliest hit check point reaches the judge line, or <see langword="null"/> while no check point is hit.
+        /// </summary>
+        /// <remarks>
+        /// A check point can be hit up to <see cref="EARLY_SEC"/> before it arrives, for example by a finger resting where the star
+        /// will pass; the slide sound waits for this time so it is not played early.
+        /// </remarks>
+        public float? FirstHitTiming { get; private set; }
+        /// <summary>
         /// 星星尾转 Flick：唯一的点需要在 <see cref="FlickLane"/> 划动才算命中
         /// </summary>
         public bool IsFlick => _isFlick;
@@ -224,6 +232,10 @@ namespace MajdataPlay.Scenes.Game.Lane
                 {
                     sample.IsHit = true;
                     isNewlyHit = true;
+                    if (FirstHitTiming is not float firstHitTiming || sample.Timing < firstHitTiming)
+                    {
+                        FirstHitTiming = sample.Timing;
+                    }
                 }
             }
             // 命中的点等到达判定线时才结算，整条 Slide 不会提前结束

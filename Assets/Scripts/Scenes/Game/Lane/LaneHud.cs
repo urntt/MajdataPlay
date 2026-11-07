@@ -53,6 +53,18 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float BOTTOM_TEXT_HEIGHT = 60f;
         /// <summary>
+        /// The smallest height of the title and the difficulty when the gap below the judge line is small.
+        /// </summary>
+        const float MIN_BOTTOM_TEXT_HEIGHT = 24f;
+        /// <summary>
+        /// The space kept between the title and the difficulty and the judge line above them.
+        /// </summary>
+        const float BOTTOM_TEXT_GAP = 8f;
+        /// <summary>
+        /// The smallest font size of the title and the difficulty when they shrink to fit.
+        /// </summary>
+        const float MIN_BOTTOM_FONT_SIZE = 18f;
+        /// <summary>
         /// The width of the pause menu: four buttons 300 wide, centered 360 apart.
         /// </summary>
         const float PAUSE_MENU_WIDTH = 360f * 3f + 300f;
@@ -96,9 +108,34 @@ namespace MajdataPlay.Scenes.Game.Lane
 
         RectTransform _root = null!;
         /// <summary>
-        /// The safe area of the screen, enlarged on phones; holds the pause and skip buttons, the score, the title and the difficulty.
+        /// Holds the pause and skip buttons, the score, the title and the difficulty. It covers the screen, pulled in from an edge
+        /// only where the safe area reaches further than the margins, and is enlarged on phones; see <see cref="LayoutHudArea"/>.
         /// </summary>
-        RectTransform _safe = null!;
+        RectTransform _hudArea = null!;
+        /// <summary>
+        /// The song title at the bottom left, kept below the judge line.
+        /// </summary>
+        TextMeshProUGUI _titleText = null!;
+        /// <summary>
+        /// The difficulty at the bottom right, kept below the judge line.
+        /// </summary>
+        TextMeshProUGUI _difficultyText = null!;
+        /// <summary>
+        /// The HUD size the area was last laid out for.
+        /// </summary>
+        Vector2 _lastRootSize;
+        /// <summary>
+        /// The screen size the area was last laid out for.
+        /// </summary>
+        Vector2Int _lastScreenSize;
+        /// <summary>
+        /// The safe area the area was last laid out for.
+        /// </summary>
+        Rect _lastSafeArea;
+        /// <summary>
+        /// The height of the judge line above the screen bottom, in pixels, the area was last laid out for.
+        /// </summary>
+        float _lastJudgeLineScreenY = float.NaN;
         /// <summary>
         /// The 1920×1080 area of the pause overlay holding the menu and the countdown, scaled by <see cref="FitPauseMenu"/>.
         /// </summary>
@@ -228,8 +265,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 背景铺满屏幕：在 LateUpdate 中按显示中的封面或视频尺寸缩放
             _background = bgManager.CoverRenderer.rectTransform.parent as RectTransform;
 
-            // 四角的按钮与文字放在安全区域内（避开刘海、圆角和底部横条），手机上按物理尺寸放大；横屏翻转时自动重新摆放
-            _safe = SafeAreaFitter.CreateEnlarged(_root);
+            // 四角的按钮与文字：离屏幕边取原边距与安全区边距中较大的一个，手机上按物理尺寸放大；由 LayoutHudArea 摆放
+            _hudArea = CreateRect("HudArea", _root, layer);
 
             // 进度条
             var progressBack = CreateImage("ProgressBack", _root, layer, new Color(1f, 1f, 1f, 0.2f));
@@ -247,7 +284,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _progressFill.anchoredPosition = Vector2.zero;
 
             // 左上：暂停键（“II”）
-            _pauseButton = CreateRect("PauseButton", _safe, layer);
+            _pauseButton = CreateRect("PauseButton", _hudArea, layer);
             SetRect(_pauseButton, new Vector2(0, 1), new Vector2(0.5f, 0.5f),
                     new Vector2(EDGE_MARGIN + BUTTON_SIZE / 2f, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
                     new Vector2(PAUSE_HIT_SIZE, PAUSE_HIT_SIZE));
@@ -267,7 +304,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _skipButton = skipButton.transform as RectTransform;
             if (_skipButton != null)
             {
-                _skipButton.SetParent(_safe, false);
+                _skipButton.SetParent(_hudArea, false);
                 _skipButton.localRotation = Quaternion.identity;
                 SetRect(_skipButton, new Vector2(0, 1), new Vector2(0.5f, 0.5f),
                         new Vector2(EDGE_MARGIN + BUTTON_SIZE * 1.5f + 20f, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
@@ -279,7 +316,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             var fallingOptions = MajEnv.Settings.Falling;
             var score = objectCounter.SubScreenInfoDisplayerText;
             var scoreRect = score.rectTransform;
-            scoreRect.SetParent(_safe, false);
+            scoreRect.SetParent(_hudArea, false);
             scoreRect.localScale = Vector3.one;
             scoreRect.localRotation = Quaternion.identity;
             SetRect(scoreRect, new Vector2(1, 1), new Vector2(1, 0.5f),
@@ -291,7 +328,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             if (!fallingOptions.FallingInfoFollowDisplay)
             {
                 // 分数下方小字：从 101% 往下掉的达成率，紧贴分数数字下方
-                var achievement = CreateText("Achievement", _safe, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
+                var achievement = CreateText("Achievement", _hudArea, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
                 SetRect(achievement.rectTransform, new Vector2(1, 1), new Vector2(1, 1),
                         new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f + SCORE_FONT_SIZE * 0.45f)),
                         new Vector2(600f, ACHIEVEMENT_FONT_SIZE * 1.5f));
@@ -315,11 +352,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             MoveTo(objectCounter.SecondaryInfoDisplayerObject, topCenter);
             MoveTo(objectCounter.JudgeTimingGaugeObject, topCenter);
 
-            // 左下曲名、右下难度：曲名占底边左侧 62%，难度占右侧，放不下时缩小字号
-            var titleText = CreateText("Title", _safe, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
-            SetBottomRow(titleText, 0f, TITLE_SHARE, EDGE_MARGIN, TITLE_GAP * 0.5f);
-            var difficultyText = CreateText("Difficulty", _safe, layer, font, 40f, fallingOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
-            SetBottomRow(difficultyText, TITLE_SHARE, 1f, TITLE_GAP * 0.5f, EDGE_MARGIN);
+            // 左下曲名、右下难度：曲名占底边左侧 62%，难度占右侧，放在判定线下方，放不下时缩小字号
+            _titleText = CreateText("Title", _hudArea, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
+            SetBottomTextStyle(_titleText);
+            _difficultyText = CreateText("Difficulty", _hudArea, layer, font, 40f, fallingOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
+            SetBottomTextStyle(_difficultyText);
+            LayoutHudArea(true);
 
             BuildPauseOverlay(font);
 
@@ -426,6 +464,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             var progress = length > 0 ? Mathf.Clamp01(_gpManager.ThisFrameSec / length) : 0f;
             _progressFill.anchorMax = new Vector2(progress, 1);
             FitBackground();
+            LayoutHudArea(false);
             UpdateJudgeLineColor();
             UpdateLaneHighlights();
         }
@@ -698,26 +737,116 @@ namespace MajdataPlay.Scenes.Game.Lane
             _overlayArea.anchoredPosition = new Vector2(offset.x * size.x / Screen.width, offset.y * size.y / Screen.height);
         }
         /// <summary>
-        /// Places a text along the bottom of the safe area between two horizontal shares of its width, shrinking the text to fit.
+        /// Lays out the HUD area for the screen, its safe area and the judge line, and does nothing while none of them changed.
+        /// </summary>
+        /// <remarks>
+        /// On each side but the bottom, the corner items keep the larger of their margin and the safe-area inset from the screen
+        /// edge, instead of adding the two. The bottom ignores the home indicator, which sits in the middle while the title and
+        /// the difficulty sit at the ends; they stay in the gap below the judge line, see <see cref="GetBottomTextBox"/>.
+        /// On phones everything is enlarged by <see cref="UiScaling.GetEnlargement"/>.
+        /// </remarks>
+        /// <param name="isForced">Whether to lay out even when nothing changed.</param>
+        void LayoutHudArea(bool isForced)
+        {
+            var rootSize = _root.rect.size;
+            var screenSize = new Vector2Int(Screen.width, Screen.height);
+            var safeArea = Screen.safeArea;
+            var judgeLineScreenY = GetJudgeLineScreenY();
+            if (!isForced && rootSize == _lastRootSize && screenSize == _lastScreenSize && safeArea == _lastSafeArea &&
+                Mathf.Abs(judgeLineScreenY - _lastJudgeLineScreenY) < 0.5f)
+            {
+                return;
+            }
+            if (rootSize.x <= 0f || rootSize.y <= 0f || screenSize.x <= 0 || screenSize.y <= 0)
+            {
+                // 尺寸还没确定：下一帧再试
+                _lastJudgeLineScreenY = float.NaN;
+                return;
+            }
+            _lastRootSize = rootSize;
+            _lastScreenSize = screenSize;
+            _lastSafeArea = safeArea;
+            _lastJudgeLineScreenY = judgeLineScreenY;
+            var scale = UiScaling.GetEnlargement(screenSize.x, screenSize.y, Screen.dpi);
+            var unitsPerPixel = new Vector2(rootSize.x / screenSize.x, rootSize.y / screenSize.y);
+            var margin = EDGE_MARGIN * scale;
+            // 安全区比边距更靠里时才往里收，收的量是两者之差
+            var insetLeft = Mathf.Max(0f, safeArea.xMin * unitsPerPixel.x - margin);
+            var insetRight = Mathf.Max(0f, (screenSize.x - safeArea.xMax) * unitsPerPixel.x - margin);
+            var insetTop = Mathf.Max(0f, (screenSize.y - safeArea.yMax) * unitsPerPixel.y - margin);
+            var anchorMin = new Vector2(insetLeft / rootSize.x, 0f);
+            var anchorMax = new Vector2(1f - insetRight / rootSize.x, 1f - insetTop / rootSize.y);
+            SafeAreaFitter.GetScaledOffsets(Vector2.Scale(rootSize, anchorMax - anchorMin), scale, out var offsetMin, out var offsetMax);
+            _hudArea.anchorMin = anchorMin;
+            _hudArea.anchorMax = anchorMax;
+            _hudArea.pivot = new Vector2(0.5f, 0.5f);
+            _hudArea.localScale = new Vector3(scale, scale, 1f);
+            _hudArea.offsetMin = offsetMin;
+            _hudArea.offsetMax = offsetMax;
+
+            // 判定线下方的空隙，换成 HUD 区域里的单位；拿不到相机时按原来的位置摆
+            var gap = judgeLineScreenY >= 0f
+                ? judgeLineScreenY * unitsPerPixel.y / scale
+                : BOTTOM_TEXT_Y + BOTTOM_TEXT_HEIGHT + BOTTOM_TEXT_GAP;
+            GetBottomTextBox(gap, out var bottom, out var height);
+            SetBottomRow(_titleText, 0f, TITLE_SHARE, EDGE_MARGIN, TITLE_GAP * 0.5f, bottom, height);
+            SetBottomRow(_difficultyText, TITLE_SHARE, 1f, TITLE_GAP * 0.5f, EDGE_MARGIN, bottom, height);
+        }
+        /// <summary>
+        /// Gets where the title and the difficulty go in the gap below the judge line: at their usual height when the gap is large
+        /// enough (tablets), lower and smaller when it is not (phones in landscape).
+        /// </summary>
+        /// <param name="gap">The height of the gap between the screen bottom and the judge line, in HUD area units.</param>
+        /// <param name="bottom">The distance of the text box from the screen bottom.</param>
+        /// <param name="height">The height of the text box.</param>
+        internal static void GetBottomTextBox(float gap, out float bottom, out float height)
+        {
+            bottom = Mathf.Max(0f, Mathf.Min(BOTTOM_TEXT_Y, gap * 0.25f));
+            height = Mathf.Clamp(gap - BOTTOM_TEXT_GAP - bottom, MIN_BOTTOM_TEXT_HEIGHT, BOTTOM_TEXT_HEIGHT);
+        }
+        /// <summary>
+        /// Gets the height of the judge line above the screen bottom.
+        /// </summary>
+        /// <returns>The height in screen pixels, or -1 while the gameplay camera is not available.</returns>
+        static float GetJudgeLineScreenY()
+        {
+            var camera = SceneSwitcher.MainCamera;
+            if (camera == null)
+            {
+                return -1f;
+            }
+            return camera.WorldToScreenPoint(new Vector3(0f, LaneLayout.JUDGE_LINE_Y, 0f)).y;
+        }
+        /// <summary>
+        /// Lets a bottom text shrink to fit and end with an ellipsis instead of wrapping; called once after the text is created.
+        /// </summary>
+        /// <param name="text">The text.</param>
+        static void SetBottomTextStyle(TextMeshProUGUI text)
+        {
+            text.enableAutoSizing = true;
+            text.fontSizeMin = MIN_BOTTOM_FONT_SIZE;
+            text.fontSizeMax = text.fontSize;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+        }
+        /// <summary>
+        /// Places a text along the bottom of the HUD area between two horizontal shares of its width.
         /// </summary>
         /// <param name="text">The text.</param>
         /// <param name="fromShare">Where the text starts, as a share of the width.</param>
         /// <param name="toShare">Where the text ends, as a share of the width.</param>
         /// <param name="left">The inset from the start.</param>
         /// <param name="right">The inset from the end.</param>
-        static void SetBottomRow(TextMeshProUGUI text, float fromShare, float toShare, float left, float right)
+        /// <param name="bottom">The distance of the text from the bottom.</param>
+        /// <param name="height">The height of the text.</param>
+        static void SetBottomRow(TextMeshProUGUI text, float fromShare, float toShare, float left, float right, float bottom, float height)
         {
             var rect = text.rectTransform;
             rect.anchorMin = new Vector2(fromShare, 0f);
             rect.anchorMax = new Vector2(toShare, 0f);
             rect.pivot = new Vector2(0.5f, 0f);
-            rect.offsetMin = new Vector2(left, BOTTOM_TEXT_Y);
-            rect.offsetMax = new Vector2(-right, BOTTOM_TEXT_Y + BOTTOM_TEXT_HEIGHT);
-            text.enableAutoSizing = true;
-            text.fontSizeMin = 22f;
-            text.fontSizeMax = text.fontSize;
-            text.enableWordWrapping = false;
-            text.overflowMode = TextOverflowModes.Ellipsis;
+            rect.offsetMin = new Vector2(left, bottom);
+            rect.offsetMax = new Vector2(-right, bottom + height);
         }
         static void MoveTo(GameObject? obj, RectTransform parent)
         {

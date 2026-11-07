@@ -159,37 +159,74 @@ namespace MajdataPlay
         /// <summary>
         /// The size of the floating icon buttons at the bottom right of the detail and result pages on screens tall enough.
         /// </summary>
-        public const float ACTION_BUTTON_SIZE = 160f;
+        public const float ACTION_BUTTON_SIZE = 120f;
         /// <summary>
-        /// The gap between two floating icon buttons.
+        /// The largest share of the canvas height a floating icon button takes on short screens.
         /// </summary>
-        public const float ACTION_BUTTON_GAP = 16f;
+        const float ACTION_BUTTON_MAX_HEIGHT_SHARE = 0.12f;
         /// <summary>
-        /// The distance of the floating icon buttons from the bottom edge.
+        /// The smallest size of a floating icon button.
         /// </summary>
-        public const float ACTION_BUTTON_BOTTOM = 36f;
+        const float ACTION_BUTTON_MIN_SIZE = 48f;
+        /// <summary>
+        /// The smallest distance of the floating icon buttons from the bottom of the safe area.
+        /// </summary>
+        public const float ACTION_BUTTON_MIN_BOTTOM = 8f;
         /// <summary>
         /// The blur of the soft shadow under a floating icon button.
         /// </summary>
         const float ACTION_BUTTON_SHADOW_BLUR = 16f;
         /// <summary>
-        /// Gets the size of the floating icon buttons for a canvas: <see cref="ACTION_BUTTON_SIZE"/>, but at most 16% of the
+        /// Gets the size of the floating icon buttons for a canvas: <see cref="ACTION_BUTTON_SIZE"/>, but at most 12% of the
         /// canvas height so they stay small on short screens such as phones in landscape.
         /// </summary>
         /// <param name="canvasHeight">The height of the canvas area the buttons float over.</param>
         /// <returns>The width and height of one button.</returns>
         public static float GetActionButtonSize(float canvasHeight)
         {
-            return Mathf.Clamp(canvasHeight * 0.16f, 64f, ACTION_BUTTON_SIZE);
+            return Mathf.Clamp(canvasHeight * ACTION_BUTTON_MAX_HEIGHT_SHARE, ACTION_BUTTON_MIN_SIZE, ACTION_BUTTON_SIZE);
+        }
+        /// <summary>
+        /// Gets the gap between two floating icon buttons: a quarter of their size.
+        /// </summary>
+        /// <param name="buttonSize">The size of the buttons, from <see cref="GetActionButtonSize"/>.</param>
+        /// <returns>The gap.</returns>
+        public static float GetActionButtonGap(float buttonSize)
+        {
+            return buttonSize * 0.25f;
+        }
+        /// <summary>
+        /// Gets the distance of the floating icon buttons from the bottom of the safe area, so that their distance from the bottom
+        /// of the screen equals the page margin they keep from the right; at least <see cref="ACTION_BUTTON_MIN_BOTTOM"/>, so they
+        /// stay clear of a home indicator taller than the margin.
+        /// </summary>
+        /// <param name="margin">The page margin, which is also the distance of the buttons from the right edge.</param>
+        /// <param name="bottomInset">The height of the screen below the safe area, in canvas units.</param>
+        /// <returns>The distance from the bottom of the safe area.</returns>
+        public static float GetActionButtonBottom(float margin, float bottomInset)
+        {
+            return Mathf.Max(ACTION_BUTTON_MIN_BOTTOM, margin - Mathf.Max(0f, bottomInset));
+        }
+        /// <summary>
+        /// Gets the distance of the floating icon buttons from the bottom of a safe root, see <see cref="GetActionButtonBottom(float, float)"/>.
+        /// </summary>
+        /// <param name="safeRoot">The safe-area root from <see cref="CreateSafeRoot"/>, a child of the full-screen canvas root.</param>
+        /// <param name="margin">The page margin, which is also the distance of the buttons from the right edge.</param>
+        /// <returns>The distance from the bottom of the safe area.</returns>
+        public static float GetActionButtonBottom(RectTransform safeRoot, float margin)
+        {
+            var screenHeight = safeRoot.parent is RectTransform canvasRoot ? canvasRoot.rect.height : 0f;
+            return GetActionButtonBottom(margin, safeRoot.anchorMin.y * screenHeight);
         }
         /// <summary>
         /// Gets how much empty space a scroll view needs at its bottom so its last content can scroll above the floating buttons.
         /// </summary>
         /// <param name="buttonSize">The size of the buttons, from <see cref="GetActionButtonSize"/>.</param>
+        /// <param name="bottom">The distance of the buttons from the bottom, from <see cref="GetActionButtonBottom(RectTransform, float)"/>.</param>
         /// <returns>The height to add below the content.</returns>
-        public static float GetActionButtonClearance(float buttonSize)
+        public static float GetActionButtonClearance(float buttonSize, float bottom)
         {
-            return buttonSize + ACTION_BUTTON_BOTTOM + 34f;
+            return buttonSize + bottom + 34f;
         }
         /// <summary>
         /// Creates a floating icon button with a soft shadow of the same rounded shape; place it with <see cref="PlaceActionButton"/>.
@@ -218,10 +255,11 @@ namespace MajdataPlay
         /// <param name="holder">The holder returned by <see cref="CreateActionButton"/>.</param>
         /// <param name="iconImage">The icon image of the button.</param>
         /// <param name="right">The distance from the right edge.</param>
+        /// <param name="bottom">The distance from the bottom edge, from <see cref="GetActionButtonBottom(RectTransform, float)"/>.</param>
         /// <param name="size">The width and height of the button.</param>
-        public static void PlaceActionButton(RectTransform holder, Image iconImage, float right, float size)
+        public static void PlaceActionButton(RectTransform holder, Image iconImage, float right, float bottom, float size)
         {
-            PlaceBottomRight(holder, right, ACTION_BUTTON_BOTTOM, size, size);
+            PlaceBottomRight(holder, right, bottom, size, size);
             var radius = size * 0.25f;
             if (holder.Find("Shadow") is RectTransform shadowRect && shadowRect.TryGetComponent<Image>(out var shadow))
             {

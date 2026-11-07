@@ -267,7 +267,7 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             var falling = (JObject)document["Falling"]!;
             var mod = (JObject)document["Mod"]!;
             Assert.That(changed, Is.True);
-            Assert.That(falling.Count, Is.EqualTo(1));
+            Assert.That(falling.Count, Is.EqualTo(2), "only FallingSpeed and the revision stay");
             Assert.That(falling["FallingSpeed"]!.Value<float>(), Is.EqualTo(7.5f));
             Assert.That(mod["FallingBreakToFlick"]!.Value<bool>(), Is.True);
             Assert.That(mod["FallingSlideTailToFlick"]!.Value<string>(), Is.EqualTo("Start"));
@@ -320,12 +320,11 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             Assert.That(document["Mod"]!["FallingSlideTailToFlick"]!.Value<string>(), Is.EqualTo(expected));
         }
 
-        /// <summary>Checks that the old Keep Slides Original switch becomes the Standard or Falling slide style.</summary>
+        /// <summary>Checks that the old Keep Slides Original switch is dropped either way, so the slide style is the default Falling.</summary>
         /// <param name="isOriginal">The old switch value.</param>
-        /// <param name="expected">The expected slide style.</param>
-        [TestCase(true, "Standard")]
-        [TestCase(false, "Falling")]
-        public void Migrate_ConvertsSlideOriginalToSlideStyle(bool isOriginal, string expected)
+        [TestCase(true)]
+        [TestCase(false)]
+        public void Migrate_DropsSlideOriginalSwitch(bool isOriginal)
         {
             var document = new JObject { ["Falling"] = new JObject { ["FallingSlideOriginal"] = isOriginal } };
 
@@ -334,24 +333,48 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             var falling = (JObject)document["Falling"]!;
             Assert.That(changed, Is.True);
             Assert.That(falling.ContainsKey("FallingSlideOriginal"), Is.False);
-            Assert.That(falling["FallingSlideStyle"]!.Value<string>(), Is.EqualTo(expected));
+            Assert.That(falling.ContainsKey("FallingSlideStyle"), Is.False);
+            Assert.That(falling["FallingSettingsRevision"]!.Value<int>(), Is.EqualTo(FallingOptions.CURRENT_REVISION));
         }
 
-        /// <summary>Checks that a slide style already in Falling wins over the old switch, which is removed.</summary>
-        [Test]
-        public void Migrate_ExistingSlideStyleWins()
+        /// <summary>Checks that falling settings of an older revision have their slide style reset to Falling once.</summary>
+        /// <param name="style">The stored slide style.</param>
+        [TestCase("Standard")]
+        [TestCase("Floating")]
+        public void Read_OlderRevisionResetsSlideStyle(string style)
         {
-            var document = JObject.Parse("{\"Falling\":{\"FallingSlideOriginal\":true,\"FallingSlideStyle\":\"Floating\"}}");
+            var setting = Read($"{{\"Falling\":{{\"FallingSlideStyle\":\"{style}\",\"FallingSpeed\":8}}}}");
+
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Falling));
+            Assert.That(setting.Falling.FallingSpeed, Is.EqualTo(8f), "other falling settings are kept");
+            Assert.That(setting.Falling.FallingSettingsRevision, Is.EqualTo(FallingOptions.CURRENT_REVISION));
+        }
+
+        /// <summary>Checks that a slide style chosen with the current revision is kept and the document is current.</summary>
+        [Test]
+        public void Migrate_KeepsSlideStyleOfCurrentRevision()
+        {
+            var document = JObject.Parse("{\"Falling\":{\"FallingSlideStyle\":\"Floating\",\"FallingSettingsRevision\":1}}");
 
             var changed = GameSettingMigration.Migrate(document, CreateSerializer());
 
-            var falling = (JObject)document["Falling"]!;
-            Assert.That(changed, Is.True);
-            Assert.That(falling.ContainsKey("FallingSlideOriginal"), Is.False);
-            Assert.That(falling["FallingSlideStyle"]!.Value<string>(), Is.EqualTo("Floating"));
+            Assert.That(changed, Is.False);
+            Assert.That(document["Falling"]!["FallingSlideStyle"]!.Value<string>(), Is.EqualTo("Floating"));
         }
 
-        /// <summary>Checks that settings of the previous layout keep their chart options and slide style when read.</summary>
+        /// <summary>Checks that new settings use the Falling slide style and the current revision.</summary>
+        [Test]
+        public void NewSettings_UseFallingSlideStyle()
+        {
+            var setting = new GameSetting();
+
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Falling));
+            Assert.That(setting.Falling.FallingSettingsRevision, Is.EqualTo(FallingOptions.CURRENT_REVISION));
+            Assert.That(Read(Serializer.Json.Serialize(setting, MajEnv.UserJsonReaderOption)).Falling.FallingSlideStyle,
+                        Is.EqualTo(FallingSlideStyleOption.Falling), "a round trip keeps it");
+        }
+
+        /// <summary>Checks that settings of the previous layout keep their chart options and get the Falling slide style when read.</summary>
         [Test]
         public void Read_LegacyFallingChartOptionsKeepTheirValues()
         {
@@ -360,16 +383,16 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             Assert.That(setting.Mod.FallingBreakToFlick, Is.True);
             Assert.That(setting.Mod.FallingSlideTailToFlick, Is.EqualTo(FallingSlideFlickOption.Start));
             Assert.That(setting.Mod.FallingTouchToTap, Is.True);
-            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Standard));
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Falling));
         }
 
-        /// <summary>Checks that the oldest layout, with Keep Slides Original saved in Mod, still ends up as the slide style.</summary>
+        /// <summary>Checks that the oldest layout, with Keep Slides Original saved in Mod, also ends up with the Falling slide style.</summary>
         [Test]
-        public void Read_OldestModSlideOriginalBecomesSlideStyle()
+        public void Read_OldestModSlideOriginalIsDropped()
         {
             var setting = Read("{\"Debug\":{\"SaveModSettings\":true},\"Mod\":{\"FallingSlideOriginal\":true}}");
 
-            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Standard));
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Falling));
         }
 
         /// <summary>Checks that null categories are removed and reported as a change.</summary>
