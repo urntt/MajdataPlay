@@ -22,22 +22,32 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         const float DETAIL_BACK_WIDTH = 150f;
         const float DETAIL_GAP = 32f;
+        /// <summary>
+        /// The distance of the detail top bar from the top of the page.
+        /// </summary>
+        const float DETAIL_BAR_TOP = 24f;
+        /// <summary>
+        /// The top of the detail content below a one-row top bar.
+        /// </summary>
         const float DETAIL_TOP = 100f;
+        /// <summary>
+        /// The largest cover in the single-column detail page.
+        /// </summary>
+        const float SINGLE_COLUMN_COVER_MAX = 520f;
+        /// <summary>
+        /// The smallest cover when the cover is limited by the page height.
+        /// </summary>
+        const float MIN_DETAIL_COVER = 200f;
         const float INFO_ROW_HEIGHT = 46f;
-        const float SCORE_CARD_HEIGHT = 156f;
+        /// <summary>
+        /// The height of the score card: achievement row, DX score with stars, the DX bar, then plays and the last play date.
+        /// </summary>
+        const float SCORE_CARD_HEIGHT = 190f;
+        /// <summary>
+        /// The height of one difficulty tab on the detail page.
+        /// </summary>
+        const float DETAIL_LEVEL_TAG_HEIGHT = 54f;
         const float CHART_PANEL_HEIGHT = 400f;
-        /// <summary>
-        /// The size of the play and feedback icon buttons at the bottom right of the detail page.
-        /// </summary>
-        const float DETAIL_ICON_SIZE = 80f;
-        /// <summary>
-        /// The corner radius of the play and feedback icon buttons.
-        /// </summary>
-        const float DETAIL_ICON_RADIUS = 20f;
-        /// <summary>
-        /// The gap between the feedback and play icon buttons.
-        /// </summary>
-        const float DETAIL_ICON_GAP = 16f;
 
         RectTransform _detailView = null!;
         RectTransform _detailViewport = null!;
@@ -45,6 +55,14 @@ namespace MajdataPlay.Scenes.List
         ScrollRect _detailScroll = null!;
         CanvasGroup _detailGroup = null!;
         Button _detailPlayButton = null!;
+        /// <summary>
+        /// The holder of the play button and its shadow, placed and sized by <see cref="PlaceDetailActionButtons"/>.
+        /// </summary>
+        RectTransform _detailPlayHolder = null!;
+        /// <summary>
+        /// The icon of the feedback button.
+        /// </summary>
+        Image _detailFeedbackIcon = null!;
         /// <summary>
         /// The play icon, faded together with the play button when the song has no chart of the chosen difficulty.
         /// </summary>
@@ -59,12 +77,24 @@ namespace MajdataPlay.Scenes.List
         TextMeshProUGUI[]? _detailInfoValues;
         Image? _detailHeart;
         TextMeshProUGUI _detailLevelText = null!;
+        /// <summary>
+        /// The holder of Cover, −, the difficulty, + and Settings on the detail page, scaled down or moved to a second row on narrow pages.
+        /// </summary>
+        RectTransform _detailTopControls = null!;
+        /// <summary>
+        /// The player nickname and avatar on the detail page; only the avatar on narrow pages.
+        /// </summary>
+        RectTransform _detailProfile = null!;
 
         ISongDetail? _detailSong;
         ChartLevel _detailLevel;
         Sprite? _detailCover;
         string? _detailCoverHash;
         float _lastDetailWidth = -1f;
+        /// <summary>
+        /// The page height the detail page was last laid out for; a change (rotation, keyboard-free resize) lays it out again.
+        /// </summary>
+        float _lastDetailHeight = -1f;
         bool _isDetailClosing = false;
         readonly List<Texture> _createdTextures = new();
 
@@ -93,27 +123,56 @@ namespace MajdataPlay.Scenes.List
 
             // 固定在左上角的返回与右下角的游玩，不随内容滚动
             var back = CreateButton(_detailView, "<  " + "MAJTEXT_LIST_BACK".i18n(), PAPER_COLOR, TEXT_COLOR, 20f, CloseDetail);
-            PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, 24f, DETAIL_BACK_WIDTH, TOPBAR_HEIGHT);
+            PlaceTopLeft((RectTransform)back.transform, DETAIL_MARGIN, DETAIL_BAR_TOP, DETAIL_BACK_WIDTH, TOPBAR_HEIGHT);
 
             // 返回键右边是与列表相同的一组控件；这里的 −/+ 只切换当前谱面的难度，不改全局难度
-            var topControls = CreateRect("TopControls", _detailView);
-            PlaceTopLeft(topControls, DETAIL_MARGIN + DETAIL_BACK_WIDTH + 16f, 24f, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
-            _detailLevelText = BuildTopControls(topControls, SwitchToCover, () => ChangeDetailLevel(-1), () => ChangeDetailLevel(1), EnterSetting);
+            // 位置与大小由 LayoutDetailTopBar 按页面宽度决定
+            _detailTopControls = CreateRect("TopControls", _detailView);
+            PlaceTopLeft(_detailTopControls, DETAIL_MARGIN + DETAIL_BACK_WIDTH + 16f, DETAIL_BAR_TOP, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
+            _detailLevelText = BuildTopControls(_detailTopControls, SwitchToCover, () => ChangeDetailLevel(-1), () => ChangeDetailLevel(1), EnterSetting);
             // 右上角：玩家昵称与头像，与列表同一位置
-            var profile = new LightUi(_font).CreatePlayerProfile(_detailView, TOPBAR_HEIGHT, PAGE_COLOR);
-            PlaceTopRight(profile, MAIN_RIGHT_PADDING, 24f, PROFILE_WIDTH, TOPBAR_HEIGHT);
+            _detailProfile = new LightUi(_font).CreatePlayerProfile(_detailView, TOPBAR_HEIGHT, PAGE_COLOR);
+            PlaceTopRight(_detailProfile, MAIN_RIGHT_PADDING, DETAIL_BAR_TOP, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
-            // 右下角：评价、游玩两个图标键；柔和投影与按钮同一圆角、中心对齐，按钮铺满投影容器
-            var playHolder = LightUi.CreateShadowHolder(_detailView, DETAIL_ICON_RADIUS, 16f, 0.2f);
-            LightUi.PlaceBottomRight(playHolder, DETAIL_MARGIN, 36f, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE);
-            _detailPlayButton = LightUi.CreateIconButton(playHolder, UiSprites.Play, ACCENT_COLOR, Color.white, 40f, PlaySelected, out _detailPlayIcon, DETAIL_ICON_RADIUS);
-            Stretch((RectTransform)_detailPlayButton.transform);
-            _detailFeedbackHolder = LightUi.CreateShadowHolder(_detailView, DETAIL_ICON_RADIUS, 16f, 0.16f);
-            LightUi.PlaceBottomRight(_detailFeedbackHolder, DETAIL_MARGIN + DETAIL_ICON_SIZE + DETAIL_ICON_GAP, 36f, DETAIL_ICON_SIZE, DETAIL_ICON_SIZE);
-            var feedbackButton = LightUi.CreateIconButton(_detailFeedbackHolder, UiSprites.Comment, PAPER_COLOR, FAVORITE_COLOR, 40f, ShowFeedbackDialog, out _, DETAIL_ICON_RADIUS);
-            Stretch((RectTransform)feedbackButton.transform);
+            // 右下角：评价、游玩两个图标键；柔和投影与按钮同一圆角、中心对齐，大小由 PlaceDetailActionButtons 按页面高度决定
+            _detailPlayHolder = LightUi.CreateActionButton(_detailView, UiSprites.Play, ACCENT_COLOR, Color.white, 0.2f, PlaySelected,
+                                                           out _detailPlayButton, out _detailPlayIcon);
+            _detailFeedbackHolder = LightUi.CreateActionButton(_detailView, UiSprites.Comment, PAPER_COLOR, FAVORITE_COLOR, 0.16f, ShowFeedbackDialog,
+                                                               out _, out _detailFeedbackIcon);
             _detailFeedbackHolder.gameObject.SetActive(false);
             _detailView.gameObject.SetActive(false);
+        }
+        /// <summary>
+        /// Fits the detail top bar into the page width: one row with the nickname on wide pages, one row with only the avatar on
+        /// medium pages, and on narrow pages Back and the avatar in the first row and the other controls in a second row.
+        /// </summary>
+        /// <param name="width">The width of the detail page.</param>
+        /// <returns>The top of the detail content, below the top bar.</returns>
+        float LayoutDetailTopBar(float width)
+        {
+            var isProfileFull = width >= SidebarDrawer.COMPACT_WIDTH;
+            var profileWidth = SetProfileNameVisible(_detailProfile, isProfileFull);
+            PlaceTopRight(_detailProfile, MAIN_RIGHT_PADDING, DETAIL_BAR_TOP, profileWidth, TOPBAR_HEIGHT);
+            if (width < DETAIL_STACKED_TOP_WIDTH)
+            {
+                var controlsTop = DETAIL_BAR_TOP + TOPBAR_HEIGHT + 10f;
+                FitTopControls(_detailTopControls, DETAIL_MARGIN, controlsTop, width - DETAIL_MARGIN - MAIN_RIGHT_PADDING);
+                return controlsTop + TOPBAR_HEIGHT + 20f;
+            }
+            var controlsLeft = DETAIL_MARGIN + DETAIL_BACK_WIDTH + 16f;
+            FitTopControls(_detailTopControls, controlsLeft, DETAIL_BAR_TOP, width - controlsLeft - profileWidth - TOPBAR_GAP - MAIN_RIGHT_PADDING);
+            return DETAIL_TOP;
+        }
+        /// <summary>
+        /// Places the play button at the bottom right and the feedback button left of it, sized for the height of the page.
+        /// </summary>
+        /// <returns>The size of the buttons, see <see cref="LightUi.GetActionButtonSize"/>.</returns>
+        float PlaceDetailActionButtons()
+        {
+            var size = LightUi.GetActionButtonSize(_detailView.rect.height);
+            LightUi.PlaceActionButton(_detailPlayHolder, _detailPlayIcon, DETAIL_MARGIN, size);
+            LightUi.PlaceActionButton(_detailFeedbackHolder, _detailFeedbackIcon, DETAIL_MARGIN + size + LightUi.ACTION_BUTTON_GAP, size);
+            return size;
         }
         /// <param name="level">为空时用全局难度；这首歌没有这个难度时用最高难度</param>
         /// <param name="isAnimated">从右侧滑入并淡入；玩完返回时直接显示</param>
@@ -329,19 +388,37 @@ namespace MajdataPlay.Scenes.List
             var level = _detailLevel;
             var hasLevel = HasLevel(song, level);
             var width = _detailViewport.rect.width;
+            var height = _detailViewport.rect.height;
             _lastDetailWidth = width;
-            if (width < 800f)
-            {
-                width = 800f;
-            }
+            _lastDetailHeight = height;
+            var detailTop = LayoutDetailTopBar(width);
+            // 竖屏或窄屏为单栏：曲绘、分享与导出、曲名与难度、成绩卡、信息卡、雷达、物量分布
+            var isSingleColumn = width < SidebarDrawer.COMPACT_WIDTH || height > width;
 
-            var leftWidth = Mathf.Clamp((width - DETAIL_MARGIN * 2f - DETAIL_GAP) * 0.32f, 320f, 480f);
-            var rightX = DETAIL_MARGIN + leftWidth + DETAIL_GAP;
-            var rightWidth = Mathf.Max(360f, width - rightX - DETAIL_MARGIN);
+            float leftWidth;
+            float rightX;
+            float rightWidth;
+            float coverSize;
+            if (isSingleColumn)
+            {
+                leftWidth = Mathf.Max(1f, width - DETAIL_MARGIN * 2f);
+                rightX = DETAIL_MARGIN;
+                rightWidth = leftWidth;
+                coverSize = Mathf.Min(leftWidth, SINGLE_COLUMN_COVER_MAX);
+            }
+            else
+            {
+                leftWidth = Mathf.Clamp((width - DETAIL_MARGIN * 2f - DETAIL_GAP) * 0.32f, 320f, 480f);
+                rightX = DETAIL_MARGIN + leftWidth + DETAIL_GAP;
+                rightWidth = Mathf.Max(360f, width - rightX - DETAIL_MARGIN);
+                // 矮屏（横屏手机）上曲绘边长也受高度限制，曲绘和分享键在第一屏放得下
+                coverSize = Mathf.Min(leftWidth, Mathf.Max(MIN_DETAIL_COVER, height - detailTop - 98f));
+            }
+            var coverX = DETAIL_MARGIN + (leftWidth - coverSize) * 0.5f;
 
             // 左栏：曲绘（右上角爱心）、分享与导出、信息卡
             var cover = LightUi.CreateRoundedCover(_detailContent, 20f, PAGE_COLOR, out var coverFrame);
-            PlaceTopLeft(coverFrame, DETAIL_MARGIN, DETAIL_TOP, leftWidth, leftWidth);
+            PlaceTopLeft(coverFrame, coverX, detailTop, coverSize, coverSize);
             if (_detailCover != null && _detailCoverHash == song.Hash)
             {
                 SetCover(cover, _detailCover);
@@ -351,9 +428,9 @@ namespace MajdataPlay.Scenes.List
                 LoadDetailCoverAsync(song, cover, token).Forget();
             }
             _detailHeart = CreateHeartButton(_detailContent, song, 60f, new Color(1f, 1f, 1f, 0.92f), out var heartRect);
-            PlaceTopLeft(heartRect, DETAIL_MARGIN + leftWidth - 74f, DETAIL_TOP + 14f, 60f, 60f);
+            PlaceTopLeft(heartRect, coverX + coverSize - 74f, detailTop + 14f, 60f, 60f);
 
-            var leftY = DETAIL_TOP + leftWidth + 18f;
+            var leftY = detailTop + coverSize + 18f;
             // 分享成绩、导出成绩两个并排
             var buttonWidth = (leftWidth - 10f) / 2f;
             var share = CreateButton(_detailContent, "MAJTEXT_LIST_SHARE".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, () => ShowShareModal(false));
@@ -379,8 +456,14 @@ namespace MajdataPlay.Scenes.List
                 rowLabels.Add("MAJTEXT_LIST_LABEL_COMMENTS".i18n());
             }
             var infoHeight = rowLabels.Count * INFO_ROW_HEIGHT + 20f;
+            // 右栏（单栏时接在分享键下面）：曲名、难度分段条、成绩卡；单栏时信息卡在成绩卡下面
+            var segmentsHeight = DETAIL_LEVEL_TAG_HEIGHT + 4f + LEVEL_SCORE_HEIGHT;
+            var titleY = isSingleColumn ? leftY : detailTop;
+            var scoreY = titleY + 62f + segmentsHeight + 20f;
+            var infoY = isSingleColumn ? scoreY + SCORE_CARD_HEIGHT + 20f : leftY;
+            var chartsY = isSingleColumn ? infoY + infoHeight + 20f : scoreY + SCORE_CARD_HEIGHT + 20f;
             var infoCard = CreatePanel(_detailContent, PAPER_COLOR, 16f);
-            PlaceTopLeft(infoCard.rectTransform, DETAIL_MARGIN, leftY, leftWidth, infoHeight);
+            PlaceTopLeft(infoCard.rectTransform, DETAIL_MARGIN, infoY, leftWidth, infoHeight);
             var values = new TextMeshProUGUI[rowLabels.Count];
             _detailInfoValues = values;
             for (var i = 0; i < rowLabels.Count; i++)
@@ -412,16 +495,16 @@ namespace MajdataPlay.Scenes.List
                     LoadDetailInteractAsync(onlineSong, values, token).Forget();
                 }
             }
-            var leftBottom = leftY + infoHeight;
+            var leftBottom = infoY + infoHeight;
 
-            // 右栏：曲名、难度分段条、成绩卡、雷达与物量分布
             var title = CreateText(_detailContent, song.Title, 36f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
-            PlaceTopLeft(title.rectTransform, rightX, DETAIL_TOP - 6f, rightWidth, 56f);
+            PlaceTopLeft(title.rectTransform, rightX, titleY - 6f, rightWidth, 56f);
             AddMarquee(title);
-            var rightY = DETAIL_TOP + 62f;
+            var rightY = titleY + 62f;
 
+            // 难度分段条：每段下面是这个难度的达成率，与选歌卡片一致
             var segments = CreateRect("Levels", _detailContent);
-            PlaceTopLeft(segments, rightX, rightY, rightWidth, 54f);
+            PlaceTopLeft(segments, rightX, rightY, rightWidth, segmentsHeight);
             var segmentLayout = segments.gameObject.AddComponent<HorizontalLayoutGroup>();
             segmentLayout.spacing = 8f;
             segmentLayout.childControlWidth = true;
@@ -436,19 +519,34 @@ namespace MajdataPlay.Scenes.List
                     continue;
                 }
                 var target = (ChartLevel)i;
-                var segment = CreateLevelTag(segments, target, $"{ScoreExchange.GetDifficultyName(target)} {songLevels[i]}", target == level, 18f, () => SetDetailLevel(target));
-                segment.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+                var column = CreateRect("Level", segments);
+                column.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+                var columnLayout = column.gameObject.AddComponent<VerticalLayoutGroup>();
+                columnLayout.spacing = 4f;
+                columnLayout.childAlignment = TextAnchor.UpperCenter;
+                columnLayout.childControlWidth = true;
+                columnLayout.childControlHeight = true;
+                columnLayout.childForceExpandWidth = true;
+                columnLayout.childForceExpandHeight = false;
+                var segment = CreateLevelTag(column, target, $"{ScoreExchange.GetDifficultyName(target)} {songLevels[i]}", target == level, 18f, () => SetDetailLevel(target));
+                segment.gameObject.AddComponent<LayoutElement>().preferredHeight = DETAIL_LEVEL_TAG_HEIGHT;
+                var segmentLabel = segment.GetComponentInChildren<TextMeshProUGUI>();
+                segmentLabel.enableAutoSizing = true;
+                segmentLabel.fontSizeMin = isSingleColumn ? 10f : 12f;
+                segmentLabel.fontSizeMax = 18f;
+                AddLevelAchievement(column, song, target, 16f);
             }
-            rightY += 54f + 20f;
-
             var scoreCard = CreatePanel(_detailContent, PAPER_COLOR, 16f);
-            PlaceTopLeft(scoreCard.rectTransform, rightX, rightY, rightWidth, SCORE_CARD_HEIGHT);
+            PlaceTopLeft(scoreCard.rectTransform, rightX, scoreY, rightWidth, SCORE_CARD_HEIGHT);
             BuildDetailScore(scoreCard.rectTransform, song, level, hasLevel);
-            rightY += SCORE_CARD_HEIGHT + 20f;
 
-            var radarWidth = Mathf.Floor((rightWidth - 20f) * 0.44f);
+            // 雷达与物量分布：两栏时并排，单栏时上下各占整行
+            var radarWidth = isSingleColumn ? rightWidth : Mathf.Floor((rightWidth - 20f) * 0.44f);
+            var densityX = isSingleColumn ? rightX : rightX + radarWidth + 20f;
+            var densityY = isSingleColumn ? chartsY + CHART_PANEL_HEIGHT + 20f : chartsY;
+            var densityWidth = isSingleColumn ? rightWidth : rightWidth - radarWidth - 20f;
             var radarPanel = CreatePanel(_detailContent, PAPER_COLOR, 16f);
-            PlaceTopLeft(radarPanel.rectTransform, rightX, rightY, radarWidth, CHART_PANEL_HEIGHT);
+            PlaceTopLeft(radarPanel.rectTransform, rightX, chartsY, radarWidth, CHART_PANEL_HEIGHT);
             var radarTitle = CreateText(radarPanel.rectTransform, "MAJTEXT_LIST_RADAR".i18n(), 18f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(radarTitle.rectTransform, 22f, 16f, 22f, 30f);
             var constantText = CreateText(radarPanel.rectTransform, string.Empty, 16f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
@@ -474,9 +572,8 @@ namespace MajdataPlay.Scenes.List
                 labelRect.anchoredPosition = radarRect.anchoredPosition + radar.GetDirection(i) * (radarSize * 0.5f + 26f);
             }
 
-            var densityX = rightX + radarWidth + 20f;
             var densityPanel = CreatePanel(_detailContent, PAPER_COLOR, 16f);
-            PlaceTopLeft(densityPanel.rectTransform, densityX, rightY, rightWidth - radarWidth - 20f, CHART_PANEL_HEIGHT);
+            PlaceTopLeft(densityPanel.rectTransform, densityX, densityY, densityWidth, CHART_PANEL_HEIGHT);
             var densityTitle = CreateText(densityPanel.rectTransform, "MAJTEXT_LIST_DENSITY".i18n(), 18f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(densityTitle.rectTransform, 22f, 16f, 22f, 30f);
             var densityInfo = CreateText(densityPanel.rectTransform, string.Empty, 16f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
@@ -489,10 +586,11 @@ namespace MajdataPlay.Scenes.List
             densityRect.anchorMax = Vector2.one;
             densityRect.offsetMin = new Vector2(22f, 22f);
             densityRect.offsetMax = new Vector2(-22f, -64f);
-            var rightBottom = rightY + CHART_PANEL_HEIGHT;
+            var rightBottom = densityY + CHART_PANEL_HEIGHT;
 
-            // 底部给悬浮的游玩按钮留出空间
-            _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + 150f);
+            // 底部给右下角悬浮的图标键留出空间
+            var actionButtonSize = PlaceDetailActionButtons();
+            _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(actionButtonSize));
             LightUi.SetIconButtonInteractable(_detailPlayButton, _detailPlayIcon, hasLevel);
             _detailFeedbackHolder.gameObject.SetActive(ChartFeedbackSession.IsAvailable(song));
             LayoutRebuilder.ForceRebuildLayoutImmediate(_detailContent);
@@ -543,11 +641,19 @@ namespace MajdataPlay.Scenes.List
             {
                 AddBadge(top, combo, GetComboColor(score.ComboState), 22f);
             }
-            var dxText = $"DX {score.DXScore.ToString(CultureInfo.InvariantCulture)} / {score.TotalDXScore.ToString(CultureInfo.InvariantCulture)}";
-            var dx = CreateText(card, dxText, 20f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
-            PlaceRow(dx.rectTransform, 30f, 100f, 30f, 36f);
-            var stats = CreateText(card, FormatPlayStats(score), 18f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
-            PlaceRow(stats.rectTransform, 30f, 100f, 30f, 36f);
+            // DX 分与星级、进度条，与结算页相同
+            var dxText = $"DX  {score.DXScore.ToString(CultureInfo.InvariantCulture)} / {score.TotalDXScore.ToString(CultureInfo.InvariantCulture)}";
+            var dx = CreateText(card, dxText, 20f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceRow(dx.rectTransform, 30f, 94f, 120f, 32f);
+            var stars = LightUi.GetDxStarCount(score.DXScore, score.TotalDXScore);
+            if (stars > 0)
+            {
+                var starText = CreateText(card, $"✧{stars}", 22f, GOLD_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Bold);
+                PlaceRow(starText.rectTransform, 30f, 92f, 30f, 34f);
+            }
+            LightUi.AddDxProgressBar(card, 30f, 132f, 30f, 10f, score.DXScore, score.TotalDXScore);
+            var stats = CreateText(card, FormatPlayStats(score), 17f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
+            PlaceRow(stats.rectTransform, 30f, 150f, 30f, 30f);
         }
         static void SetInteractValues(TextMeshProUGUI[] values, MajNetSongInteract interact)
         {
@@ -672,12 +778,22 @@ namespace MajdataPlay.Scenes.List
                     views.DensityInfo.text = $"{"MAJTEXT_LIST_LABEL_LENGTH".i18n()} {length}  ·  BPM {bpm}";
                     views.LengthValue.text = length;
                     views.BpmValue.text = bpm;
-                    _chartInfoCache[(song.Hash, level)] = new MaidataAnalyzeResult()
+                    var chartInfo = new MaidataAnalyzeResult()
                     {
                         Length = graphResult.Length,
                         MinBPM = graphResult.MinBPM,
                         MaxBPM = graphResult.MaxBPM,
                     };
+                    _chartInfoCache[(song.Hash, level)] = chartInfo;
+                    // 回到列表时这首歌的卡片立即显示时长和 BPM（在线谱面在打开详情页时才下载）
+                    foreach (var card in _cards)
+                    {
+                        if (ReferenceEquals(card.Song, song) && (card.ChartInfo is not MaidataAnalyzeResult shown || shown.Length <= TimeSpan.Zero))
+                        {
+                            card.ChartInfo = chartInfo;
+                            RefreshCardInfo(card);
+                        }
+                    }
                 }
                 if (graphResult.LineGraph != null)
                 {

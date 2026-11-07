@@ -223,9 +223,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         private bool _isLaneFlick;
         private SlideBase? _laneFlickOwner;
         /// <summary>
-        /// 下落式 Slide 保持原样时，星星开始移动前多久开始报告位置（与下落式 Slide 的判定提前量相同）
+        /// 扫键保护：正在打这条星星的手指（键见 <see cref="LaneFinger.Key"/>），在这条星星结算前每帧报告给 NoteManager
         /// </summary>
-        const float FALLING_STAR_REPORT_EARLY_SEC = 0.15f;
+        private readonly List<int> _laneGuardKeys = new(4);
+        /// <summary>
+        /// 下落式 Slide 样式为标准时，星星开始移动前多久开始认定手指在打它（与下落式检查点的提前量相同）
+        /// </summary>
+        const float FALLING_STAR_REPORT_EARLY_SEC = 0.3f;
         /// <summary>
         /// The touches DJAuto simulated in its latest run, as centre, radius and pressed sensor bits, recorded only in
         /// the Editor for the slide inspector.
@@ -283,6 +287,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         {
             if (AutoplayMode == AutoplayModeOption.Enable)
             {
+                AutoHitLaneFlick();
                 return default;
             }
             else if (_laneJudge is not null)
@@ -405,30 +410,68 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                                             : NoteManager.GetLaneDragStatusInThisFrame(area);
         }
         /// <summary>
-        /// 下落式 Slide 保持原样、开启扫键时：报告星星当前的横坐标，跟着星星的手指不扫键
+        /// 下落式 Slide 样式为标准、开启扫键保护时：星星移动期间到过星星当前位置附近（左右各 <see cref="LaneSlideJudge.HitHalfWidth"/>）
+        /// 的手指视为在打这条星星，在星星结束前不扫键
         /// </summary>
         void ReportFallingOriginalStars()
         {
-            if (!LaneMode.IsEnabled || !LaneMode.IsSlideOriginal || !LaneMode.IsSweepEnabled)
+            if (!LaneMode.IsSlideOriginal || !LaneMode.IsSweepEnabled || !LaneMode.IsSweepSlideGuardEnabled)
             {
                 return;
             }
-            else if (IsMine || IsEnded || !IsInited || IsFinished || ThisFrameSec < StartTiming - FALLING_STAR_REPORT_EARLY_SEC)
+            else if (IsMine || IsEnded || !IsInited || IsFinished)
             {
+                _laneGuardKeys.Clear();
                 return;
             }
-            var stars = Stars.Span;
-            var starTransforms = StarTransforms.Span;
-            for (var i = 0; i < stars.Length; i++)
+            if (ThisFrameSec >= StartTiming - FALLING_STAR_REPORT_EARLY_SEC)
             {
-                var star = stars[i];
-                var starTransform = starTransforms[i];
-                if (star == null || starTransform == null || !star.activeInHierarchy)
+                var fingers = NoteManager.LaneSlideFingers;
+                var stars = Stars.Span;
+                var starTransforms = StarTransforms.Span;
+                for (var i = 0; i < stars.Length; i++)
                 {
-                    continue;
+                    var star = stars[i];
+                    var starTransform = starTransforms[i];
+                    if (star == null || starTransform == null || !star.activeInHierarchy)
+                    {
+                        continue;
+                    }
+                    var starX = starTransform.position.x;
+                    foreach (var finger in fingers)
+                    {
+                        if (Mathf.Abs(finger.X - starX) <= LaneSlideJudge.HitHalfWidth && !_laneGuardKeys.Contains(finger.Key))
+                        {
+                            _laneGuardKeys.Add(finger.Key);
+                        }
+                    }
                 }
-                NoteManager.AddLaneSlideX(starTransform.position.x);
             }
+            ReportLaneGuardFingers();
+        }
+        /// <summary>
+        /// 把正在打这条星星的手指报告给 NoteManager，下一帧这些手指划过的列不扫键
+        /// </summary>
+        void ReportLaneGuardFingers()
+        {
+            foreach (var key in _laneGuardKeys)
+            {
+                NoteManager.AddLaneGuardFinger(key);
+            }
+        }
+        /// <summary>
+        /// 自动播放时的星星尾转 Flick：到判定时刻自动划动命中，Flick 标记随即消失
+        /// </summary>
+        void AutoHitLaneFlick()
+        {
+            if (_laneJudge is not { IsFlick: true } flick || flick.IsResolved || ThisFrameSec < flick.FlickTiming)
+            {
+                return;
+            }
+            flick.HitFlick(flick.FlickTiming);
+            flick.Update(ThisFrameSec, ReadOnlySpan<LaneFinger>.Empty, null);
+            _lanePath?.End();
+            PlaySFX();
         }
         /// <summary>
         /// 下落式：根据判定队列生成路径箭头与 Drag 式判定。需要在 StartTiming、Length 与判定队列确定后调用
@@ -440,6 +483,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _laneJudge = null;
             _isLaneFlick = false;
             _laneFlickOwner = null;
+            _laneGuardKeys.Clear();
             if (!LaneMode.IsEnabled || LaneMode.IsSlideOriginal)
             {
                 return;
@@ -464,39 +508,45 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             var material = IsBreak && breakMaterial is not null ? breakMaterial : DefaultMaterial;
             // 箭头与判定共用同一条路径，保证看到的和判定的一致
             var paths = LaneSlidePath.BuildPaths(JudgeQueues, StartTiming, Length);
-            _lanePath = new LaneSlidePath(paths, Speed, arrowSprite, material, 0);
+            // 悬空式落到第二条判定线；Mod“去掉 Slide”时不画箭头，判定照常
+            _lanePath = new LaneSlidePath(paths, Speed, arrowSprite, material, 0, LaneLayout.SlideLineY, !IsSlideNoTrack);
             if (!IsMine)
             {
                 _laneJudge = new LaneSlideJudge(paths, StartTiming, Length);
             }
         }
         /// <summary>
-        /// 星星尾转 Flick：整组只在第一段放一个 Flick，落在起点所在的列，在箭头开始移动的时刻到达判定线；
-        /// 其余段不显示，等第一段的 Flick 结算后一起结束
+        /// 星星尾转 Flick：整组只放一个 Flick。
+        /// 起点：由第一段持有，落在起点所在的列，在箭头开始移动的时刻到达判定线，其余段等它结算后一起结束；
+        /// 终点：由最后一段持有，落在终点所在的列（Wifi 取中间那条路径），在星星到达终点的时刻到达判定线，前面各段直接结束
         /// </summary>
         void InitLaneFlick()
         {
             _isLaneFlick = true;
-            var isOwner = !ConnectInfo.IsConnSlide || ConnectInfo.IsGroupPartHead;
+            var isEndFlick = LaneMode.SlideTailFlick == FallingSlideFlickOption.End;
+            var isOwner = !ConnectInfo.IsConnSlide || (isEndFlick ? ConnectInfo.IsGroupPartEnd : ConnectInfo.IsGroupPartHead);
             var paths = isOwner ? LaneSlidePath.BuildPaths(JudgeQueues, StartTiming, Length) : Array.Empty<LanePathVertex[]>();
             if (paths.Length == 0)
             {
-                // 跟随段：判定状态由第一段决定，这里只占位以走下落式的判定流程
+                // 跟随段：判定状态由持有 Flick 的那一段决定，这里只占位以走下落式的判定流程
                 _laneJudge = LaneSlideJudge.CreateFlickFollower();
                 return;
             }
-            var lane = Mathf.Clamp(LaneLayout.GetLaneAt(paths[0][0].X), 1, LaneLayout.LANE_COUNT);
+            var path = isEndFlick ? paths[paths.Length / 2] : paths[0];
+            var vertex = isEndFlick ? path[^1] : path[0];
+            var timing = isEndFlick ? vertex.Timing : StartTiming;
+            var lane = Mathf.Clamp(LaneLayout.GetLaneAt(vertex.X), 1, LaneLayout.LANE_COUNT);
             // 黄色的 Each 星星染红后足够亮，青色的普通星星染红会发暗
             var skin = MajInstances.SkinManager.GetStarSkin();
             _lanePath = LaneSlidePath.CreateFlickMarker(LaneLayout.GetLaneX(lane),
-                                                        StartTiming,
+                                                        timing,
                                                         Speed,
                                                         skin.Each,
                                                         DefaultMaterial,
                                                         LaneVisuals.FlickColor,
                                                         USERSETTING_TAP_SCALE,
                                                         1);
-            _laneJudge = LaneSlideJudge.CreateFlick(StartTiming + USERSETTING_JUDGE_OFFSET_SEC, lane);
+            _laneJudge = LaneSlideJudge.CreateFlick(timing + USERSETTING_JUDGE_OFFSET_SEC, lane);
         }
         /// <summary>
         /// 星星尾转 Flick：持有 Flick 的那一段（整组的第一段）
@@ -529,7 +579,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                     laneJudge.HitFlick(now);
                     PlaySFX();
                 }
-                laneJudge.Update(now, ReadOnlySpan<float>.Empty);
+                laneJudge.Update(now, ReadOnlySpan<LaneFinger>.Empty, null);
             }
             var flick = GetLaneFlickOwner()._laneJudge;
             if (flick is not { IsFlick: true } || flick.IsResolved)
@@ -554,16 +604,12 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
-            var isNewlyHit = laneJudge.Update(judgeSec, NoteManager.LaneDragXs);
-            if (LaneMode.IsSweepEnabled)
+            // 扫键保护：命中过检查点的手指记下来，这条星星结算前每帧报告，这些手指划过的列不扫键
+            var isGuardEnabled = LaneMode.IsSweepEnabled && LaneMode.IsSweepSlideGuardEnabled;
+            var isNewlyHit = laneJudge.Update(judgeSec, NoteManager.LaneSlideFingers, isGuardEnabled ? _laneGuardKeys : null);
+            if (isGuardEnabled && !laneJudge.IsResolved)
             {
-                // 扫键：告诉 NoteManager 星星当前的位置，跟着星星的手指不扫键
-                Span<float> activeXs = stackalloc float[3];
-                var activeCount = laneJudge.GetActiveXs(judgeSec, activeXs);
-                for (var i = 0; i < activeCount; i++)
-                {
-                    NoteManager.AddLaneSlideX(activeXs[i]);
-                }
+                ReportLaneGuardFingers();
             }
             if (isNewlyHit && (ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide))
             {
@@ -571,6 +617,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             if (laneJudge.IsResolved)
             {
+                _laneGuardKeys.Clear();
                 ClearAllJudgeQueue();
             }
         }
@@ -605,7 +652,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 }
                 isFirstHit = laneJudge.IsFirstHit;
             }
-            var result = LaneSlideJudge.GetGrade(hitCount, totalCount, isFirstHit, isLastHit);
+            var result = LaneSlideGrading.GetGrade(hitCount, totalCount, isFirstHit, isLastHit);
             ConvertJudgeGrade(ref result);
             JudgeResult = result;
             JudgeDiff = 0;

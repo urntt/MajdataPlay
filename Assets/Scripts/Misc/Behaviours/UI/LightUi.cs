@@ -157,6 +157,84 @@ namespace MajdataPlay
         /// </summary>
         const float DISABLED_ICON_ALPHA = 0.4f;
         /// <summary>
+        /// The size of the floating icon buttons at the bottom right of the detail and result pages on screens tall enough.
+        /// </summary>
+        public const float ACTION_BUTTON_SIZE = 160f;
+        /// <summary>
+        /// The gap between two floating icon buttons.
+        /// </summary>
+        public const float ACTION_BUTTON_GAP = 16f;
+        /// <summary>
+        /// The distance of the floating icon buttons from the bottom edge.
+        /// </summary>
+        public const float ACTION_BUTTON_BOTTOM = 36f;
+        /// <summary>
+        /// The blur of the soft shadow under a floating icon button.
+        /// </summary>
+        const float ACTION_BUTTON_SHADOW_BLUR = 16f;
+        /// <summary>
+        /// Gets the size of the floating icon buttons for a canvas: <see cref="ACTION_BUTTON_SIZE"/>, but at most 16% of the
+        /// canvas height so they stay small on short screens such as phones in landscape.
+        /// </summary>
+        /// <param name="canvasHeight">The height of the canvas area the buttons float over.</param>
+        /// <returns>The width and height of one button.</returns>
+        public static float GetActionButtonSize(float canvasHeight)
+        {
+            return Mathf.Clamp(canvasHeight * 0.16f, 64f, ACTION_BUTTON_SIZE);
+        }
+        /// <summary>
+        /// Gets how much empty space a scroll view needs at its bottom so its last content can scroll above the floating buttons.
+        /// </summary>
+        /// <param name="buttonSize">The size of the buttons, from <see cref="GetActionButtonSize"/>.</param>
+        /// <returns>The height to add below the content.</returns>
+        public static float GetActionButtonClearance(float buttonSize)
+        {
+            return buttonSize + ACTION_BUTTON_BOTTOM + 34f;
+        }
+        /// <summary>
+        /// Creates a floating icon button with a soft shadow of the same rounded shape; place it with <see cref="PlaceActionButton"/>.
+        /// </summary>
+        /// <param name="parent">The parent the button floats over.</param>
+        /// <param name="icon">The white icon sprite.</param>
+        /// <param name="fill">The background color.</param>
+        /// <param name="iconColor">The icon color.</param>
+        /// <param name="shadowOpacity">The opacity of the shadow.</param>
+        /// <param name="onClick">The action run when the button is tapped.</param>
+        /// <param name="button">The created button.</param>
+        /// <param name="iconImage">The icon image of the button.</param>
+        /// <returns>The holder of the shadow and the button; this is what <see cref="PlaceActionButton"/> moves and sizes.</returns>
+        public static RectTransform CreateActionButton(Transform parent, Sprite icon, Color fill, Color iconColor, float shadowOpacity,
+                                                       UnityAction onClick, out Button button, out Image iconImage)
+        {
+            var holder = CreateShadowHolder(parent, ACTION_BUTTON_SIZE * 0.25f, ACTION_BUTTON_SHADOW_BLUR, shadowOpacity);
+            button = CreateIconButton(holder, icon, fill, iconColor, ACTION_BUTTON_SIZE * 0.5f, onClick, out iconImage, ACTION_BUTTON_SIZE * 0.25f);
+            Stretch((RectTransform)button.transform);
+            return holder;
+        }
+        /// <summary>
+        /// Places a floating icon button at the bottom right and sizes it: the corner radius is a quarter of the size and the icon
+        /// half of it, so it keeps its proportions when <see cref="GetActionButtonSize"/> shrinks it.
+        /// </summary>
+        /// <param name="holder">The holder returned by <see cref="CreateActionButton"/>.</param>
+        /// <param name="iconImage">The icon image of the button.</param>
+        /// <param name="right">The distance from the right edge.</param>
+        /// <param name="size">The width and height of the button.</param>
+        public static void PlaceActionButton(RectTransform holder, Image iconImage, float right, float size)
+        {
+            PlaceBottomRight(holder, right, ACTION_BUTTON_BOTTOM, size, size);
+            var radius = size * 0.25f;
+            if (holder.Find("Shadow") is RectTransform shadowRect && shadowRect.TryGetComponent<Image>(out var shadow))
+            {
+                UiSprites.ApplySoftShadow(shadow, radius, ACTION_BUTTON_SHADOW_BLUR);
+                Stretch(shadowRect, -ACTION_BUTTON_SHADOW_BLUR);
+            }
+            if (holder.Find("IconButton") is RectTransform backgroundRect && backgroundRect.TryGetComponent<Image>(out var background))
+            {
+                UiSprites.ApplyRounded(background, radius);
+            }
+            iconImage.rectTransform.sizeDelta = new Vector2(size * 0.5f, size * 0.5f);
+        }
+        /// <summary>
         /// Creates a button with a rounded background and a centered icon and no text.
         /// </summary>
         /// <param name="parent">The parent the button is created in; place or stretch the button afterwards.</param>
@@ -452,6 +530,11 @@ namespace MajdataPlay
         #endregion
 
         #region Data helpers
+        /// <summary>
+        /// Gets the color of a difficulty in the light interfaces and the share image; the only table of these colors.
+        /// </summary>
+        /// <param name="level">The difficulty.</param>
+        /// <returns>The color: Re:Master is pink so it stands apart from the purple Master; UTAGE is magenta.</returns>
         public static Color GetDifficultyColor(ChartLevel level)
         {
             return level switch
@@ -461,9 +544,57 @@ namespace MajdataPlay
                 ChartLevel.Advance => Hex(0xF08A12),
                 ChartLevel.Expert => Hex(0xF64861),
                 ChartLevel.Master => Hex(0x9E45E2),
-                ChartLevel.ReMaster => Hex(0xB15CF0),
+                ChartLevel.ReMaster => Hex(0xEE5DB0),
                 _ => Hex(0xE8379C),
             };
+        }
+        /// <summary>
+        /// Gets the DX star count as in the original game: 1 to 5 stars above 85% / 90% / 93% / 95% / 97% of the maximum DX score.
+        /// </summary>
+        /// <param name="dxScore">The DX score.</param>
+        /// <param name="totalDxScore">The maximum DX score of the chart.</param>
+        /// <returns>The number of stars, 0 to 5; 0 when the maximum is not positive.</returns>
+        public static int GetDxStarCount(long dxScore, long totalDxScore)
+        {
+            if (totalDxScore <= 0)
+            {
+                return 0;
+            }
+            var percent = dxScore / (double)totalDxScore;
+            return percent switch
+            {
+                > 0.97 => 5,
+                > 0.95 => 4,
+                > 0.93 => 3,
+                > 0.90 => 2,
+                > 0.85 => 1,
+                _ => 0,
+            };
+        }
+        /// <summary>
+        /// Adds the gold DX score bar on a grey track, filled by the share of the maximum DX score, as on the result page.
+        /// </summary>
+        /// <param name="parent">The card the bar is placed in.</param>
+        /// <param name="left">The distance from the left edge of the card.</param>
+        /// <param name="top">The distance from the top edge of the card.</param>
+        /// <param name="right">The distance from the right edge of the card.</param>
+        /// <param name="height">The height of the bar.</param>
+        /// <param name="dxScore">The DX score.</param>
+        /// <param name="totalDxScore">The maximum DX score of the chart.</param>
+        public static void AddDxProgressBar(RectTransform parent, float left, float top, float right, float height, long dxScore, long totalDxScore)
+        {
+            var ratio = Mathf.Clamp01((float)(dxScore / (double)Math.Max(1L, totalDxScore)));
+            var track = CreateImage(parent, LINE, height * 0.5f);
+            track.gameObject.name = "DxTrack";
+            PlaceRow(track.rectTransform, left, top, right, height);
+            var fill = CreateImage(track.transform, GOLD, height * 0.5f);
+            fill.gameObject.name = "DxFill";
+            var fillRect = fill.rectTransform;
+            fillRect.anchorMin = Vector2.zero;
+            fillRect.anchorMax = new Vector2(ratio, 1f);
+            fillRect.offsetMin = Vector2.zero;
+            fillRect.offsetMax = Vector2.zero;
+            fill.enabled = ratio > 0f;
         }
         public static string GetGrade(double achievement)
         {
@@ -582,9 +713,24 @@ namespace MajdataPlay
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
+            // 手机上按物理尺寸放大，平板与电脑保持 1920×1080 参考布局
+            AdaptiveCanvasScaler.Attach(scaler);
             canvasObject.AddComponent<GraphicRaycaster>();
             group = canvasObject.AddComponent<CanvasGroup>();
             return (RectTransform)canvasObject.transform;
+        }
+        /// <summary>
+        /// Fills a canvas with a page background and returns a child fitted into the safe area of the screen for the content.
+        /// </summary>
+        /// <param name="canvasRoot">The full-screen root of the canvas.</param>
+        /// <param name="background">The page color drawn under the notch and the home indicator too.</param>
+        /// <returns>The safe-area child; put everything except full-screen dimming inside it.</returns>
+        public static RectTransform CreateSafeRoot(RectTransform canvasRoot, Color background)
+        {
+            var page = CreateImage(canvasRoot, background, 0f);
+            page.gameObject.name = "PageBackground";
+            Stretch(page.rectTransform);
+            return SafeAreaFitter.Create(canvasRoot);
         }
         /// <summary>
         /// 跟着游戏转场淡入淡出（转场画在 GlobalCanvas 上，被 Overlay 画布挡住，只能这样配合）；转场进行中或正在离开时不接受点击

@@ -95,12 +95,25 @@ namespace MajdataPlay.Settings
 
         /// <summary>
         /// 除游玩模式外是否还启用了其他 Mod，启用时不保存成绩。
-        /// 下落式中改变谱面的选项（见 <see cref="FallingOptions.IsChartModActive"/>）也算在内；只调手感的下落式选项不算
+        /// 下落式中改变谱面的选项（见 <see cref="IsFallingChartModActive"/>）也算在内；只调手感的下落式选项不算
         /// </summary>
         public bool IsAnyModActiveExceptPlayStyle()
         {
             return Mod.IsAnyModActive() ||
-                   (Falling.PlayStyle == PlayStyleOption.Falling && Falling.IsChartModActive());
+                   (Falling.PlayStyle == PlayStyleOption.Falling && IsFallingChartModActive());
+        }
+
+        /// <summary>
+        /// Determines whether an option that changes the chart in falling mode is on: Touch to Tap, slide tail to Flick, or the
+        /// standard slide style. Like other modifiers, scores are not saved while one is on in falling mode.
+        /// </summary>
+        /// <remarks>Options that only change the feel, such as vertical judge, sweep or Break to Flick, do not count.</remarks>
+        /// <returns>True when a chart-changing falling option is on; otherwise false.</returns>
+        public bool IsFallingChartModActive()
+        {
+            return Mod.FallingTouchToTap ||
+                   Mod.FallingSlideTailToFlick != FallingSlideFlickOption.Off ||
+                   Falling.FallingSlideStyle == FallingSlideStyleOption.Standard;
         }
     }
 
@@ -715,6 +728,24 @@ namespace MajdataPlay.Settings
         /// </summary>
         [OptionEnumerator(typeof(NoteMaskEnumerator))]
         public string NoteMask { get; set; } = "Disable";
+
+        /// <summary>
+        /// Gets or sets whether break taps become Flicks in falling mode.
+        /// </summary>
+        /// <remarks>Only changes how breaks are hit, so scores are still saved.</remarks>
+        public bool FallingBreakToFlick { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets where the whole slide becomes one red Flick in falling mode, or <see cref="FallingSlideFlickOption.Off"/>.
+        /// </summary>
+        /// <remarks>Has no effect with the standard slide style. Changes the chart, so scores are not saved while it is on.</remarks>
+        public FallingSlideFlickOption FallingSlideTailToFlick { get; set; } = FallingSlideFlickOption.Off;
+
+        /// <summary>
+        /// Gets or sets whether Touch and TouchHold notes become Tap and Hold notes in their lanes in falling mode.
+        /// </summary>
+        /// <remarks>Changes the chart, so scores are not saved while it is on.</remarks>
+        public bool FallingTouchToTap { get; set; } = false;
 
         /// <summary>
         /// Determines whether a modifier that changes the playback, the notes or the judgment is active.

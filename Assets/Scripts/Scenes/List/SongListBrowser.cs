@@ -119,6 +119,13 @@ namespace MajdataPlay.Scenes.List
         Sprite _heartFilledSprite = null!;
         Sprite _heartOutlineSprite = null!;
 
+        /// <summary>
+        /// The full-screen root of the browser canvas: the page background and the modal dimming fill it.
+        /// </summary>
+        RectTransform _canvasRoot = null!;
+        /// <summary>
+        /// The safe area of the screen, which holds the list, the detail page and the toast.
+        /// </summary>
         RectTransform _root = null!;
         /// <summary>
         /// 整个列表页的透明度跟着游戏的转场走：转场合上时淡出，打开时淡入
@@ -157,6 +164,15 @@ namespace MajdataPlay.Scenes.List
         Button _nextPageButton = null!;
         RectTransform _pager = null!;
         RectTransform _selectionBar = null!;
+        /// <summary>
+        /// The canvas of the browser, used to convert screen pixels (the on-screen keyboard) to canvas units.
+        /// </summary>
+        Canvas _rootCanvas = null!;
+        /// <summary>
+        /// The current distance of the floating row (search, pager, share, selection bar) from the bottom; it rises above the
+        /// on-screen keyboard while the search field is being edited.
+        /// </summary>
+        float _floatingRowY = PAGER_BOTTOM;
         TextMeshProUGUI _selectionCountText = null!;
         /// <summary>
         /// 选择模式：点难度标签勾选或取消自选谱面（不切换全局难度）
@@ -225,20 +241,26 @@ namespace MajdataPlay.Scenes.List
             var canvas = canvasObject.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 30;
+            _rootCanvas = canvas;
             var scaler = canvasObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
+            // 手机上按物理尺寸放大，平板与电脑保持 1920×1080 参考布局
+            AdaptiveCanvasScaler.Attach(scaler);
             canvasObject.AddComponent<GraphicRaycaster>();
-            _root = (RectTransform)canvasObject.transform;
+            _canvasRoot = (RectTransform)canvasObject.transform;
             _rootGroup = canvasObject.AddComponent<CanvasGroup>();
+            // 背景铺满全屏，内容放在安全区域内，避开刘海、圆角和底部横条
+            _root = LightUi.CreateSafeRoot(_canvasRoot, PAGE_COLOR);
             UpdateTransitionFade();
 
             BuildListView();
             BuildDetailView();
             BuildModal();
             BuildToast();
+            UpdateListLayout();
 
             IsOpen = true;
             InputManager.SuppressTouchPanelSimulation = true;
@@ -317,6 +339,12 @@ namespace MajdataPlay.Scenes.List
         void LateUpdate()
         {
             UpdateTransitionFade();
+            if (!_isHidden)
+            {
+                // 屏幕方向、尺寸或安全区变化时重新排列列表页
+                UpdateListLayout();
+            }
+            UpdateFloatingRowForKeyboard();
             if (_pendingScrollY is float scrollY)
             {
                 _pendingScrollY = null;
@@ -328,7 +356,8 @@ namespace MajdataPlay.Scenes.List
             }
             // 屏幕方向或尺寸变化时按新宽度重新排列详情页
             var width = _detailViewport.rect.width;
-            if (width > 0 && Mathf.Abs(width - _lastDetailWidth) > 1f)
+            var height = _detailViewport.rect.height;
+            if (width > 0 && (Mathf.Abs(width - _lastDetailWidth) > 1f || Mathf.Abs(height - _lastDetailHeight) > 1f))
             {
                 RenderDetail();
             }
@@ -345,6 +374,7 @@ namespace MajdataPlay.Scenes.List
             CancelDetailMotions();
             CancelAudioMotions();
             _searchMotion.TryCancel();
+            _drawer?.Cancel();
             ResetPreviewVolume();
             SaveSelectionIfNeeded();
             SaveShareSettingsIfNeeded();
@@ -381,12 +411,8 @@ namespace MajdataPlay.Scenes.List
             var background = _listView.gameObject.AddComponent<Image>();
             background.color = PAGE_COLOR;
 
-            // 左侧分类：屏宽的四分之一
+            // 左侧分类：宽屏时停靠在左边（屏宽的四分之一），窄屏时改为从左侧滑出的抽屉，宽度由 SidebarDrawer 决定
             var sidebar = CreateRect("Sidebar", _listView);
-            sidebar.anchorMin = new Vector2(0f, 0f);
-            sidebar.anchorMax = new Vector2(0.25f, 1f);
-            sidebar.offsetMin = Vector2.zero;
-            sidebar.offsetMax = Vector2.zero;
             sidebar.gameObject.AddComponent<Image>().color = PAPER_COLOR;
             var sidebarLine = CreateImage(sidebar, LINE_COLOR, 0f);
             sidebarLine.rectTransform.anchorMin = new Vector2(1f, 0f);
@@ -407,19 +433,25 @@ namespace MajdataPlay.Scenes.List
             sidebarLayout.childForceExpandHeight = false;
             _sidebarContent.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            // 主区域：右侧四分之三
+            // 主区域：分类栏右边的剩余部分（左边距由 SidebarDrawer 设置）
             var main = CreateRect("Main", _listView);
-            main.anchorMin = new Vector2(0.25f, 0f);
+            main.anchorMin = Vector2.zero;
             main.anchorMax = Vector2.one;
             main.offsetMin = new Vector2(MAIN_LEFT_PADDING, 0f);
             main.offsetMax = new Vector2(-MAIN_RIGHT_PADDING, 0f);
 
-            // 顶部：左边“封面　−　难度　+　设置”，右边玩家昵称与头像
-            var topRow = CreateRect("TopRow", main);
-            PlaceRow(topRow, 0f, TOP_PADDING, 0f, TOPBAR_HEIGHT);
-            _difficultyText = BuildTopControls(topRow, SwitchToCover, () => ChangeGlobalLevel(-1), () => ChangeGlobalLevel(1), EnterSetting);
-            var profile = new LightUi(_font).CreatePlayerProfile(topRow, TOPBAR_HEIGHT, PAGE_COLOR);
-            PlaceTopRight(profile, 0f, 0f, PROFILE_WIDTH, TOPBAR_HEIGHT);
+            // 顶部：左边“封面　−　难度　+　设置”（窄屏时最左边多一个“分类”键，控件按宽度缩小），右边玩家昵称与头像（窄屏时只有头像）
+            _listTopRow = CreateRect("TopRow", main);
+            PlaceRow(_listTopRow, 0f, TOP_PADDING, 0f, TOPBAR_HEIGHT);
+            var menuButton = CreateButton(_listTopRow, "MAJTEXT_LIST_CATEGORY".i18n(), PAPER_COLOR, TEXT_COLOR, 19f, ToggleDrawer);
+            _menuButton = (RectTransform)menuButton.transform;
+            PlaceTopLeft(_menuButton, 0f, 0f, MENU_BUTTON_WIDTH, TOPBAR_HEIGHT);
+            _menuButton.gameObject.SetActive(false);
+            _listTopControls = CreateRect("TopControls", _listTopRow);
+            PlaceTopLeft(_listTopControls, 0f, 0f, TOP_CONTROLS_WIDTH, TOPBAR_HEIGHT);
+            _difficultyText = BuildTopControls(_listTopControls, SwitchToCover, () => ChangeGlobalLevel(-1), () => ChangeGlobalLevel(1), EnterSetting);
+            _listProfile = new LightUi(_font).CreatePlayerProfile(_listTopRow, TOPBAR_HEIGHT, PAGE_COLOR);
+            PlaceTopRight(_listProfile, 0f, 0f, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
             // 曲目列表：每行一张卡片，右侧可拖动的滚动条，底部给浮窗留出空间
             _listPane = CreateRect("ListPane", main);
@@ -455,6 +487,16 @@ namespace MajdataPlay.Scenes.List
             BuildSearchBar(main);
             BuildShareButton(main);
             BuildSelectionBar(main);
+
+            // 分类栏放在最上层，窄屏时作为抽屉盖住列表
+            _drawer = new SidebarDrawer(_listView, sidebar, main, MAIN_LEFT_PADDING);
+        }
+        /// <summary>
+        /// Opens or closes the category drawer from the Categories button.
+        /// </summary>
+        void ToggleDrawer()
+        {
+            _drawer.Toggle();
         }
         /// <summary>
         /// The horizontal center of the floating bars: the middle of the list, not counting the scrollbar.
@@ -553,11 +595,67 @@ namespace MajdataPlay.Scenes.List
             var fieldRect = (RectTransform)_searchField.transform;
             Stretch(fieldRect);
             fieldRect.offsetMax = new Vector2(-52f, 0f);
+            // 不显示系统自带的输入条，输入的文字直接显示在搜索框里
+            _searchField.shouldHideMobileInput = true;
             _searchField.onSubmit.AddListener(_ => OnSearchSubmitted());
             _searchField.onEndEdit.AddListener(_ => ApplySearch());
             _searchField.onValueChanged.AddListener(_ => UpdateSearchBarStyle());
             _searchExpandedArea.gameObject.SetActive(false);
             UpdateSearchBarStyle();
+        }
+        /// <summary>
+        /// Moves the floating row above the on-screen keyboard while the search field is edited, and back down afterwards.
+        /// </summary>
+        /// <remarks>
+        /// Platforms without an on-screen keyboard are not affected. The keyboard height is read every frame because it is 0
+        /// while the keyboard animates in. When the space above the keyboard is too small, the row stays at the top of the list.
+        /// </remarks>
+        void UpdateFloatingRowForKeyboard()
+        {
+            var target = PAGER_BOTTOM;
+            if (TouchScreenKeyboard.isSupported && _searchField.isFocused && TouchScreenKeyboard.visible)
+            {
+                var keyboardHeight = TouchScreenKeyboard.area.height;
+                var main = (RectTransform)_pager.parent;
+                if (keyboardHeight > 0f &&
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(main, new Vector2(0f, keyboardHeight), null, out var keyboardTop))
+                {
+                    var aboveKeyboard = keyboardTop.y - main.rect.yMin + FLOAT_GAP;
+                    var highest = Mathf.Max(PAGER_BOTTOM, main.rect.height - PAGER_HEIGHT - FLOAT_GAP);
+                    target = Mathf.Clamp(aboveKeyboard, PAGER_BOTTOM, highest);
+                }
+            }
+            if (Mathf.Abs(target - _floatingRowY) < 0.5f)
+            {
+                if (target != _floatingRowY)
+                {
+                    _floatingRowY = target;
+                    ApplyFloatingRowY();
+                }
+                return;
+            }
+            // 平滑跟随键盘，约 0.1 秒到位
+            _floatingRowY = Mathf.Lerp(_floatingRowY, target, 1f - Mathf.Exp(-Time.unscaledDeltaTime * 30f));
+            ApplyFloatingRowY();
+        }
+        /// <summary>
+        /// Moves the search bar, pager, share button and selection bar to the current height of the floating row.
+        /// </summary>
+        void ApplyFloatingRowY()
+        {
+            SetFloatingY(_pager, 0f);
+            SetFloatingY(_searchHolder, 0f);
+            SetFloatingY(_shareHolder, 0f);
+            SetFloatingY(_selectionBar, _isSelectionBarStacked ? PAGER_HEIGHT + FLOAT_GAP : 0f);
+        }
+        /// <summary>
+        /// Sets the distance of one floating element from the bottom to the height of the floating row.
+        /// </summary>
+        /// <param name="holder">The floating element.</param>
+        /// <param name="offset">How far above the floating row the element sits, for the selection bar stacked above the pager.</param>
+        void SetFloatingY(RectTransform holder, float offset)
+        {
+            holder.anchoredPosition = new Vector2(holder.anchoredPosition.x, _floatingRowY + offset);
         }
         /// <summary>
         /// Expands the search bar, or applies the search and collapses it when it is already expanded.
@@ -601,25 +699,36 @@ namespace MajdataPlay.Scenes.List
             }
             _isSearchExpanded = isExpanded;
             _searchMotion.TryCancel();
-            var main = (RectTransform)_searchHolder.parent;
-            // 搜索条从翻页浮窗左边向左展开，不超出主区域
-            var available = main.rect.width * 0.5f + _searchHolder.anchoredPosition.x;
-            var expandedWidth = Mathf.Clamp(available, PAGER_HEIGHT, SEARCH_EXPANDED_WIDTH);
-            var targetWidth = isExpanded ? expandedWidth : PAGER_HEIGHT;
+            // 搜索条从翻页浮窗左边向左展开，不超出主区域；左边太窄时盖住整排浮窗
+            GetSearchBarTarget(isExpanded, out var targetX, out var targetWidth, out var isCovering);
+            var fromX = _searchHolder.anchoredPosition.x;
+            var fromWidth = _searchHolder.sizeDelta.x;
             if (isExpanded)
             {
                 _searchExpandedArea.gameObject.SetActive(true);
+                if (isCovering)
+                {
+                    SetSearchCovering(true);
+                }
             }
-            _searchMotion = LMotion.Create(_searchHolder.sizeDelta.x, targetWidth, SEARCH_ANIMATION_SEC)
+            _searchMotion = LMotion.Create(0f, 1f, SEARCH_ANIMATION_SEC)
                                    .WithEase(Ease.OutCubic)
                                    .WithOnComplete(() =>
                                    {
                                        if (!_isSearchExpanded && _searchExpandedArea != null)
                                        {
                                            _searchExpandedArea.gameObject.SetActive(false);
+                                           if (_isSearchCovering)
+                                           {
+                                               SetSearchCovering(false);
+                                           }
                                        }
                                    })
-                                   .Bind(width => _searchHolder.sizeDelta = new Vector2(width, PAGER_HEIGHT));
+                                   .Bind(progress =>
+                                   {
+                                       _searchHolder.sizeDelta = new Vector2(Mathf.Lerp(fromWidth, targetWidth, progress), PAGER_HEIGHT);
+                                       _searchHolder.anchoredPosition = new Vector2(Mathf.Lerp(fromX, targetX, progress), _searchHolder.anchoredPosition.y);
+                                   });
             UpdateSearchBarStyle();
         }
         /// <summary>
@@ -679,14 +788,25 @@ namespace MajdataPlay.Scenes.List
             _selectionBar.gameObject.SetActive(false);
         }
         /// <summary>
-        /// Fits the selection bar into the space right of the pager.
+        /// Fits the selection bar into the space right of the pager, or stacks it centered above the pager when that space is too
+        /// narrow (phones in portrait).
         /// </summary>
         void FitSelectionBar()
         {
             var main = (RectTransform)_selectionBar.parent;
+            var rowWidth = main.rect.width - (SCROLLBAR_WIDTH + 14f);
             var available = main.rect.width * 0.5f - SideButtonsRightX - (SCROLLBAR_WIDTH + 14f);
-            var width = available > 0f ? Mathf.Min(SELECTION_BAR_MAX_WIDTH, available) : SELECTION_BAR_MAX_WIDTH;
-            _selectionBar.sizeDelta = new Vector2(width, PAGER_HEIGHT);
+            _isSelectionBarStacked = available < SELECTION_BAR_MIN_WIDTH;
+            if (_isSelectionBarStacked)
+            {
+                _selectionBar.pivot = new Vector2(0.5f, 0f);
+                _selectionBar.sizeDelta = new Vector2(Mathf.Clamp(rowWidth, PAGER_HEIGHT, SELECTION_BAR_MAX_WIDTH), PAGER_HEIGHT);
+                _selectionBar.anchoredPosition = new Vector2(PagerCenterX, _floatingRowY + PAGER_HEIGHT + FLOAT_GAP);
+                return;
+            }
+            _selectionBar.pivot = new Vector2(0f, 0f);
+            _selectionBar.sizeDelta = new Vector2(Mathf.Min(SELECTION_BAR_MAX_WIDTH, available), PAGER_HEIGHT);
+            _selectionBar.anchoredPosition = new Vector2(SideButtonsRightX, _floatingRowY);
         }
         #endregion
         /// <summary>
@@ -928,6 +1048,8 @@ namespace MajdataPlay.Scenes.List
         }
         void SelectCollection(int index)
         {
+            // 窄屏时选完分类自动收起抽屉
+            _drawer.Close();
             if (index == _collections.SelectedCollectionIndex)
             {
                 return;
@@ -1097,13 +1219,14 @@ namespace MajdataPlay.Scenes.List
         }
         void UpdateSelectionUi()
         {
-            // 选择模式下分享键让位给选择浮窗：已选 N 张　清空　分享　完成
-            _shareHolder.gameObject.SetActive(!_isSelecting);
-            if (_isSelecting && !_selectionBar.gameObject.activeSelf)
+            // 选择模式下分享键让位给选择浮窗：已选 N 张　清空　分享　完成；搜索条盖住整排浮窗时都先隐藏
+            _shareHolder.gameObject.SetActive(!_isSelecting && !_isSearchCovering);
+            var isBarVisible = _isSelecting && !_isSearchCovering;
+            if (isBarVisible && !_selectionBar.gameObject.activeSelf)
             {
                 FitSelectionBar();
             }
-            _selectionBar.gameObject.SetActive(_isSelecting);
+            _selectionBar.gameObject.SetActive(isBarVisible);
             _selectionCountText.text = "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount);
         }
         /// <summary>
@@ -1160,7 +1283,7 @@ namespace MajdataPlay.Scenes.List
             CancelDetailMotions();
             CancelAudioMotions();
             ResetPreviewVolume();
-            _root.gameObject.SetActive(false);
+            _canvasRoot.gameObject.SetActive(false);
             RestoreSceneCanvases();
             MajInstances.AudioManager.GetSFX("bgm_select.mp3").SetVolume(MajEnv.Settings.Audio.Volume.BGM);
         }
@@ -1201,7 +1324,8 @@ namespace MajdataPlay.Scenes.List
         #region Modal & toast
         void BuildModal()
         {
-            _modal = CreateRect("Modal", _root);
+            // 遮罩铺满全屏（包括刘海与底部横条处），弹窗在安全区域内居中
+            _modal = CreateRect("Modal", _canvasRoot);
             Stretch(_modal);
             var dim = _modal.gameObject.AddComponent<Image>();
             dim.color = new Color(0.09f, 0.125f, 0.2f, 0.4f);
@@ -1313,7 +1437,22 @@ namespace MajdataPlay.Scenes.List
             _isShareDialogShown = true;
         }
         /// <summary>
-        /// Clears the modal and creates a centered white panel that keeps taps from closing the modal.
+        /// The smallest gap between a dialog and the edges of the safe area; larger dialogs are scaled down to keep it.
+        /// </summary>
+        const float MODAL_MARGIN = 16f;
+        /// <summary>
+        /// Gets the center of the safe area relative to the center of the screen, where dialogs are placed.
+        /// </summary>
+        /// <returns>The offset of the safe area center from the screen center, in canvas units.</returns>
+        Vector2 GetSafeAreaCenter()
+        {
+            var safe = _root.rect;
+            var safeCenter = (Vector2)_canvasRoot.InverseTransformPoint(_root.TransformPoint(safe.center));
+            return safeCenter - _canvasRoot.rect.center;
+        }
+        /// <summary>
+        /// Clears the modal and creates a white panel centered in the safe area that keeps taps from closing the modal; a panel
+        /// larger than the safe area is scaled down to fit.
         /// </summary>
         /// <param name="width">The width of the panel.</param>
         /// <param name="height">The height of the panel.</param>
@@ -1329,6 +1468,12 @@ namespace MajdataPlay.Scenes.List
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
             panelRect.sizeDelta = new Vector2(width, height);
+            panelRect.anchoredPosition = GetSafeAreaCenter();
+            // 比安全区域宽或高时整体等比缩小（横屏手机、竖屏手机）
+            var safeSize = _root.rect.size;
+            var scale = Mathf.Min(1f, (safeSize.x - MODAL_MARGIN * 2f) / width, (safeSize.y - MODAL_MARGIN * 2f) / height);
+            scale = Mathf.Max(0.3f, scale);
+            panelRect.localScale = new Vector3(scale, scale, 1f);
             // 拦截面板上的点击，免得冒泡到背后的遮罩把弹窗关掉
             panel.raycastTarget = true;
             panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
@@ -1525,7 +1670,10 @@ namespace MajdataPlay.Scenes.List
         }
         void BuildToast()
         {
-            var toast = CreatePanel(_root, Hex(0x343F56), 12f);
+            // 提示条放在安全区域顶部以下；单独一层，弹窗打开时也显示在遮罩上面
+            var toastArea = SafeAreaFitter.Create(_canvasRoot);
+            toastArea.gameObject.name = "ToastArea";
+            var toast = CreatePanel(toastArea, Hex(0x343F56), 12f);
             _toast = toast.rectTransform;
             _toast.anchorMin = new Vector2(0.5f, 1f);
             _toast.anchorMax = new Vector2(0.5f, 1f);
@@ -1541,7 +1689,7 @@ namespace MajdataPlay.Scenes.List
         {
             _toastText.text = text;
             _toast.gameObject.SetActive(true);
-            _toast.SetAsLastSibling();
+            _toast.parent.SetAsLastSibling();
             _toastRemaining = TOAST_DURATION_SEC;
         }
         #endregion

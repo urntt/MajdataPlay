@@ -295,18 +295,14 @@ namespace MajdataPlay.Scenes.List
             var key = "MAJTEXT_LIST_RADAR_" + dimension;
             return key.Tryi18n(out var text) ? text : dimension;
         }
+        /// <summary>
+        /// Gets the color of a difficulty, from the shared table in <see cref="LightUi.GetDifficultyColor"/>.
+        /// </summary>
+        /// <param name="level">The difficulty.</param>
+        /// <returns>The color of the difficulty.</returns>
         static Color GetDifficultyColor(ChartLevel level)
         {
-            return level switch
-            {
-                ChartLevel.Easy => Hex(0x0E9BEE),
-                ChartLevel.Basic => Hex(0x22BB5B),
-                ChartLevel.Advance => Hex(0xF08A12),
-                ChartLevel.Expert => Hex(0xF64861),
-                ChartLevel.Master => Hex(0x9E45E2),
-                ChartLevel.ReMaster => Hex(0xB15CF0),
-                _ => Hex(0xE8379C),
-            };
+            return LightUi.GetDifficultyColor(level);
         }
         static Color WithAlpha(Color color, float alpha)
         {

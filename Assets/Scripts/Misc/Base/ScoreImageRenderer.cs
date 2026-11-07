@@ -288,18 +288,14 @@ namespace MajdataPlay
             UiSprites.ApplyRing(ring, radius, 2f);
             Fill(ring.rectTransform);
         }
+        /// <summary>
+        /// Gets the color of a difficulty, from the shared table in <see cref="LightUi.GetDifficultyColor"/>.
+        /// </summary>
+        /// <param name="level">The difficulty.</param>
+        /// <returns>The color of the difficulty.</returns>
         static Color GetDifficultyColor(ChartLevel level)
         {
-            return level switch
-            {
-                ChartLevel.Easy => new Color32(0x0E, 0x9B, 0xEE, 0xFF),
-                ChartLevel.Basic => new Color32(0x22, 0xBB, 0x5B, 0xFF),
-                ChartLevel.Advance => new Color32(0xFB, 0x9C, 0x2D, 0xFF),
-                ChartLevel.Expert => new Color32(0xF6, 0x48, 0x61, 0xFF),
-                ChartLevel.Master => new Color32(0x9E, 0x45, 0xE2, 0xFF),
-                ChartLevel.ReMaster => new Color32(0xBA, 0x67, 0xF8, 0xFF),
-                _ => new Color32(0xE8, 0x37, 0x9C, 0xFF),
-            };
+            return LightUi.GetDifficultyColor(level);
         }
         static Image CreateImage(Transform parent, Sprite? sprite, Color color)
         {

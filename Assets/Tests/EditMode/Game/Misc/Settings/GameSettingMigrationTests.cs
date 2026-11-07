@@ -256,6 +256,122 @@ namespace MajdataPlay.Tests.Game.Misc.Settings
             Assert.That(setting.Display.ListInstantPreview, Is.True);
         }
 
+        /// <summary>Checks that the falling chart options leave Falling for Mod and the old slide-tail switch becomes a Flick position.</summary>
+        [Test]
+        public void Migrate_MovesFallingChartOptionsToMod()
+        {
+            var document = JObject.Parse("{\"Debug\":{\"SaveModSettings\":true},\"Falling\":{\"FallingSpeed\":7.5,\"FallingBreakToFlick\":true,\"FallingSlideTailToFlick\":true,\"FallingTouchToTap\":true}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            var falling = (JObject)document["Falling"]!;
+            var mod = (JObject)document["Mod"]!;
+            Assert.That(changed, Is.True);
+            Assert.That(falling.Count, Is.EqualTo(1));
+            Assert.That(falling["FallingSpeed"]!.Value<float>(), Is.EqualTo(7.5f));
+            Assert.That(mod["FallingBreakToFlick"]!.Value<bool>(), Is.True);
+            Assert.That(mod["FallingSlideTailToFlick"]!.Value<string>(), Is.EqualTo("Start"));
+            Assert.That(mod["FallingTouchToTap"]!.Value<bool>(), Is.True);
+            Assert.That(GameSettingMigration.Migrate(document, CreateSerializer()), Is.False, "a migrated document is current");
+        }
+
+        /// <summary>Checks that chart options already in Mod win over the legacy keys in Falling, which are removed.</summary>
+        [Test]
+        public void Migrate_ExistingModChartOptionsWin()
+        {
+            var document = JObject.Parse("{\"Debug\":{\"SaveModSettings\":true},\"Falling\":{\"FallingSlideTailToFlick\":true},\"Mod\":{\"FallingSlideTailToFlick\":\"End\"}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            Assert.That(changed, Is.True);
+            Assert.That(((JObject)document["Falling"]!).ContainsKey("FallingSlideTailToFlick"), Is.False);
+            Assert.That(document["Mod"]!["FallingSlideTailToFlick"]!.Value<string>(), Is.EqualTo("End"));
+        }
+
+        /// <summary>Checks that the moved chart options are dropped with the rest of Mod while Mod settings are not saved.</summary>
+        [Test]
+        public void Migrate_MovedChartOptionsFollowSaveModSettings()
+        {
+            var document = JObject.Parse("{\"Falling\":{\"FallingTouchToTap\":true,\"FallingSpeed\":7}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            Assert.That(changed, Is.True);
+            Assert.That(document.ContainsKey("Mod"), Is.False);
+            Assert.That(((JObject)document["Falling"]!).ContainsKey("FallingTouchToTap"), Is.False);
+        }
+
+        /// <summary>Checks that the old slide-tail switch in Mod becomes Start when on and Off when off.</summary>
+        /// <param name="isOn">The old switch value.</param>
+        /// <param name="expected">The expected Flick position.</param>
+        [TestCase(true, "Start")]
+        [TestCase(false, "Off")]
+        public void Migrate_ConvertsSlideTailSwitch(bool isOn, string expected)
+        {
+            var document = new JObject
+            {
+                ["Debug"] = new JObject { ["SaveModSettings"] = true },
+                ["Mod"] = new JObject { ["FallingSlideTailToFlick"] = isOn },
+            };
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            Assert.That(changed, Is.True);
+            Assert.That(document["Mod"]!["FallingSlideTailToFlick"]!.Value<string>(), Is.EqualTo(expected));
+        }
+
+        /// <summary>Checks that the old Keep Slides Original switch becomes the Standard or Falling slide style.</summary>
+        /// <param name="isOriginal">The old switch value.</param>
+        /// <param name="expected">The expected slide style.</param>
+        [TestCase(true, "Standard")]
+        [TestCase(false, "Falling")]
+        public void Migrate_ConvertsSlideOriginalToSlideStyle(bool isOriginal, string expected)
+        {
+            var document = new JObject { ["Falling"] = new JObject { ["FallingSlideOriginal"] = isOriginal } };
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            var falling = (JObject)document["Falling"]!;
+            Assert.That(changed, Is.True);
+            Assert.That(falling.ContainsKey("FallingSlideOriginal"), Is.False);
+            Assert.That(falling["FallingSlideStyle"]!.Value<string>(), Is.EqualTo(expected));
+        }
+
+        /// <summary>Checks that a slide style already in Falling wins over the old switch, which is removed.</summary>
+        [Test]
+        public void Migrate_ExistingSlideStyleWins()
+        {
+            var document = JObject.Parse("{\"Falling\":{\"FallingSlideOriginal\":true,\"FallingSlideStyle\":\"Floating\"}}");
+
+            var changed = GameSettingMigration.Migrate(document, CreateSerializer());
+
+            var falling = (JObject)document["Falling"]!;
+            Assert.That(changed, Is.True);
+            Assert.That(falling.ContainsKey("FallingSlideOriginal"), Is.False);
+            Assert.That(falling["FallingSlideStyle"]!.Value<string>(), Is.EqualTo("Floating"));
+        }
+
+        /// <summary>Checks that settings of the previous layout keep their chart options and slide style when read.</summary>
+        [Test]
+        public void Read_LegacyFallingChartOptionsKeepTheirValues()
+        {
+            var setting = Read("{\"Debug\":{\"SaveModSettings\":true},\"Falling\":{\"FallingBreakToFlick\":true,\"FallingSlideTailToFlick\":true,\"FallingTouchToTap\":true,\"FallingSlideOriginal\":true}}");
+
+            Assert.That(setting.Mod.FallingBreakToFlick, Is.True);
+            Assert.That(setting.Mod.FallingSlideTailToFlick, Is.EqualTo(FallingSlideFlickOption.Start));
+            Assert.That(setting.Mod.FallingTouchToTap, Is.True);
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Standard));
+        }
+
+        /// <summary>Checks that the oldest layout, with Keep Slides Original saved in Mod, still ends up as the slide style.</summary>
+        [Test]
+        public void Read_OldestModSlideOriginalBecomesSlideStyle()
+        {
+            var setting = Read("{\"Debug\":{\"SaveModSettings\":true},\"Mod\":{\"FallingSlideOriginal\":true}}");
+
+            Assert.That(setting.Falling.FallingSlideStyle, Is.EqualTo(FallingSlideStyleOption.Standard));
+        }
+
         /// <summary>Checks that null categories are removed and reported as a change.</summary>
         [Test]
         public void Migrate_RemovesNullCategories()

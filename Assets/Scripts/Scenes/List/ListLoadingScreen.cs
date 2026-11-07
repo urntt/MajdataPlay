@@ -114,6 +114,8 @@ namespace MajdataPlay.Scenes.List
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
+            // 手机上按物理尺寸放大，平板与电脑保持 1920×1080 参考布局
+            AdaptiveCanvasScaler.Attach(scaler);
             _root = (RectTransform)canvasObject.transform;
             _group = canvasObject.AddComponent<CanvasGroup>();
             _group.alpha = 0f;
@@ -122,8 +124,9 @@ namespace MajdataPlay.Scenes.List
 
             var background = CreateImage(_root, PAGE_COLOR, 0f);
             Stretch(background.rectTransform);
-            _content = CreateRect("Content", _root);
-            Stretch(_content);
+            // 背景铺满全屏，内容放在安全区域内
+            _content = SafeAreaFitter.Create(_root);
+            _content.gameObject.name = "Content";
             ApplyLayer(transform);
 
             if (_cover == null)
@@ -209,8 +212,8 @@ namespace MajdataPlay.Scenes.List
         }
         void LateUpdate()
         {
-            // 屏幕方向或尺寸变化时重新排版（下落式会在加载中切到横屏）
-            var size = _root.rect.size;
+            // 屏幕方向、尺寸或安全区变化时重新排版（下落式会在加载中切到横屏）
+            var size = _content.rect.size;
             if (size.x > 0f && size.y > 0f && (size - _lastSize).sqrMagnitude > 1f)
             {
                 _lastSize = size;

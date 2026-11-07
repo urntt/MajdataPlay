@@ -7,8 +7,8 @@ namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
     /// 下落式 Slide 的 Drag 式判定：沿箭头路径每隔一小段时间取一个点，相当于一串隐形的 Drag。
-    /// 点到达判定线前后一小段时间内，有手指的横坐标离箭头位置不超过两列宽（合计四列）即算命中；
-    /// 提前命中不会让后面的点提前结算。全部点结算后，按命中情况以及首、尾点是否命中给出评级。
+    /// 点到达判定线（悬空式为第二判定线）前后 0.3 秒内，有手指的横坐标离箭头位置不超过两列半宽（合计五列）即算命中；
+    /// 提前命中不会让后面的点提前结算。全部点结算后由 <see cref="LaneSlideGrading"/> 评级。
     /// 星星尾转 Flick 时改为只有一个点，需要在所在列划动（见 <see cref="CreateFlick"/>）。
     /// </summary>
     internal sealed class LaneSlideJudge
@@ -18,22 +18,30 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         const float SAMPLE_INTERVAL_SEC = 0.05f;
         /// <summary>
-        /// 点到达判定线前多久开始接受手指
+        /// 检查点到达判定线前多久开始接受手指
         /// </summary>
-        const float EARLY_SEC = 0.15f;
+        const float EARLY_SEC = 0.3f;
         /// <summary>
-        /// 点到达判定线后多久仍未命中则记为漏掉
+        /// 检查点到达判定线后多久仍未命中则记为漏掉
         /// </summary>
-        const float LATE_SEC = 0.15f;
+        const float LATE_SEC = 0.3f;
         /// <summary>
-        /// 手指横坐标与箭头位置相差不超过该值即算命中：左右各两列，合计四列
-        /// （箭头在列中央时即为左右相邻两列的整列，再加上外侧各半列）；扫键也用它判断手指是否正在跟这条星星
+        /// 星星尾转 Flick：与 Tap 的判定范围相同，到达判定线前后 0.15 秒内划动才算
         /// </summary>
-        internal const float HIT_HALF_WIDTH = LaneLayout.LANE_WIDTH * 2f;
+        const float FLICK_EARLY_SEC = 0.15f;
+        /// <summary>
+        /// 星星尾转 Flick：到达判定线后多久仍未划动则记为漏掉
+        /// </summary>
+        const float FLICK_LATE_SEC = 0.15f;
+        /// <summary>
+        /// 手指横坐标与箭头位置相差不超过该值即算命中：左右各两列半，合计五列；
+        /// “Slide 样式”为标准时，扫键保护也用它判断手指是否在打这条星星
+        /// </summary>
+        internal static float HitHalfWidth => LaneLayout.LaneWidth * 2.5f;
         /// <summary>
         /// 路径中横向跨过该距离的一段视为 8 与 1 之间的跳跃（圆周上相邻，轨道上却在两端）
         /// </summary>
-        const float WRAP_DISTANCE = LaneLayout.LANE_WIDTH * 4;
+        static float WrapDistance => LaneLayout.LaneWidth * 4;
         /// <summary>
         /// 跳跃结束后留给手指横移的时间，期间的点不计
         /// </summary>
@@ -42,6 +50,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         struct Sample
         {
             public float Timing;
+            /// <summary>
+            /// 到达判定线前多久开始可以命中
+            /// </summary>
+            public float EarlySec;
             /// <summary>
             /// 到达判定线后仍可命中的时间
             /// </summary>
@@ -81,6 +93,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public int FlickLane { get; }
         /// <summary>
+        /// 星星尾转 Flick：Flick 的判定时刻（含判定偏移）；不是 Flick 时为 0
+        /// </summary>
+        public float FlickTiming => _isFlick ? _samples[0].Timing : 0f;
+        /// <summary>
         /// Flick 命中时与判定时刻的差（秒，晚为正）；未命中为 null
         /// </summary>
         public float? FlickDiffSec { get; private set; }
@@ -119,6 +135,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 samples.Add(new Sample()
                 {
                     Timing = timing,
+                    EarlySec = EARLY_SEC,
                     LateSec = lateSec
                 });
                 foreach (var path in paths)
@@ -134,12 +151,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             _paths = Array.Empty<LanePathVertex[]>();
             _pathCount = 0;
             _sampleXs = Array.Empty<float>();
-            _samples = new[] { new Sample() { Timing = flickTiming, LateSec = LATE_SEC } };
+            _samples = new[] { new Sample() { Timing = flickTiming, EarlySec = FLICK_EARLY_SEC, LateSec = FLICK_LATE_SEC } };
             _isFlick = true;
             FlickLane = lane;
         }
         /// <summary>
-        /// 星星尾转 Flick：整条箭头换成一个 Flick。前后 <see cref="EARLY_SEC"/>、<see cref="LATE_SEC"/>（与 Tap 的判定范围相同）内
+        /// 星星尾转 Flick：整条箭头换成一个 Flick。前后 <see cref="FLICK_EARLY_SEC"/>、<see cref="FLICK_LATE_SEC"/>（与 Tap 的判定范围相同）内
         /// 在 <paramref name="lane"/> 划动即命中，由 <see cref="HitFlick"/> 记录时间差，过晚则记为漏掉
         /// </summary>
         /// <param name="timing">含判定偏移的判定时刻</param>
@@ -164,7 +181,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 return false;
             }
             ref readonly var sample = ref _samples[0];
-            return now >= sample.Timing - EARLY_SEC && now <= sample.Timing + sample.LateSec;
+            return now >= sample.Timing - sample.EarlySec && now <= sample.Timing + sample.LateSec;
         }
         /// <summary>
         /// 星星尾转 Flick：在 <paramref name="now"/> 划动命中，立即结算
@@ -184,20 +201,26 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <summary>
         /// 每帧调用，按顺序结算各点
         /// </summary>
-        /// <param name="fingerXs">本帧手指的横坐标</param>
+        /// <param name="thisFrameSec">本帧的判定时刻</param>
+        /// <param name="fingers">本帧可以打检查点的手指</param>
+        /// <param name="hitFingerKeys">不为空时，加入本帧位于某个可命中检查点范围内的手指的键（用于扫键保护）</param>
         /// <returns>本帧是否有点首次被命中</returns>
-        public bool Update(float thisFrameSec, ReadOnlySpan<float> fingerXs)
+        public bool Update(float thisFrameSec, ReadOnlySpan<LaneFinger> fingers, List<int>? hitFingerKeys)
         {
             var isNewlyHit = false;
             for (var i = _next; i < _samples.Length; i++)
             {
                 ref var sample = ref _samples[i];
-                if (thisFrameSec < sample.Timing - EARLY_SEC)
+                if (thisFrameSec < sample.Timing - sample.EarlySec)
                 {
                     break;
                 }
                 // Flick 只能由 HitFlick 命中
-                if (!_isFlick && !sample.IsHit && thisFrameSec <= sample.Timing + sample.LateSec && IsAnyFingerNear(i, fingerXs))
+                if (_isFlick || thisFrameSec > sample.Timing + sample.LateSec || (sample.IsHit && hitFingerKeys is null))
+                {
+                    continue;
+                }
+                if (CollectNearFingers(i, fingers, hitFingerKeys) && !sample.IsHit)
                 {
                     sample.IsHit = true;
                     isNewlyHit = true;
@@ -222,65 +245,37 @@ namespace MajdataPlay.Scenes.Game.Lane
             return isNewlyHit;
         }
         /// <summary>
-        /// 判定期间（第一个点之前 <see cref="EARLY_SEC"/> 起，到全部点结算为止）各条路径在 <paramref name="now"/> 时的横坐标，
-        /// 用于判断手指是否正在跟这条星星
+        /// 检查哪些手指在某个点的命中范围内（离任一路径上的箭头位置不超过 <see cref="HitHalfWidth"/>）
         /// </summary>
-        /// <param name="output">长度不少于路径数（Wifi 为 3）</param>
-        /// <returns>写入的数量；不在判定期间时为 0</returns>
-        public int GetActiveXs(float now, Span<float> output)
-        {
-            if (IsResolved || _samples.Length == 0 || now < _samples[0].Timing - EARLY_SEC)
-            {
-                return 0;
-            }
-            var count = Mathf.Min(_pathCount, output.Length);
-            for (var p = 0; p < count; p++)
-            {
-                output[p] = GetX(_paths[p], now);
-            }
-            return count;
-        }
-        /// <summary>
-        /// 从上往下取第一个满足的：
-        /// 全部命中为 Critical Perfect；首、尾都命中为 Perfect；首命中且另有任一点命中为 Great；
-        /// 有任一点命中为 Good；都没命中为 Miss。
-        /// 没有快慢之分，调用方需将 JudgeDiff 置 0。
-        /// </summary>
-        public static JudgeGrade GetGrade(int hitCount, int totalCount, bool isFirstHit, bool isLastHit)
-        {
-            if (totalCount <= 0 || hitCount >= totalCount)
-            {
-                return JudgeGrade.Perfect;
-            }
-            else if (isFirstHit && isLastHit)
-            {
-                return JudgeGrade.LatePerfect2nd;
-            }
-            else if (isFirstHit && hitCount >= 2)
-            {
-                return JudgeGrade.LateGreat;
-            }
-            else if (hitCount > 0)
-            {
-                return JudgeGrade.LateGood;
-            }
-            return JudgeGrade.Miss;
-        }
-        bool IsAnyFingerNear(int sampleIndex, ReadOnlySpan<float> fingerXs)
+        /// <param name="sampleIndex">点的序号</param>
+        /// <param name="fingers">本帧可以打检查点的手指</param>
+        /// <param name="nearFingerKeys">不为空时加入范围内手指的键（不重复）</param>
+        /// <returns>是否有手指在范围内</returns>
+        bool CollectNearFingers(int sampleIndex, ReadOnlySpan<LaneFinger> fingers, List<int>? nearFingerKeys)
         {
             var offset = sampleIndex * _pathCount;
-            for (var p = 0; p < _pathCount; p++)
+            var isAnyNear = false;
+            foreach (var finger in fingers)
             {
-                var x = _sampleXs[offset + p];
-                foreach (var fingerX in fingerXs)
+                for (var p = 0; p < _pathCount; p++)
                 {
-                    if (Mathf.Abs(fingerX - x) <= HIT_HALF_WIDTH)
+                    if (Mathf.Abs(finger.X - _sampleXs[offset + p]) > HitHalfWidth)
+                    {
+                        continue;
+                    }
+                    isAnyNear = true;
+                    if (nearFingerKeys is null)
                     {
                         return true;
                     }
+                    if (!nearFingerKeys.Contains(finger.Key))
+                    {
+                        nearFingerKeys.Add(finger.Key);
+                    }
+                    break;
                 }
             }
-            return false;
+            return isAnyNear;
         }
         /// <summary>
         /// 路径在 <paramref name="timing"/> 时的横坐标，在相邻顶点之间线性插值，与箭头的摆放一致
@@ -315,7 +310,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 {
                     var from = path[i - 1];
                     var to = path[i];
-                    if (Mathf.Abs(to.X - from.X) < WRAP_DISTANCE)
+                    if (Mathf.Abs(to.X - from.X) < WrapDistance)
                     {
                         continue;
                     }

@@ -28,18 +28,15 @@ namespace MajdataPlay.Settings
         /// 扫键：按住的手指划进某一列也算点击这一列，像机台上手划过按键也能打到；关闭时只有新按下才算
         /// </summary>
         public bool FallingSweep { get; set; } = false;
-
-        public bool FallingBreakToFlick { get; set; } = false;
         /// <summary>
-        /// 星星尾转 Flick：整条箭头换成一个红色 Flick，在箭头开始移动的时刻落在起点所在的列；<see cref="FallingSlideOriginal"/> 开启时无效
+        /// 扫键时保护正在打星星的手指：手指命中星星的检查点后，在这条星星结束或手指抬起前不扫键；同一列最多保护一根手指
         /// </summary>
-        public bool FallingSlideTailToFlick { get; set; } = false;
-
-        public bool FallingTouchToTap { get; set; } = false;
+        public bool FallingSweepSlideGuard { get; set; } = true;
         /// <summary>
-        /// 星星保持标准游玩的样式与判定。星星头回到圆形外圈并按外圈判定，Slide 悬空显示在画面中央
+        /// Slide 样式：标准（星星头回到圆形外圈，Slide 悬空显示在画面中央，按标准判定）、下落式（箭头落到判定线），
+        /// 或悬空式（箭头落到判定线上方的第二条判定线，只认那条线以上的手指）
         /// </summary>
-        public bool FallingSlideOriginal { get; set; } = false;
+        public FallingSlideStyleOption FallingSlideStyle { get; set; } = FallingSlideStyleOption.Falling;
 
         public bool FallingLaneDividers { get; set; } = true;
         /// <summary>
@@ -56,13 +53,5 @@ namespace MajdataPlay.Settings
         public bool FallingScoreColor { get; set; } = false;
 
         public FallingJudgeLineColorOption FallingJudgeLineColor { get; set; } = FallingJudgeLineColorOption.White;
-        /// <summary>
-        /// 是否开启了改变谱面的选项（Touch 转 Tap、星星尾转 Flick、Slide 保持原样）：与其他 Mod 一样，开启时不保存成绩。
-        /// 垂直判定、扫键、Break 转 Flick 等只调手感的选项不算
-        /// </summary>
-        public bool IsChartModActive()
-        {
-            return FallingTouchToTap || FallingSlideTailToFlick || FallingSlideOriginal;
-        }
     }
 }

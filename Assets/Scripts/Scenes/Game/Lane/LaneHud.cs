@@ -37,6 +37,30 @@ namespace MajdataPlay.Scenes.Game.Lane
         const float ACHIEVEMENT_FONT_SIZE = SCORE_FONT_SIZE * 0.4f;
         const float ACHIEVEMENT_ALPHA = 0.7f;
         /// <summary>
+        /// The share of the bottom edge taken by the title; the difficulty takes the rest.
+        /// </summary>
+        const float TITLE_SHARE = 0.62f;
+        /// <summary>
+        /// The gap between the title and the difficulty.
+        /// </summary>
+        const float TITLE_GAP = 24f;
+        /// <summary>
+        /// The distance of the title and the difficulty from the bottom of the safe area.
+        /// </summary>
+        const float BOTTOM_TEXT_Y = 24f;
+        /// <summary>
+        /// The height of the title and the difficulty.
+        /// </summary>
+        const float BOTTOM_TEXT_HEIGHT = 60f;
+        /// <summary>
+        /// The width of the pause menu: four buttons 300 wide, centered 360 apart.
+        /// </summary>
+        const float PAUSE_MENU_WIDTH = 360f * 3f + 300f;
+        /// <summary>
+        /// The height the pause menu needs around the center: "Paused" reaches 240 above it, so twice that.
+        /// </summary>
+        const float PAUSE_MENU_HEIGHT = 480f;
+        /// <summary>
         /// 点亮手指所在列的亮度，以及松开后淡出所需的时间
         /// </summary>
         const float LANE_HIGHLIGHT_ALPHA = 0.22f;
@@ -71,6 +95,14 @@ namespace MajdataPlay.Scenes.Game.Lane
         Canvas? _canvas;
 
         RectTransform _root = null!;
+        /// <summary>
+        /// The safe area of the screen, enlarged on phones; holds the pause and skip buttons, the score, the title and the difficulty.
+        /// </summary>
+        RectTransform _safe = null!;
+        /// <summary>
+        /// The 1920×1080 area of the pause overlay holding the menu and the countdown, scaled by <see cref="FitPauseMenu"/>.
+        /// </summary>
+        RectTransform _overlayArea = null!;
         RectTransform? _background;
         RectTransform _progressFill = null!;
         RectTransform _pauseButton = null!;
@@ -196,6 +228,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 背景铺满屏幕：在 LateUpdate 中按显示中的封面或视频尺寸缩放
             _background = bgManager.CoverRenderer.rectTransform.parent as RectTransform;
 
+            // 四角的按钮与文字放在安全区域内（避开刘海、圆角和底部横条），手机上按物理尺寸放大；横屏翻转时自动重新摆放
+            _safe = SafeAreaFitter.CreateEnlarged(_root);
+
             // 进度条
             var progressBack = CreateImage("ProgressBack", _root, layer, new Color(1f, 1f, 1f, 0.2f));
             progressBack.rectTransform.anchorMin = new Vector2(0, 1);
@@ -212,7 +247,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _progressFill.anchoredPosition = Vector2.zero;
 
             // 左上：暂停键（“II”）
-            _pauseButton = CreateRect("PauseButton", _root, layer);
+            _pauseButton = CreateRect("PauseButton", _safe, layer);
             SetRect(_pauseButton, new Vector2(0, 1), new Vector2(0.5f, 0.5f),
                     new Vector2(EDGE_MARGIN + BUTTON_SIZE / 2f, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
                     new Vector2(PAUSE_HIT_SIZE, PAUSE_HIT_SIZE));
@@ -232,7 +267,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             _skipButton = skipButton.transform as RectTransform;
             if (_skipButton != null)
             {
-                _skipButton.SetParent(_root, false);
+                _skipButton.SetParent(_safe, false);
                 _skipButton.localRotation = Quaternion.identity;
                 SetRect(_skipButton, new Vector2(0, 1), new Vector2(0.5f, 0.5f),
                         new Vector2(EDGE_MARGIN + BUTTON_SIZE * 1.5f + 20f, -(EDGE_MARGIN + BUTTON_SIZE / 2f)),
@@ -244,7 +279,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             var fallingOptions = MajEnv.Settings.Falling;
             var score = objectCounter.SubScreenInfoDisplayerText;
             var scoreRect = score.rectTransform;
-            scoreRect.SetParent(_root, false);
+            scoreRect.SetParent(_safe, false);
             scoreRect.localScale = Vector3.one;
             scoreRect.localRotation = Quaternion.identity;
             SetRect(scoreRect, new Vector2(1, 1), new Vector2(1, 0.5f),
@@ -256,7 +291,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             if (!fallingOptions.FallingInfoFollowDisplay)
             {
                 // 分数下方小字：从 101% 往下掉的达成率，紧贴分数数字下方
-                var achievement = CreateText("Achievement", _root, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
+                var achievement = CreateText("Achievement", _safe, layer, score.font, ACHIEVEMENT_FONT_SIZE, Color.white, TextAlignmentOptions.TopRight, "101.0000%");
                 SetRect(achievement.rectTransform, new Vector2(1, 1), new Vector2(1, 1),
                         new Vector2(-EDGE_MARGIN, -(EDGE_MARGIN + BUTTON_SIZE / 2f + SCORE_FONT_SIZE * 0.45f)),
                         new Vector2(600f, ACHIEVEMENT_FONT_SIZE * 1.5f));
@@ -280,11 +315,11 @@ namespace MajdataPlay.Scenes.Game.Lane
             MoveTo(objectCounter.SecondaryInfoDisplayerObject, topCenter);
             MoveTo(objectCounter.JudgeTimingGaugeObject, topCenter);
 
-            // 左下曲名、右下难度
-            var titleText = CreateText("Title", _root, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
-            SetRect(titleText.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(EDGE_MARGIN, 24f), new Vector2(1100f, 60f));
-            var difficultyText = CreateText("Difficulty", _root, layer, font, 40f, fallingOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
-            SetRect(difficultyText.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-EDGE_MARGIN, 24f), new Vector2(600f, 60f));
+            // 左下曲名、右下难度：曲名占底边左侧 62%，难度占右侧，放不下时缩小字号
+            var titleText = CreateText("Title", _safe, layer, font, 40f, Color.white, TextAlignmentOptions.BottomLeft, title);
+            SetBottomRow(titleText, 0f, TITLE_SHARE, EDGE_MARGIN, TITLE_GAP * 0.5f);
+            var difficultyText = CreateText("Difficulty", _safe, layer, font, 40f, fallingOptions.FallingDifficultyColor ? difficultyColor : Color.white, TextAlignmentOptions.BottomRight, difficulty);
+            SetBottomRow(difficultyText, TITLE_SHARE, 1f, TITLE_GAP * 0.5f, EDGE_MARGIN);
 
             BuildPauseOverlay(font);
 
@@ -312,6 +347,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 
             var area = CreateRect("PlayArea", overlayRoot, layer);
             SetRect(area, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(REFERENCE_WIDTH, REFERENCE_HEIGHT));
+            _overlayArea = area;
 
             var menu = CreateRect("Menu", area, layer);
             SetRect(menu, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(REFERENCE_WIDTH, REFERENCE_HEIGHT));
@@ -418,8 +454,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         /// <summary>
-        /// maimai 式：保持 AP 金色，出现 Great 紫色、Good 绿色、Miss 白色；
-        /// Phigros 式：101% 往下掉的达成率不低于 100.5% 金色、不低于 100% 蓝色，否则白色
+        /// 跟随判定：保持 AP 金色，出现 Great 紫色、Good 绿色、Miss 白色；
+        /// 跟随达成率：101% 往下掉的达成率不低于 100.5% 金色、不低于 100% 蓝色，否则白色。
+        /// 悬空式的第二条判定线用同样的颜色，但更浅
         /// </summary>
         void UpdateJudgeLineColor()
         {
@@ -455,6 +492,11 @@ namespace MajdataPlay.Scenes.Game.Lane
             if (judgeLine.color != color)
             {
                 judgeLine.color = color;
+                var slideLine = LaneVisuals.SlideJudgeLine;
+                if (slideLine != null)
+                {
+                    slideLine.color = new Color(color.r, color.g, color.b, color.a * LaneVisuals.SLIDE_JUDGE_LINE_ALPHA);
+                }
             }
         }
         void OnDestroy()
@@ -527,6 +569,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
         void ShowMenu()
         {
+            FitPauseMenu();
             _countdownRemaining = 0f;
             _countdownText.gameObject.SetActive(false);
             _menu.SetActive(true);
@@ -535,6 +578,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         }
         void StartResumeCountdown()
         {
+            FitPauseMenu();
             _isMenuVisible = false;
             _menu.SetActive(false);
             _countdownRemaining = RESUME_COUNTDOWN_SEC;
@@ -630,6 +674,51 @@ namespace MajdataPlay.Scenes.Game.Lane
             _background.localScale = new Vector3(fit, fit, 1f);
         }
 
+        /// <summary>
+        /// Scales the pause menu and the countdown up on phones like the other touch interfaces, as far as the menu still fits in the
+        /// safe area, and centers them in the safe area.
+        /// </summary>
+        void FitPauseMenu()
+        {
+            if (Screen.width <= 0 || Screen.height <= 0)
+            {
+                return;
+            }
+            // 遮罩画布可能还没启用过、尺寸未更新：按 CanvasScaler 的 Expand 规则直接算出画布尺寸
+            var canvasScale = Mathf.Min(Screen.width / REFERENCE_WIDTH, Screen.height / REFERENCE_HEIGHT);
+            var size = new Vector2(Screen.width / canvasScale, Screen.height / canvasScale);
+            var safeArea = Screen.safeArea;
+            var safeWidth = size.x * safeArea.width / Screen.width;
+            var safeHeight = size.y * safeArea.height / Screen.height;
+            var enlargement = UiScaling.GetEnlargement(Screen.width, Screen.height, Screen.dpi);
+            var fit = Mathf.Min(safeWidth * 0.95f / PAUSE_MENU_WIDTH, safeHeight * 0.9f / PAUSE_MENU_HEIGHT);
+            var scale = Mathf.Max(1f, Mathf.Min(enlargement, fit));
+            _overlayArea.localScale = new Vector3(scale, scale, 1f);
+            var offset = safeArea.center - new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            _overlayArea.anchoredPosition = new Vector2(offset.x * size.x / Screen.width, offset.y * size.y / Screen.height);
+        }
+        /// <summary>
+        /// Places a text along the bottom of the safe area between two horizontal shares of its width, shrinking the text to fit.
+        /// </summary>
+        /// <param name="text">The text.</param>
+        /// <param name="fromShare">Where the text starts, as a share of the width.</param>
+        /// <param name="toShare">Where the text ends, as a share of the width.</param>
+        /// <param name="left">The inset from the start.</param>
+        /// <param name="right">The inset from the end.</param>
+        static void SetBottomRow(TextMeshProUGUI text, float fromShare, float toShare, float left, float right)
+        {
+            var rect = text.rectTransform;
+            rect.anchorMin = new Vector2(fromShare, 0f);
+            rect.anchorMax = new Vector2(toShare, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.offsetMin = new Vector2(left, BOTTOM_TEXT_Y);
+            rect.offsetMax = new Vector2(-right, BOTTOM_TEXT_Y + BOTTOM_TEXT_HEIGHT);
+            text.enableAutoSizing = true;
+            text.fontSizeMin = 22f;
+            text.fontSizeMax = text.fontSize;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+        }
         static void MoveTo(GameObject? obj, RectTransform parent)
         {
             if (obj == null)

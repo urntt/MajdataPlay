@@ -647,6 +647,35 @@ namespace MajdataPlay
             return result.File;
         }
 
+        /// <summary>
+        /// Determines whether the chart is already loaded or stored, so <see cref="GetMaidataAsync"/> reads it without a request.
+        /// </summary>
+        /// <remarks>
+        /// The chart endpoint counts a play on every download, so views that only show chart statistics, such as the song cards,
+        /// check this first instead of downloading charts that were never played or opened.
+        /// </remarks>
+        /// <returns>True when the chart can be read without downloading it; otherwise false.</returns>
+        public bool IsMaidataStored()
+        {
+            if (_isDisposed)
+            {
+                return false;
+            }
+            if (_maidata is not null)
+            {
+                return true;
+            }
+            try
+            {
+                return FindStoredFile(OnlineChartResourceKind.Maidata) is not null;
+            }
+            catch (IOException e)
+            {
+                MajDebug.LogWarning(nameof(OnlineSongDetail), $"Failed to look up the stored chart of {Id}: {e.Message}");
+                return false;
+            }
+        }
+
         /// <summary>Finds the stored file of a resource without downloading it.</summary>
         /// <param name="kind">The resource kind.</param>
         /// <returns>The resource file, or null when its digest is not recorded or its object is not stored.</returns>

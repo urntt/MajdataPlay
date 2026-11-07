@@ -88,13 +88,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly int[] _laneCircleUsedCount = new int[33];
         // 每列音符的判定时刻（按队列序号），用于把轨道点击分给离判定时刻最近的音符
         readonly Dictionary<long, float>[] _laneNoteTimings = CreateLaneNoteTimings();
-        // 本帧拖动 Slide 用的手指横坐标：轨道触摸加上实体按键按住列的中心
-        float[] _laneDragXs = new float[16];
-        int _laneDragCount = 0;
-        // 扫键：本帧各条进行中星星的当前位置，下一帧交给轨道输入，跟着星星的手指不扫键
-        readonly List<float> _pendingLaneSlideXs = new(8);
-        float[] _laneSlideXs = new float[8];
-        int _laneSlideCount = 0;
+        // 本帧打 Slide 检查点用的手指：轨道触摸加上实体按键按住列的中心
+        LaneFinger[] _laneSlideFingers = new LaneFinger[16];
+        int _laneSlideFingerCount = 0;
+        // 扫键保护：本帧各条进行中星星报告的、正在打它的手指，下一帧交给轨道输入
+        readonly List<int> _pendingLaneGuardKeys = new(8);
+        int[] _laneGuardKeys = new int[8];
+        int _laneGuardCount = 0;
         /// <summary>
         /// 两列的音符离判定时刻差不多时（在此范围内），轨道点击优先给手指所在的列
         /// </summary>
@@ -108,7 +108,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         const string SENSOR_OUT_OF_RANGE = "Sensor index requested by Note is out of range";
         const string BUTTON_IS_NULL = "Button index requested by Note is null";
         const string BUTTON_OUT_OF_RANGE = "Button index requested by Note is out of range";
-        readonly bool USERSETTING_IS_AUTOPLAY = (MajEnv.Settings?.Mod.AutoPlay ?? AutoplayModeOption.Disable) != AutoplayModeOption.Disable;
+        /// <summary>
+        /// 本局是否自动播放：初始值取设置，开始后改用本局实际的 Mod 信息（段位等可能覆盖设置）
+        /// </summary>
+        bool USERSETTING_IS_AUTOPLAY = (MajEnv.Settings?.Mod.AutoPlay ?? AutoplayModeOption.Disable) != AutoplayModeOption.Disable;
 
         void Awake()
         {
@@ -145,6 +148,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
 #if !(UNITY_ANDROID || UNITY_IOS)
             _isUseButtonRingForTouch = Majdata<INoteController>.Instance?.ModInfo.ButtonRingForTouch ?? false;
 #endif
+            if (Majdata<INoteController>.Instance is INoteController noteController)
+            {
+                USERSETTING_IS_AUTOPLAY = noteController.ModInfo.AutoPlay != AutoplayModeOption.Disable;
+            }
             _isLaneMode = LaneMode.IsEnabled;
         }
         void OnDestroy()
@@ -320,9 +327,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             {
                 timings.Clear();
             }
-            _laneDragCount = 0;
-            _pendingLaneSlideXs.Clear();
-            _laneSlideCount = 0;
+            _laneSlideFingerCount = 0;
+            _pendingLaneGuardKeys.Clear();
+            _laneGuardCount = 0;
         }
         public void ResetCounter()
         {
@@ -397,15 +404,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         /// </summary>
         void LaneIOUpdate()
         {
-            // 上一帧星星报告的位置用于本帧的扫键判断，晚一帧可以忽略
-            if (_laneSlideXs.Length < _pendingLaneSlideXs.Count)
+            // 上一帧星星报告的手指用于本帧的扫键保护，晚一帧可以忽略
+            if (_laneGuardKeys.Length < _pendingLaneGuardKeys.Count)
             {
-                _laneSlideXs = new float[_pendingLaneSlideXs.Count * 2];
+                _laneGuardKeys = new int[_pendingLaneGuardKeys.Count * 2];
             }
-            _pendingLaneSlideXs.CopyTo(_laneSlideXs);
-            _laneSlideCount = _pendingLaneSlideXs.Count;
-            _pendingLaneSlideXs.Clear();
-            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge, new ReadOnlySpan<float>(_laneSlideXs, 0, _laneSlideCount));
+            _pendingLaneGuardKeys.CopyTo(_laneGuardKeys);
+            _laneGuardCount = _pendingLaneGuardKeys.Count;
+            _pendingLaneGuardKeys.Clear();
+            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge, new ReadOnlySpan<int>(_laneGuardKeys, 0, _laneGuardCount));
 
             var previousButtonStatus = InputManager.ButtonStatusInPreviousFrame;
             var currentButtonStatus = InputManager.ButtonStatusInThisFrame;
@@ -436,7 +443,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 _btnClickedCountInThisFrame[i] = physicalClickedCount;
 #endif
             }
-            UpdateLaneDragXs();
+            UpdateLaneSlideFingers();
             for (var i = 0; i < 33; i++)
             {
                 var isPhysicalOn = currentSensorStatus[i] == SwitchStatus.On;
@@ -472,33 +479,37 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _laneInput.IgnoreActivePointers();
         }
         /// <summary>
-        /// 下落式 Slide：本帧手指的横坐标（世界坐标）。实体按键按住某列时视为手指在该列中心
+        /// 下落式 Slide：本帧可以打检查点的手指。实体按键按住某列时视为手指在该列中心，键为负数
         /// </summary>
-        public ReadOnlySpan<float> LaneDragXs => new ReadOnlySpan<float>(_laneDragXs, 0, _laneDragCount);
-        void UpdateLaneDragXs()
+        public ReadOnlySpan<LaneFinger> LaneSlideFingers => new ReadOnlySpan<LaneFinger>(_laneSlideFingers, 0, _laneSlideFingerCount);
+        void UpdateLaneSlideFingers()
         {
-            var touchXs = _laneInput.DragXs;
-            var capacity = touchXs.Length + LaneLayout.LANE_COUNT;
-            if (_laneDragXs.Length < capacity)
+            var touchFingers = _laneInput.SlideFingers;
+            var capacity = touchFingers.Length + LaneLayout.LANE_COUNT;
+            if (_laneSlideFingers.Length < capacity)
             {
-                _laneDragXs = new float[capacity * 2];
+                _laneSlideFingers = new LaneFinger[capacity * 2];
             }
-            touchXs.CopyTo(_laneDragXs);
-            _laneDragCount = touchXs.Length;
+            touchFingers.CopyTo(_laneSlideFingers);
+            _laneSlideFingerCount = touchFingers.Length;
             for (var lane = 1; lane <= LaneLayout.LANE_COUNT; lane++)
             {
                 if (_isPhysicalBtnOnInThisFrame[lane - 1])
                 {
-                    _laneDragXs[_laneDragCount++] = LaneLayout.GetLaneX(lane);
+                    _laneSlideFingers[_laneSlideFingerCount++] = new LaneFinger(-lane, LaneLayout.GetLaneX(lane));
                 }
             }
         }
         /// <summary>
-        /// 下落式扫键：进行中的星星报告当前位置，在它附近的手指划过的列不算扫键
+        /// 下落式扫键保护：进行中的星星报告正在打它的手指，这些手指划过的列不扫键（同一列最多保护一根）
         /// </summary>
-        public void AddLaneSlideX(float x)
+        /// <param name="fingerKey">手指的键，见 <see cref="LaneFinger.Key"/>；实体按键（负数）忽略</param>
+        public void AddLaneGuardFinger(int fingerKey)
         {
-            _pendingLaneSlideXs.Add(x);
+            if (fingerKey >= 0 && !_pendingLaneGuardKeys.Contains(fingerKey))
+            {
+                _pendingLaneGuardKeys.Add(fingerKey);
+            }
         }
         static Dictionary<long, float>[] CreateLaneNoteTimings()
         {
@@ -649,11 +660,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             return _isPhysicalSensorOnInThisFrame[index] || _laneInput.CircleSensorHeld[index] ? SwitchStatus.On : SwitchStatus.Off;
         }
         /// <summary>
-        /// 下落式点亮手指所在列：触屏手指（按扫键设置）或实体按键按住
+        /// 下落式点亮手指所在列：触屏手指（按扫键设置）或实体按键按住；自动播放时跟随自动按下的列
         /// </summary>
         /// <param name="lane">1~8</param>
         public bool IsLaneHighlightedInThisFrame(int lane)
         {
+            if (USERSETTING_IS_AUTOPLAY)
+            {
+                return _btnStatusInThisFrame[lane - 1] == SwitchStatus.On;
+            }
             return _laneInput.HighlightLanes[lane - 1] || _isPhysicalBtnOnInThisFrame[lane - 1];
         }
         /// <summary>

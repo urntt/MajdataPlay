@@ -704,7 +704,8 @@ namespace MajdataPlay.Scenes.Game
                     _audioTrackStartAt = (float)startAt;
                 }
             }
-            AudioLength = (float)_audioSample.Length.TotalSeconds / MajEnv.Settings.Mod.PlaybackSpeed;
+            // 用本局实际的播放速度（段位可能覆盖设置里的速度），进度条长度才对
+            AudioLength = (float)_audioSample.Length.TotalSeconds / PlaybackSpeed;
         }
         /// <summary>
         /// Parse the chart into memory
@@ -805,7 +806,7 @@ namespace MajdataPlay.Scenes.Game
             {
                 _chart = _chart.ConvertToTouch();
             }
-            if (LaneMode.IsEnabled && _gameSettings.Falling.FallingTouchToTap)
+            if (LaneMode.IsEnabled && _gameSettings.Mod.FallingTouchToTap)
             {
                 // 在统计音符总数和加载音符之前转换，两者保持一致
                 _chart = _chart.ConvertTouchToLaneTap();
@@ -955,19 +956,27 @@ namespace MajdataPlay.Scenes.Game
             }
             CabinetLed.SetAllLight(Color.white);
             await UniTask.SwitchToMainThread();
-            switch (LaneMode.IsEnabled ? "Disable" : ModInfo.NoteMask)
+            if (LaneMode.IsEnabled)
             {
-                case "Inner":
-                    _noteMask.gameObject.SetActive(true);
-                    _noteMask.sprite = _maskSpriteB;
-                    break;
-                case "Outer":
-                    _noteMask.gameObject.SetActive(true);
-                    _noteMask.sprite = _maskSpriteA;
-                    break;
-                case "Disable":
-                    _noteMask.gameObject.SetActive(false);
-                    break;
+                // 下落式：遮罩改为横贯画面的矩形，遮住与圆形遮罩相当的一段下落路程
+                LaneVisuals.ConfigureNoteMask(_noteMask, ModInfo.NoteMask);
+            }
+            else
+            {
+                switch (ModInfo.NoteMask)
+                {
+                    case "Inner":
+                        _noteMask.gameObject.SetActive(true);
+                        _noteMask.sprite = _maskSpriteB;
+                        break;
+                    case "Outer":
+                        _noteMask.gameObject.SetActive(true);
+                        _noteMask.sprite = _maskSpriteA;
+                        break;
+                    case "Disable":
+                        _noteMask.gameObject.SetActive(false);
+                        break;
+                }
             }
             var token = _cts.Token;
             const float BG_FADE_IN_LENGTH_SEC = 0.25f;

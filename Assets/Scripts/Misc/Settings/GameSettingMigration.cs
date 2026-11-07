@@ -22,6 +22,9 @@ namespace MajdataPlay.Settings
     /// category, <c>RenderQuality</c>, <c>RenderScale</c>, <c>FPSLimit</c> and <c>VSync</c>, move to the
     /// <c>Rendering</c> category. The interface keys that older versions stored in the <c>Game</c> category,
     /// <c>ListStyle</c>, <c>ListPageSize</c> and <c>ListInstantPreview</c>, move to the <c>Display</c> category.
+    /// The falling chart options <c>FallingBreakToFlick</c>, <c>FallingSlideTailToFlick</c> and <c>FallingTouchToTap</c> move from
+    /// the <c>Falling</c> category to the <c>Mod</c> category, the old slide-tail switch becomes a Flick position, and the old
+    /// <c>FallingSlideOriginal</c> switch becomes the <c>FallingSlideStyle</c> option.
     /// </para>
     /// </remarks>
     internal static class GameSettingMigration
@@ -71,8 +74,95 @@ namespace MajdataPlay.Settings
             var movedRenderingKeys = MoveLegacyRenderingKeys(root, serializer);
             var movedFallingKeys = MoveLegacyFallingKeys(root);
             var movedListKeys = MoveLegacyListKeys(root);
+            var movedFallingModKeys = MoveFallingModKeys(root);
+            var convertedSlideKeys = ConvertLegacySlideKeys(root);
             var droppedMod = DropUnsavedMod(root);
-            return removedNullCategories || movedRenderingKeys || movedFallingKeys || movedListKeys || droppedMod;
+            return removedNullCategories || movedRenderingKeys || movedFallingKeys || movedListKeys ||
+                   movedFallingModKeys || convertedSlideKeys || droppedMod;
+        }
+
+        /// <summary>
+        /// 旧版“Slide 保持原样”开关的键（现行布局为 Falling 中的 Slide 样式）
+        /// </summary>
+        private const string LegacySlideOriginalKey = "FallingSlideOriginal";
+
+        /// <summary>
+        /// 旧版放在 Falling 中、现行布局放在 Mod 中的改谱选项（键名相同）
+        /// </summary>
+        private static readonly string[] FallingModKeys =
+        {
+            nameof(ModOptions.FallingBreakToFlick),
+            nameof(ModOptions.FallingSlideTailToFlick),
+            nameof(ModOptions.FallingTouchToTap),
+        };
+
+        /// <summary>
+        /// 把旧版放在 Falling 中的 Break 转 Flick、星星尾转 Flick、Touch 转 Tap 移到 Mod。
+        /// Mod 已有同名键时以 Mod 为准，只删除 Falling 中的旧键；之后照常按“保存 Mod 设置”决定是否丢弃 Mod
+        /// </summary>
+        /// <param name="root">The root object of the document.</param>
+        /// <returns>True when a legacy key was found and removed.</returns>
+        private static bool MoveFallingModKeys(JObject root)
+        {
+            if (root[nameof(GameSetting.Falling)] is not JObject falling)
+            {
+                return false;
+            }
+            var hasLegacyKeys = false;
+            JObject? mod = null;
+            foreach (var key in FallingModKeys)
+            {
+                var value = TakeLegacyValue(falling, key, ref hasLegacyKeys);
+                if (value is null)
+                {
+                    continue;
+                }
+                mod ??= GetOrCreateCategory(root, nameof(GameSetting.Mod));
+                if (mod is not null)
+                {
+                    CopyIfMissing(mod, key, value);
+                }
+            }
+            if (!hasLegacyKeys)
+            {
+                return false;
+            }
+            MajDebug.LogInfo(nameof(GameSettingMigration), "Moved the falling chart options from Falling to Mod");
+            return true;
+        }
+
+        /// <summary>
+        /// 旧版开关改为选项：Mod 中星星尾转 Flick 的 true/false 改为“起点”/“关”；
+        /// Falling 中“Slide 保持原样”的 true/false 改为 Slide 样式“标准”/“下落式”（已有 Slide 样式时只删除旧键）
+        /// </summary>
+        /// <param name="root">The root object of the document.</param>
+        /// <returns>True when a legacy value was converted or removed.</returns>
+        private static bool ConvertLegacySlideKeys(JObject root)
+        {
+            var isChanged = false;
+            if (root[nameof(GameSetting.Mod)] is JObject mod &&
+                mod[nameof(ModOptions.FallingSlideTailToFlick)] is JValue { Type: JTokenType.Boolean } tailToFlick)
+            {
+                var option = (bool)tailToFlick ? FallingSlideFlickOption.Start : FallingSlideFlickOption.Off;
+                mod[nameof(ModOptions.FallingSlideTailToFlick)] = option.ToString();
+                isChanged = true;
+            }
+            if (root[nameof(GameSetting.Falling)] is JObject falling)
+            {
+                var hasLegacyKey = false;
+                var original = TakeLegacyValue(falling, LegacySlideOriginalKey, ref hasLegacyKey);
+                if (original is JValue { Type: JTokenType.Boolean } isOriginal)
+                {
+                    var style = (bool)isOriginal ? FallingSlideStyleOption.Standard : FallingSlideStyleOption.Falling;
+                    CopyIfMissing(falling, nameof(FallingOptions.FallingSlideStyle), style.ToString());
+                }
+                isChanged |= hasLegacyKey;
+            }
+            if (isChanged)
+            {
+                MajDebug.LogInfo(nameof(GameSettingMigration), "Converted the legacy slide switches to options");
+            }
+            return isChanged;
         }
 
         /// <summary>
@@ -158,9 +248,7 @@ namespace MajdataPlay.Settings
         {
             nameof(FallingOptions.PlayStyle),
             nameof(FallingOptions.FallingVerticalJudge),
-            nameof(FallingOptions.FallingBreakToFlick),
-            nameof(FallingOptions.FallingTouchToTap),
-            nameof(FallingOptions.FallingSlideOriginal),
+            LegacySlideOriginalKey,
         };
 
         /// <summary>

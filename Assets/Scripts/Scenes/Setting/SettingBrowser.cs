@@ -24,7 +24,30 @@ namespace MajdataPlay.Scenes.Setting
         const float TOPBAR_HEIGHT = 60f;
         const float LIST_TOP = 104f;
         const float SCROLLBAR_WIDTH = 16f;
+        /// <summary>
+        /// The widest the value area (−, the value and +) of an option row becomes.
+        /// </summary>
         const float VALUE_AREA_WIDTH = 392f;
+        /// <summary>
+        /// The narrowest the value area of an option row becomes on narrow pages.
+        /// </summary>
+        const float MIN_VALUE_AREA_WIDTH = 240f;
+        /// <summary>
+        /// The width the name and description of an option keep before the value area is narrowed.
+        /// </summary>
+        const float MIN_TEXT_COLUMN_WIDTH = 200f;
+        /// <summary>
+        /// The gap between the sidebar (or the left edge) and the options.
+        /// </summary>
+        const float MAIN_LEFT_PADDING = 32f;
+        /// <summary>
+        /// The width of the Categories button that opens the sidebar drawer on narrow pages.
+        /// </summary>
+        const float MENU_BUTTON_WIDTH = 96f;
+        /// <summary>
+        /// The space the Calibrate and Done buttons take at the right of the top bar.
+        /// </summary>
+        const float TOP_BUTTONS_WIDTH = 280f;
         const float STEP_BUTTON_WIDTH = 60f;
         const float CARD_RADIUS = 15f;
         const int RENDERING_ADVANCED_TAP_COUNT = 10;
@@ -44,8 +67,35 @@ namespace MajdataPlay.Scenes.Setting
 
         SettingManager _manager = null!;
         LightUi _ui = null!;
+        /// <summary>
+        /// The full-screen root of the canvas, filled with the page background.
+        /// </summary>
+        RectTransform _canvasRoot = null!;
+        /// <summary>
+        /// The safe area of the screen, which holds the sidebar and the options.
+        /// </summary>
         RectTransform _root = null!;
         CanvasGroup _group = null!;
+        /// <summary>
+        /// Docks the category sidebar on wide pages and makes it a drawer on narrow ones.
+        /// </summary>
+        SidebarDrawer _drawer = null!;
+        /// <summary>
+        /// The Categories button at the left of the top bar, shown while the sidebar is a drawer.
+        /// </summary>
+        RectTransform _menuButton = null!;
+        /// <summary>
+        /// The area holding the option list, whose width decides the width of the value areas.
+        /// </summary>
+        RectTransform _listPane = null!;
+        /// <summary>
+        /// The width of the value area of the option rows, see <see cref="GetValueAreaWidth"/>.
+        /// </summary>
+        float _valueAreaWidth = VALUE_AREA_WIDTH;
+        /// <summary>
+        /// The page size the layout was last applied for.
+        /// </summary>
+        Vector2 _lastPageSize;
         readonly SceneCanvasHider _canvasHider = new();
         RectTransform _sidebarContent = null!;
         TextMeshProUGUI _categoryTitle = null!;
@@ -97,9 +147,12 @@ namespace MajdataPlay.Scenes.Setting
             _offsetUnit = MajEnv.Settings.Debug.OffsetUnit;
             LightUi.EnsureEventSystem();
 
-            _root = LightUi.CreateOverlayCanvas(transform, "SettingBrowserCanvas", 30, out _group);
+            _canvasRoot = LightUi.CreateOverlayCanvas(transform, "SettingBrowserCanvas", 30, out _group);
+            // 背景铺满全屏，内容放在安全区域内，避开刘海、圆角和底部横条
+            _root = LightUi.CreateSafeRoot(_canvasRoot, LightUi.PAGE);
             LightUi.FollowTransition(_group, false);
             BuildLayout();
+            UpdateLayout();
 
             // 原界面：旧选项不再刷新（避免重复播放音量试听声），画布停止渲染，SettingManager.Update 不再处理输入
             foreach (var menu in _manager.Menus)
@@ -121,6 +174,15 @@ namespace MajdataPlay.Scenes.Setting
             IsOpen = false;
             InputManager.SuppressTouchPanelSimulation = false;
             Localization.OnLanguageChanged -= OnLanguageChanged;
+            _drawer?.Cancel();
+        }
+        void LateUpdate()
+        {
+            if (!_isLeaving)
+            {
+                // 屏幕方向、尺寸或安全区变化时重新排列
+                UpdateLayout();
+            }
         }
         void OnLanguageChanged(object sender, Language language)
         {
@@ -185,15 +247,8 @@ namespace MajdataPlay.Scenes.Setting
 
         void BuildLayout()
         {
-            var page = LightUi.CreateImage(_root, LightUi.PAGE, 0f);
-            LightUi.Stretch(page.rectTransform);
-
-            // 左栏：标题栏与分类
+            // 左栏：标题栏与分类；宽屏时停靠在左边，窄屏时改为从左侧滑出的抽屉，宽度由 SidebarDrawer 决定
             var sidebar = LightUi.CreateRect("Sidebar", _root);
-            sidebar.anchorMin = Vector2.zero;
-            sidebar.anchorMax = new Vector2(0.25f, 1f);
-            sidebar.offsetMin = Vector2.zero;
-            sidebar.offsetMax = Vector2.zero;
             sidebar.gameObject.AddComponent<Image>().color = LightUi.PAPER;
             var sidebarLine = LightUi.CreateImage(sidebar, LightUi.LINE, 0f);
             sidebarLine.rectTransform.anchorMin = new Vector2(1f, 0f);
@@ -211,26 +266,34 @@ namespace MajdataPlay.Scenes.Setting
             sidebarLayout.childForceExpandHeight = false;
             _sidebarContent.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            // 右侧：分类名、校准与完成，下面是选项列表
+            // 右侧：分类名、校准与完成，下面是选项列表（左边距由 SidebarDrawer 设置）
             var main = LightUi.CreateRect("Main", _root);
-            main.anchorMin = new Vector2(0.25f, 0f);
+            main.anchorMin = Vector2.zero;
             main.anchorMax = Vector2.one;
-            main.offsetMin = new Vector2(32f, 0f);
+            main.offsetMin = new Vector2(MAIN_LEFT_PADDING, 0f);
             main.offsetMax = new Vector2(-20f, 0f);
             var topRow = LightUi.CreateRect("TopRow", main);
             LightUi.PlaceRow(topRow, 0f, TOP_PADDING, 0f, TOPBAR_HEIGHT);
+            // 窄屏时最左边是“分类”键，点开分类抽屉
+            var menuButton = _ui.CreateButton(topRow, "MAJTEXT_LIST_CATEGORY".i18n(), LightUi.PAPER, LightUi.TEXT, 20f, ToggleDrawer);
+            _menuButton = (RectTransform)menuButton.transform;
+            LightUi.PlaceTopLeft(_menuButton, 0f, 2f, MENU_BUTTON_WIDTH, 56f);
+            _menuButton.gameObject.SetActive(false);
             _categoryTitle = _ui.CreateText(topRow, string.Empty, 30f, LightUi.TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             LightUi.Stretch(_categoryTitle.rectTransform);
-            _categoryTitle.rectTransform.offsetMax = new Vector2(-280f, 0f);
+            _categoryTitle.rectTransform.offsetMax = new Vector2(-TOP_BUTTONS_WIDTH, 0f);
+            _categoryTitle.enableAutoSizing = true;
+            _categoryTitle.fontSizeMin = 18f;
+            _categoryTitle.fontSizeMax = 30f;
             var doneButton = _ui.CreateButton(topRow, "MAJTEXT_SETTING_DONE".i18n(), LightUi.ACCENT, Color.white, 20f, RequestExit);
             LightUi.PlaceTopRight((RectTransform)doneButton.transform, 0f, 2f, 124f, 56f);
             var calibrateButton = _ui.CreateButton(topRow, "MAJTEXT_SETTING_CALIBRATE".i18n(), LightUi.PAPER, LightUi.TEXT, 20f, RequestCalibrator);
             LightUi.PlaceTopRight((RectTransform)calibrateButton.transform, 136f, 2f, 124f, 56f);
 
-            var listPane = LightUi.CreateRect("ListPane", main);
-            LightUi.Stretch(listPane);
-            listPane.offsetMax = new Vector2(0f, -LIST_TOP);
-            _listContent = LightUi.CreateScroll(listPane, 0f, 0f, 0f, 0f, out _listScroll);
+            _listPane = LightUi.CreateRect("ListPane", main);
+            LightUi.Stretch(_listPane);
+            _listPane.offsetMax = new Vector2(0f, -LIST_TOP);
+            _listContent = LightUi.CreateScroll(_listPane, 0f, 0f, 0f, 0f, out _listScroll);
             var listLayout = _listContent.gameObject.AddComponent<VerticalLayoutGroup>();
             listLayout.padding = new RectOffset(0, (int)(SCROLLBAR_WIDTH + 14f), 4, 48);
             listLayout.spacing = 12f;
@@ -240,6 +303,54 @@ namespace MajdataPlay.Scenes.Setting
             listLayout.childForceExpandHeight = false;
             _listContent.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             LightUi.AddScrollbar(_listScroll, SCROLLBAR_WIDTH);
+
+            // 分类栏放在最上层，窄屏时作为抽屉盖住选项
+            _drawer = new SidebarDrawer(_root, sidebar, main, MAIN_LEFT_PADDING);
+        }
+        /// <summary>
+        /// Lays the page out for its current size: docks the sidebar or turns it into a drawer, and narrows the value areas of the
+        /// option rows on narrow pages. Does nothing while the size is unchanged.
+        /// </summary>
+        void UpdateLayout()
+        {
+            var size = _root.rect.size;
+            if (size.x <= 0f || (Mathf.Abs(size.x - _lastPageSize.x) <= 1f && Mathf.Abs(size.y - _lastPageSize.y) <= 1f))
+            {
+                return;
+            }
+            _lastPageSize = size;
+            _drawer.Apply(size.x, size.y);
+            _menuButton.gameObject.SetActive(_drawer.IsCompact);
+            _categoryTitle.rectTransform.offsetMin = new Vector2(_drawer.IsCompact ? MENU_BUTTON_WIDTH + 12f : 0f, 0f);
+            var valueAreaWidth = GetValueAreaWidth(_listPane.rect.width);
+            if (Mathf.Abs(valueAreaWidth - _valueAreaWidth) > 0.5f)
+            {
+                _valueAreaWidth = valueAreaWidth;
+                if (_rows.Count > 0)
+                {
+                    RenderRows(true);
+                }
+            }
+        }
+        /// <summary>
+        /// Gets the width of the value area of the option rows: <see cref="VALUE_AREA_WIDTH"/>, narrowed on narrow pages so the name
+        /// and description keep <see cref="MIN_TEXT_COLUMN_WIDTH"/>, but not below <see cref="MIN_VALUE_AREA_WIDTH"/>.
+        /// </summary>
+        /// <param name="listWidth">The width of the option list, including the scrollbar.</param>
+        /// <returns>The width of the value area.</returns>
+        static float GetValueAreaWidth(float listWidth)
+        {
+            // 卡片左右内边距 24 + 18、文字与取值之间 20，再减去滚动条
+            var rowWidth = listWidth - (SCROLLBAR_WIDTH + 14f);
+            var available = rowWidth - 24f - 18f - 20f - MIN_TEXT_COLUMN_WIDTH;
+            return Mathf.Clamp(available, MIN_VALUE_AREA_WIDTH, VALUE_AREA_WIDTH);
+        }
+        /// <summary>
+        /// Opens or closes the category drawer from the Categories button.
+        /// </summary>
+        void ToggleDrawer()
+        {
+            _drawer.Toggle();
         }
         void RenderSidebar()
         {
@@ -360,6 +471,8 @@ namespace MajdataPlay.Scenes.Setting
             {
                 return;
             }
+            // 窄屏时选完分类自动收起抽屉
+            _drawer.Close();
             _menuIndex = (index % menus.Count + menus.Count) % menus.Count;
             _manager.Config.SelectedMenu = CurrentMenu.Name;
             _selectedRow = 0;
@@ -478,13 +591,13 @@ namespace MajdataPlay.Scenes.Setting
             valueLayout.childForceExpandWidth = false;
             valueLayout.childForceExpandHeight = false;
             var valueElement = valueArea.gameObject.AddComponent<LayoutElement>();
-            valueElement.minWidth = VALUE_AREA_WIDTH;
-            valueElement.preferredWidth = VALUE_AREA_WIDTH;
+            valueElement.minWidth = _valueAreaWidth;
+            valueElement.preferredWidth = _valueAreaWidth;
             var isReadOnly = data.IsReadOnly;
             CreateStepButton(valueArea, "−", rowIndex, -1, isReadOnly);
             var value = _ui.CreateText(valueArea, data.LocalizedValueText, 22f, LightUi.ACCENT, TextAlignmentOptions.Center, FontStyles.Bold);
             var valueTextElement = value.gameObject.AddComponent<LayoutElement>();
-            valueTextElement.preferredWidth = VALUE_AREA_WIDTH - STEP_BUTTON_WIDTH * 2f - 16f;
+            valueTextElement.preferredWidth = _valueAreaWidth - STEP_BUTTON_WIDTH * 2f - 16f;
             valueTextElement.minHeight = 52f;
             value.gameObject.AddComponent<TMPMarqueeText>();
             CreateStepButton(valueArea, "+", rowIndex, 1, isReadOnly);

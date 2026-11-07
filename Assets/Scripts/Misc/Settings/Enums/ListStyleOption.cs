@@ -6,11 +6,11 @@
 public enum ListStyleOption
 {
     /// <summary>
-    /// 原有的封面轮播
+    /// 标准：原有的封面轮播
     /// </summary>
     Cover,
     /// <summary>
-    /// 列表式：左侧分类、搜索、曲目卡片与谱面详情
+    /// 触摸式：为触摸设计的选歌（左侧分类、搜索、曲目卡片与谱面详情）、设置与结算界面
     /// </summary>
     List,
 }

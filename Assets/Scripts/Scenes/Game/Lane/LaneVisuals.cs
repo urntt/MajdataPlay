@@ -31,6 +31,55 @@ namespace MajdataPlay.Scenes.Game.Lane
         static Sprite? _laneHighlightSprite;
 
         /// <summary>
+        /// 圆形模式“外圈”遮罩（NoteMaskA，按灰度取透明度、截断 0.35）从这个半径起遮住音符，直到判定圈以外
+        /// </summary>
+        const float OUTER_MASK_CUTOFF_DISTANCE = 2.55f;
+        /// <summary>
+        /// 圆形模式“内圈”遮罩（NoteMaskB）遮住这个半径以内的音符
+        /// </summary>
+        const float INNER_MASK_CUTOFF_DISTANCE = 2.87f;
+        /// <summary>
+        /// Shows the Mod note mask in falling mode as a rectangle across the screen that covers the same stretch of the notes'
+        /// path as the circle mask does: "Outer" hides notes from the matching height down to below the judge line, so they
+        /// vanish before arriving; "Inner" hides them from the top of the lanes down to the matching height, so they appear late.
+        /// </summary>
+        /// <param name="mask">The sprite mask of the game scene; notes are visible outside it.</param>
+        /// <param name="option">The NoteMask setting: "Outer", "Inner" or "Disable".</param>
+        public static void ConfigureNoteMask(SpriteMask mask, string option)
+        {
+            float bottom;
+            float top;
+            switch (option)
+            {
+                case "Outer":
+                    bottom = LaneLayout.BOTTOM_Y - FAR;
+                    top = LaneLayout.GetY(OUTER_MASK_CUTOFF_DISTANCE);
+                    break;
+                case "Inner":
+                    bottom = LaneLayout.GetY(INNER_MASK_CUTOFF_DISTANCE);
+                    top = LaneLayout.TOP_Y + FAR;
+                    break;
+                default:
+                    mask.gameObject.SetActive(false);
+                    return;
+            }
+            mask.gameObject.SetActive(true);
+            mask.sprite = WhiteSprite;
+            var maskTransform = mask.transform;
+            var parentScale = maskTransform.parent != null ? maskTransform.parent.lossyScale : Vector3.one;
+            maskTransform.SetPositionAndRotation(new Vector3(0f, (bottom + top) * 0.5f, maskTransform.position.z), Quaternion.identity);
+            maskTransform.localScale = new Vector3(FAR * 2f / SafeScale(parentScale.x), (top - bottom) / SafeScale(parentScale.y), 1f);
+        }
+        /// <summary>
+        /// Avoids dividing by a zero scale.
+        /// </summary>
+        /// <param name="scale">A scale component.</param>
+        /// <returns>The scale, or 1 when it is zero.</returns>
+        static float SafeScale(float scale)
+        {
+            return Mathf.Abs(scale) < 1e-5f ? 1f : scale;
+        }
+        /// <summary>
         /// 1×1 世界单位的白色方块，用缩放和颜色绘制线条
         /// </summary>
         public static Sprite WhiteSprite
@@ -58,7 +107,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 if (_laneShadeSprite == null)
                 {
-                    var featherRatio = LaneLayout.LANE_WIDTH / LaneShadeWidth;
+                    var featherRatio = LaneLayout.LaneWidth / LaneShadeWidth;
                     var texture = new Texture2D(FADE_TEXTURE_WIDTH, 1, TextureFormat.RGBA32, false)
                     {
                         name = "LaneShade",
@@ -86,7 +135,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 return _laneShadeSprite;
             }
         }
-        static float LaneShadeWidth => LaneLayout.LANE_AREA_WIDTH + LaneLayout.LANE_WIDTH * 2f;
+        static float LaneShadeWidth => LaneLayout.LaneAreaWidth + LaneLayout.LaneWidth * 2f;
         /// <summary>
         /// 点亮手指所在列的光柱：自下而上渐隐的竖向渐变
         /// </summary>
@@ -131,6 +180,14 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 当前游戏的判定线，颜色由 LaneHud 按设置更新；离开游戏场景后随场景销毁
         /// </summary>
         public static SpriteRenderer? JudgeLine { get; private set; }
+        /// <summary>
+        /// Slide 样式为悬空式时，判定线上方给星星箭头用的第二条判定线；颜色随判定线变化但更浅。其他样式为 null
+        /// </summary>
+        public static SpriteRenderer? SlideJudgeLine { get; private set; }
+        /// <summary>
+        /// 第二条判定线相对判定线的不透明度
+        /// </summary>
+        public const float SLIDE_JUDGE_LINE_ALPHA = 0.45f;
         /// <summary>
         /// Break 转 Flick、星星尾转 Flick 的染色。星星用黄色的 Each 贴图来染：默认的星星是青色，染红后会发暗
         /// </summary>
@@ -219,8 +276,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             var parent = root.transform;
             // 由远到近：底色、可按区域、光柱、分隔线、判定线
             var depth = (outlineDepth ?? notesDepth + (DEFAULT_OUTLINE_DEPTH - DEFAULT_NOTES_DEPTH)) + BACKGROUND_DEPTH_BEHIND_OUTLINE;
-            var left = LaneLayout.LEFT;
-            var right = LaneLayout.RIGHT;
+            var left = LaneLayout.Left;
+            var right = LaneLayout.Right;
             var bottom = LaneLayout.BOTTOM_Y;
 
             // 底色与分隔线上下贯穿屏幕，屏幕较窄、相机拉远时也不会露出边缘
@@ -249,20 +306,30 @@ namespace MajdataPlay.Scenes.Game.Lane
                     highlight.color = new Color(1f, 1f, 1f, 0f);
                     SetPositionKeepDepth(highlight.transform, new Vector2(LaneLayout.GetLaneX(lane), LaneLayout.JUDGE_LINE_Y));
                     // 贴图高 FADE_TEXTURE_WIDTH 像素、每像素 1 世界单位
-                    highlight.transform.localScale = new Vector3(LaneLayout.LANE_WIDTH, LaneLayout.TRAVEL_LENGTH * 0.6f / FADE_TEXTURE_WIDTH, 1f);
+                    highlight.transform.localScale = new Vector3(LaneLayout.LaneWidth, LaneLayout.TRAVEL_LENGTH * 0.6f / FADE_TEXTURE_WIDTH, 1f);
                     highlights[lane - 1] = highlight;
                 }
                 LaneHighlights = highlights;
             }
             for (var i = 0; LaneMode.IsLaneDividerVisible && i <= LaneLayout.LANE_COUNT; i++)
             {
-                var x = left + i * LaneLayout.LANE_WIDTH;
+                var x = left + i * LaneLayout.LaneWidth;
                 var divider = CreateQuad($"LaneDivider_{i}", parent, material, depth + 0.2f, new Color(1f, 1f, 1f, 0.25f));
                 SetSegment(divider, new Vector2(x, -FAR), new Vector2(x, FAR), 0.03f);
             }
             var judgeLine = CreateQuad("JudgeLine", parent, material, depth + 0.1f, new Color(1f, 1f, 1f, 0.9f));
             SetSegment(judgeLine, new Vector2(-FAR, LaneLayout.JUDGE_LINE_Y), new Vector2(FAR, LaneLayout.JUDGE_LINE_Y), 0.06f);
             JudgeLine = judgeLine;
+            SlideJudgeLine = null;
+            if (LaneMode.IsSlideFloating)
+            {
+                var slideLine = CreateQuad("SlideJudgeLine", parent, material, depth + 0.1f, new Color(1f, 1f, 1f, 0.9f * SLIDE_JUDGE_LINE_ALPHA));
+                SetSegment(slideLine,
+                           new Vector2(-FAR, LaneLayout.FLOAT_SLIDE_LINE_Y),
+                           new Vector2(FAR, LaneLayout.FLOAT_SLIDE_LINE_Y),
+                           0.05f);
+                SlideJudgeLine = slideLine;
+            }
             return root;
         }
     }

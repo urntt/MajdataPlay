@@ -9,6 +9,7 @@ using MajdataPlay.Scenes.Game.Notes;
 using MajdataPlay.Scenes.List;
 using MajdataPlay.Settings;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using TMPro;
@@ -108,30 +109,22 @@ namespace MajdataPlay.Scenes.Result
         const float PROFILE_WIDTH = 300f;
         const float PROFILE_HEIGHT = 52f;
         /// <summary>
-        /// The size of the icon buttons at the bottom right.
+        /// The share of the space under the top bar and above the floating buttons that the cover may take in landscape, so it
+        /// does not fill a short screen such as a phone in landscape.
         /// </summary>
-        const float ACTION_SIZE = 80f;
-        /// <summary>
-        /// The gap between two icon buttons at the bottom right.
-        /// </summary>
-        const float ACTION_GAP = 16f;
-        /// <summary>
-        /// The corner radius of the icon buttons at the bottom right.
-        /// </summary>
-        const float ACTION_RADIUS = 20f;
-        /// <summary>
-        /// The size of the icons inside the icon buttons.
-        /// </summary>
-        const float ACTION_ICON_SIZE = 40f;
-        /// <summary>
-        /// The distance of the icon buttons from the bottom edge.
-        /// </summary>
-        const float ACTION_BOTTOM = 36f;
+        const float COVER_HEIGHT_SHARE = 0.6f;
         const float TOAST_DURATION_SEC = 2.4f;
 
         ResultScreenManager _manager = null!;
         ResultViewData _data = null!;
         LightUi _ui = null!;
+        /// <summary>
+        /// The full-screen root of the canvas: the page background and the modal dimming.
+        /// </summary>
+        RectTransform _canvasRoot = null!;
+        /// <summary>
+        /// The safe-area child of the canvas that holds the page content, see <see cref="LightUi.CreateSafeRoot"/>.
+        /// </summary>
         RectTransform _root = null!;
         CanvasGroup _group = null!;
         readonly SceneCanvasHider _canvasHider = new();
@@ -162,6 +155,14 @@ namespace MajdataPlay.Scenes.Result
         /// The icon of <see cref="_retryButton"/>.
         /// </summary>
         Image _retryIcon = null!;
+        /// <summary>
+        /// The icon buttons at the bottom right in their order from the right edge, with their icons.
+        /// </summary>
+        readonly List<(RectTransform Holder, Image Icon)> _actionButtons = new(4);
+        /// <summary>
+        /// The current size of the icon buttons at the bottom right.
+        /// </summary>
+        float _actionButtonSize = LightUi.ACTION_BUTTON_SIZE;
         RectTransform _modal = null!;
         RectTransform _toast = null!;
         TextMeshProUGUI _toastText = null!;
@@ -199,11 +200,10 @@ namespace MajdataPlay.Scenes.Result
             _data = data;
             _ui = new LightUi(LightUi.FindFont());
             LightUi.EnsureEventSystem();
-            _root = LightUi.CreateOverlayCanvas(transform, "ResultBrowserCanvas", 30, out _group);
+            _canvasRoot = LightUi.CreateOverlayCanvas(transform, "ResultBrowserCanvas", 30, out _group);
             LightUi.FollowTransition(_group, false);
-
-            var page = LightUi.CreateImage(_root, LightUi.PAGE, 0f);
-            LightUi.Stretch(page.rectTransform);
+            // 背景铺满全屏，内容放在安全区域内（避开刘海、圆角与底部横条）
+            _root = LightUi.CreateSafeRoot(_canvasRoot, LightUi.PAGE);
             _content = LightUi.CreateScroll(_root, 0f, 0f, 0f, 0f, out var scroll);
             _viewport = (RectTransform)_content.parent;
             scroll.movementType = ScrollRect.MovementType.Clamped;
@@ -230,22 +230,24 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         void BuildActionButtons()
         {
-            _continueButton = CreateActionButton(0, UiSprites.ArrowRight, LightUi.ACCENT, Color.white, 0.2f, Continue, out _continueIcon);
-            _retryButton = CreateActionButton(1, UiSprites.Retry, LightUi.PAPER, LightUi.TEXT, 0.16f, Retry, out _retryIcon);
-            CreateActionButton(2, UiSprites.Share, LightUi.PAPER, LightUi.TEXT, 0.16f, ShowShareModal, out _);
+            _actionButtons.Clear();
+            _continueButton = CreateActionButton(UiSprites.ArrowRight, LightUi.ACCENT, Color.white, 0.2f, Continue, out _continueIcon);
+            _retryButton = CreateActionButton(UiSprites.Retry, LightUi.PAPER, LightUi.TEXT, 0.16f, Retry, out _retryIcon);
+            CreateActionButton(UiSprites.Share, LightUi.PAPER, LightUi.TEXT, 0.16f, ShowShareModal, out _);
             _feedbackButton = null;
             _feedbackIcon = null;
             // 评价面板在结算界面创建之前就已初始化，这里就能确定这首能否评价
             if (_manager.IsFeedbackAvailable)
             {
-                _feedbackButton = CreateActionButton(3, UiSprites.Comment, LightUi.PAPER, LightUi.FAVORITE, 0.16f, _manager.RequestFeedback, out var feedbackIcon);
+                _feedbackButton = CreateActionButton(UiSprites.Comment, LightUi.PAPER, LightUi.FAVORITE, 0.16f, _manager.RequestFeedback, out var feedbackIcon);
                 _feedbackIcon = feedbackIcon;
             }
+            PlaceActionButtons(_root.rect.height);
         }
         /// <summary>
-        /// Creates one icon button at the bottom right with a soft shadow of the same shape.
+        /// Creates the next icon button at the bottom right, to the left of the ones created before; <see cref="PlaceActionButtons"/>
+        /// places and sizes it.
         /// </summary>
-        /// <param name="slot">The position counted from the right edge, starting at 0.</param>
         /// <param name="icon">The icon sprite.</param>
         /// <param name="fill">The background color.</param>
         /// <param name="iconColor">The icon color.</param>
@@ -253,13 +255,25 @@ namespace MajdataPlay.Scenes.Result
         /// <param name="onClick">The action run when the button is tapped.</param>
         /// <param name="iconImage">The icon image of the button.</param>
         /// <returns>The button.</returns>
-        Button CreateActionButton(int slot, Sprite icon, Color fill, Color iconColor, float shadowOpacity, UnityAction onClick, out Image iconImage)
+        Button CreateActionButton(Sprite icon, Color fill, Color iconColor, float shadowOpacity, UnityAction onClick, out Image iconImage)
         {
-            var holder = LightUi.CreateShadowHolder(_root, ACTION_RADIUS, 16f, shadowOpacity);
-            LightUi.PlaceBottomRight(holder, MARGIN + slot * (ACTION_SIZE + ACTION_GAP), ACTION_BOTTOM, ACTION_SIZE, ACTION_SIZE);
-            var button = LightUi.CreateIconButton(holder, icon, fill, iconColor, ACTION_ICON_SIZE, onClick, out iconImage, ACTION_RADIUS);
-            LightUi.Stretch((RectTransform)button.transform);
+            var holder = LightUi.CreateActionButton(_root, icon, fill, iconColor, shadowOpacity, onClick, out var button, out iconImage);
+            _actionButtons.Add((holder, iconImage));
             return button;
+        }
+        /// <summary>
+        /// Places the icon buttons from the right edge leftwards; they are <see cref="LightUi.ACTION_BUTTON_SIZE"/> wide unless the
+        /// screen is short, see <see cref="LightUi.GetActionButtonSize"/>.
+        /// </summary>
+        /// <param name="height">The height of the page.</param>
+        void PlaceActionButtons(float height)
+        {
+            _actionButtonSize = LightUi.GetActionButtonSize(height);
+            for (var slot = 0; slot < _actionButtons.Count; slot++)
+            {
+                var (holder, icon) = _actionButtons[slot];
+                LightUi.PlaceActionButton(holder, icon, MARGIN + slot * (_actionButtonSize + LightUi.ACTION_BUTTON_GAP), _actionButtonSize);
+            }
         }
         async UniTaskVoid LoadCoverAsync()
         {
@@ -338,11 +352,14 @@ namespace MajdataPlay.Scenes.Result
         {
             _rollMotion.TryCancel();
             LightUi.ClearChildren(_content);
+            PlaceActionButtons(height);
             var isLandscape = width >= height * 1.1f;
             float leftX, leftWidth, rightX, rightWidth, rightTop;
             if (isLandscape)
             {
-                leftWidth = Mathf.Clamp(width * 0.3f, 360f, 520f);
+                // 曲绘边长同时受高度限制，横屏手机等矮屏上不占满整屏高度
+                var coverLimit = (height - CONTENT_TOP - LightUi.GetActionButtonClearance(_actionButtonSize)) * COVER_HEIGHT_SHARE;
+                leftWidth = Mathf.Min(Mathf.Clamp(width * 0.3f, 360f, 520f), Mathf.Max(240f, coverLimit));
                 leftX = MARGIN;
                 rightX = leftX + leftWidth + COLUMN_GAP;
                 rightWidth = width - rightX - MARGIN;
@@ -362,8 +379,8 @@ namespace MajdataPlay.Scenes.Result
                 rightTop = leftBottom + 32f;
             }
             var rightBottom = BuildRightColumn(rightX, rightTop, rightWidth);
-            // 底部给悬浮的“继续”留出空间
-            _content.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + 140f);
+            // 底部给右下角悬浮的图标键留出空间
+            _content.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(_actionButtonSize));
             if (_hasRolled)
             {
                 SetAchievementText(_data.Achievement);
@@ -492,24 +509,15 @@ namespace MajdataPlay.Scenes.Result
 
             // DX 分与星级、进度条
             var dxCard = CreateCard(x, cursor, width, 116f);
-            var total = Math.Max(1L, result.TotalDXScore);
-            var ratio = Mathf.Clamp01((float)(result.DXScore / (double)total));
             var dxText = _ui.CreateText(dxCard, $"DX  {result.DXScore.ToString(CultureInfo.InvariantCulture)} / {result.TotalDXScore.ToString(CultureInfo.InvariantCulture)}", 26f, LightUi.TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             LightUi.PlaceRow(dxText.rectTransform, 32f, 16f, 160f, 40f);
-            var stars = GetDxStarCount(result.DXScore, result.TotalDXScore);
+            var stars = LightUi.GetDxStarCount(result.DXScore, result.TotalDXScore);
             if (stars > 0)
             {
                 var starText = _ui.CreateText(dxCard, $"✧{stars}", 28f, LightUi.GOLD, TextAlignmentOptions.MidlineRight, FontStyles.Bold);
                 LightUi.PlaceRow(starText.rectTransform, 32f, 14f, 32f, 42f);
             }
-            var track = LightUi.CreateImage(dxCard, LightUi.LINE, 6f);
-            LightUi.PlaceRow(track.rectTransform, 32f, 74f, 32f, 12f);
-            var fill = LightUi.CreateImage(track.transform, LightUi.GOLD, 6f);
-            var fillRect = fill.rectTransform;
-            fillRect.anchorMin = Vector2.zero;
-            fillRect.anchorMax = new Vector2(ratio, 1f);
-            fillRect.offsetMin = Vector2.zero;
-            fillRect.offsetMax = Vector2.zero;
+            LightUi.AddDxProgressBar(dxCard, 32f, 74f, 32f, 12f, result.DXScore, result.TotalDXScore);
             cursor += 116f + CARD_GAP;
 
             // 判定表
@@ -623,26 +631,6 @@ namespace MajdataPlay.Scenes.Result
             }
             return _graphTexture;
         }
-        /// <summary>
-        /// DX 星级：与原版相同，按 DX 分比例 85% / 90% / 93% / 95% / 97% 分为 1~5 星
-        /// </summary>
-        static int GetDxStarCount(long dxScore, long totalDxScore)
-        {
-            if (totalDxScore <= 0)
-            {
-                return 0;
-            }
-            var percent = dxScore / (double)totalDxScore;
-            return percent switch
-            {
-                > 0.97 => 5,
-                > 0.95 => 4,
-                > 0.93 => 3,
-                > 0.90 => 2,
-                > 0.85 => 1,
-                _ => 0,
-            };
-        }
         #endregion
 
         #region Dynamic
@@ -725,7 +713,8 @@ namespace MajdataPlay.Scenes.Result
         #region Share & classic
         void BuildModal()
         {
-            _modal = LightUi.CreateRect("Modal", _root);
+            // 遮罩铺满全屏，小窗居中
+            _modal = LightUi.CreateRect("Modal", _canvasRoot);
             LightUi.Stretch(_modal);
             var dim = _modal.gameObject.AddComponent<Image>();
             dim.color = new Color(0.09f, 0.125f, 0.2f, 0.4f);
@@ -821,7 +810,7 @@ namespace MajdataPlay.Scenes.Result
         {
             _isHidden = true;
             _rollMotion.TryCancel();
-            _root.gameObject.SetActive(false);
+            _canvasRoot.gameObject.SetActive(false);
             _canvasHider.Restore();
             InputManager.SuppressTouchPanelSimulation = false;
         }

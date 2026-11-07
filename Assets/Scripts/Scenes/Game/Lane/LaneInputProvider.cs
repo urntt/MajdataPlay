@@ -9,6 +9,32 @@ using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 namespace MajdataPlay.Scenes.Game.Lane
 {
     /// <summary>
+    /// A finger that can hit falling-mode slide check points in this frame.
+    /// </summary>
+    internal readonly struct LaneFinger
+    {
+        /// <summary>
+        /// Identifies the finger from its press to its release; never reused. Physical buttons use negative keys.
+        /// </summary>
+        public readonly int Key;
+
+        /// <summary>
+        /// The horizontal world position of the finger.
+        /// </summary>
+        public readonly float X;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="LaneFinger"/> struct.
+        /// </summary>
+        /// <param name="key">The key of the finger.</param>
+        /// <param name="x">The horizontal world position.</param>
+        public LaneFinger(int key, float x)
+        {
+            Key = key;
+            X = x;
+        }
+    }
+    /// <summary>
     /// 下落式模式的触屏输入：按屏幕位置换算为轨道（列）与高度。
     /// <para>Tap/Hold/Break/Flick 使用“列”：垂直判定开启时列上任意高度都算，关闭时需在判定线附近。
     /// 每列的判定范围是整列加左右各半列，一次按下只能打一个音符，具体给哪一列由 NoteManager 按时间就近分配。</para>
@@ -33,7 +59,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <summary>
         /// 扫键时越过两列分界线这么远才算进入新的一列，手指停在分界线上来回抖时不会连续触发
         /// </summary>
-        const float SWEEP_HYSTERESIS = LaneLayout.LANE_WIDTH * 0.15f;
+        static float SweepHysteresis => LaneLayout.LaneWidth * 0.15f;
 
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
         /// <summary>
@@ -60,15 +86,30 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public int ClickCount => _clicks.Count;
         /// <summary>
-        /// 本帧在轨道判定区内的手指横坐标（世界坐标）
+        /// 本帧可以打 Slide 检查点的手指：轨道判定区内的手指；悬空式时为第二判定线以上的手指
         /// </summary>
-        public ReadOnlySpan<float> DragXs => new ReadOnlySpan<float>(_dragXs, 0, _dragCount);
+        public ReadOnlySpan<LaneFinger> SlideFingers => new ReadOnlySpan<LaneFinger>(_slideFingers, 0, _slideFingerCount);
 
         readonly bool[] _laneHeld = new bool[LaneLayout.LANE_COUNT];
         readonly bool[] _highlightLanes = new bool[LaneLayout.LANE_COUNT];
         readonly List<LaneClick> _clicks = new(16);
-        float[] _dragXs = new float[16];
-        int _dragCount = 0;
+        LaneFinger[] _slideFingers = new LaneFinger[16];
+        int _slideFingerCount = 0;
+        /// <summary>
+        /// 扫键保护：正在打星星的手指（键为 <see cref="LaneFinger.Key"/>）与登记先后，越小越早
+        /// </summary>
+        readonly Dictionary<int, int> _guardOrders = new(8);
+        readonly List<int> _expiredGuardKeys = new(8);
+        /// <summary>
+        /// 每列中受保护的手指：上一帧在这一列、登记最早的受保护手指的键，没有时为 0
+        /// </summary>
+        readonly int[] _guardOwnerKeys = new int[LaneLayout.LANE_COUNT];
+        readonly int[] _guardOwnerOrders = new int[LaneLayout.LANE_COUNT];
+        int _nextGuardOrder = 0;
+        /// <summary>
+        /// 手指的键：每次按下分配一个新的，抬起后不再使用
+        /// </summary>
+        int _nextFingerKey = 0;
         readonly int[] _flickLatch = new int[LaneLayout.LANE_COUNT];
         // 同一次划动标记的两列共用一个编号，被一列用掉后另一列也失效
         readonly int[] _flickId = new int[LaneLayout.LANE_COUNT];
@@ -128,18 +169,26 @@ namespace MajdataPlay.Scenes.Game.Lane
             /// Slide 保持原样用：上一帧所在的圆形传感器（33 位）
             /// </summary>
             public ulong LastCircleSensors;
+            /// <summary>
+            /// 这根手指的键，见 <see cref="LaneFinger.Key"/>
+            /// </summary>
+            public int Key;
         }
 
         /// <summary>
         /// 每帧在音符判定前调用
         /// </summary>
-        /// <param name="slideXs">进行中星星的当前横坐标，扫键开启时跟着星星的手指不扫键</param>
-        public void Update(Camera? camera, Vector4 subScreenEdge, ReadOnlySpan<float> slideXs)
+        /// <param name="guardKeys">
+        /// 正在打星星的手指（上一帧由进行中的星星报告）。扫键与保护开启时，这些手指划过的列不扫键，
+        /// 但同一列只保护登记最早的一根
+        /// </param>
+        public void Update(Camera? camera, Vector4 subScreenEdge, ReadOnlySpan<int> guardKeys)
         {
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             Array.Clear(_highlightLanes, 0, _highlightLanes.Length);
             _clicks.Clear();
-            _dragCount = 0;
+            _slideFingerCount = 0;
+            UpdateGuards(guardKeys);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
             Array.Clear(_mineSensorHeld, 0, _mineSensorHeld.Length);
@@ -171,13 +220,13 @@ namespace MajdataPlay.Scenes.Game.Lane
                         continue;
                     }
                     var isBegan = touch.phase == TouchPhase.Began;
-                    HandlePointer(touch.touchId, touch.screenPosition, touch.radius.magnitude, isBegan, camera, subScreenEdge, deltaTime, slideXs);
+                    HandlePointer(touch.touchId, touch.screenPosition, touch.radius.magnitude, isBegan, camera, subScreenEdge, deltaTime);
                 }
             }
 #if UNITY_STANDALONE || UNITY_EDITOR
             else if (Mouse.current is Mouse mouse && mouse.leftButton.isPressed)
             {
-                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, 0f, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime, slideXs);
+                HandlePointer(MOUSE_TOUCH_ID, mouse.position.value, 0f, mouse.leftButton.wasPressedThisFrame, camera, subScreenEdge, deltaTime);
             }
 #endif
             _staleTouchIds.Clear();
@@ -190,8 +239,66 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
             foreach (var id in _staleTouchIds)
             {
+                if (_records.TryGetValue(id, out var staleRecord))
+                {
+                    _guardOrders.Remove(staleRecord.Key);
+                }
                 _records.Remove(id);
             }
+        }
+        /// <summary>
+        /// 更新扫键保护：去掉不再被星星报告的手指，登记新报告的手指，再按上一帧所在的列找出每列受保护的那根
+        /// </summary>
+        /// <param name="guardKeys">正在打星星的手指</param>
+        void UpdateGuards(ReadOnlySpan<int> guardKeys)
+        {
+            _expiredGuardKeys.Clear();
+            foreach (var key in _guardOrders.Keys)
+            {
+                if (guardKeys.IndexOf(key) < 0)
+                {
+                    _expiredGuardKeys.Add(key);
+                }
+            }
+            foreach (var key in _expiredGuardKeys)
+            {
+                _guardOrders.Remove(key);
+            }
+            foreach (var key in guardKeys)
+            {
+                if (key >= 0 && !_guardOrders.ContainsKey(key))
+                {
+                    _guardOrders.Add(key, _nextGuardOrder++);
+                }
+            }
+            Array.Clear(_guardOwnerKeys, 0, _guardOwnerKeys.Length);
+            foreach (var record in _records.Values)
+            {
+                if (record.SweepLane == 0 || !_guardOrders.TryGetValue(record.Key, out var order))
+                {
+                    continue;
+                }
+                var index = record.SweepLane - 1;
+                if (_guardOwnerKeys[index] == 0 || order < _guardOwnerOrders[index])
+                {
+                    _guardOwnerKeys[index] = record.Key;
+                    _guardOwnerOrders[index] = order;
+                }
+            }
+        }
+        /// <summary>
+        /// 这根手指此刻是否受扫键保护：正在打星星，且所到的列没有更早登记的受保护手指
+        /// </summary>
+        /// <param name="key">手指的键</param>
+        /// <param name="lane">手指所到的列（1~8）</param>
+        bool IsGuarded(int key, int lane)
+        {
+            if (!LaneMode.IsSweepSlideGuardEnabled || !_guardOrders.ContainsKey(key))
+            {
+                return false;
+            }
+            var owner = _guardOwnerKeys[lane - 1];
+            return owner == 0 || owner == key;
         }
         public LaneClick GetClick(int index)
         {
@@ -247,7 +354,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _records[touch.touchId] = new TouchRecord()
                 {
                     LastPosition = touch.screenPosition,
-                    IsIgnored = true
+                    IsIgnored = true,
+                    Key = ++_nextFingerKey
                 };
             }
 #if UNITY_STANDALONE || UNITY_EDITOR
@@ -256,7 +364,8 @@ namespace MajdataPlay.Scenes.Game.Lane
                 _records[MOUSE_TOUCH_ID] = new TouchRecord()
                 {
                     LastPosition = mouse.position.value,
-                    IsIgnored = true
+                    IsIgnored = true,
+                    Key = ++_nextFingerKey
                 };
             }
 #endif
@@ -267,7 +376,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             Array.Clear(_highlightLanes, 0, _highlightLanes.Length);
             _clicks.Clear();
-            _dragCount = 0;
+            _slideFingerCount = 0;
+            _guardOrders.Clear();
+            Array.Clear(_guardOwnerKeys, 0, _guardOwnerKeys.Length);
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
@@ -276,16 +387,34 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
             Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
         }
-        void AddDragX(float x)
+        void AddSlideFinger(int key, float x)
         {
-            if (_dragCount == _dragXs.Length)
+            if (_slideFingerCount == _slideFingers.Length)
             {
-                Array.Resize(ref _dragXs, _dragXs.Length * 2);
+                Array.Resize(ref _slideFingers, _slideFingers.Length * 2);
             }
-            _dragXs[_dragCount++] = x;
+            _slideFingers[_slideFingerCount++] = new LaneFinger(key, x);
         }
         /// <summary>
-        /// 扫键用的当前列：从 <paramref name="lastLane"/> 移到相邻列时，要越过分界线 <see cref="SWEEP_HYSTERESIS"/> 才算
+        /// 手指能否打 Slide 检查点：悬空式时须在第二判定线以上（垂直判定关闭时不超过判定带的高度），否则与“列”的规则相同
+        /// </summary>
+        /// <param name="lane">手指所在的列，不在轨道上时为 0</param>
+        /// <param name="y">手指的纵坐标（世界坐标）</param>
+        /// <param name="isInLineArea">手指是否在“列”的判定区内</param>
+        static bool IsInSlideArea(int lane, float y, bool isInLineArea)
+        {
+            if (!LaneMode.IsSlideFloating)
+            {
+                return isInLineArea;
+            }
+            if (lane == 0 || y < LaneLayout.FLOAT_SLIDE_LINE_Y)
+            {
+                return false;
+            }
+            return LaneMode.IsVerticalJudge || y <= LaneLayout.FLOAT_SLIDE_LINE_Y + LaneLayout.JUDGE_BAND_HALF_HEIGHT * 2f;
+        }
+        /// <summary>
+        /// 扫键用的当前列：从 <paramref name="lastLane"/> 移到相邻列时，要越过分界线 <see cref="SweepHysteresis"/> 才算
         /// </summary>
         static int GetSweepLane(float x, int lane, int lastLane)
         {
@@ -293,23 +422,9 @@ namespace MajdataPlay.Scenes.Game.Lane
             {
                 return lane;
             }
-            var boundary = lane > lastLane ? LaneLayout.LEFT + lastLane * LaneLayout.LANE_WIDTH
-                                           : LaneLayout.LEFT + (lastLane - 1) * LaneLayout.LANE_WIDTH;
-            return Mathf.Abs(x - boundary) >= SWEEP_HYSTERESIS ? lane : lastLane;
-        }
-        /// <summary>
-        /// 手指离某条进行中星星的当前位置不超过星星的命中范围，视为正在跟这条星星
-        /// </summary>
-        static bool IsFollowingSlide(float x, ReadOnlySpan<float> slideXs)
-        {
-            foreach (var slideX in slideXs)
-            {
-                if (Mathf.Abs(x - slideX) <= LaneSlideJudge.HIT_HALF_WIDTH)
-                {
-                    return true;
-                }
-            }
-            return false;
+            var boundary = lane > lastLane ? LaneLayout.Left + lastLane * LaneLayout.LaneWidth
+                                           : LaneLayout.Left + (lastLane - 1) * LaneLayout.LaneWidth;
+            return Mathf.Abs(x - boundary) >= SweepHysteresis ? lane : lastLane;
         }
         /// <summary>
         /// 扫键：手指从 <paramref name="fromLane"/> 划到 <paramref name="toLane"/>，经过的每一列（不含起点列）各算一次点击，只算这一列
@@ -336,7 +451,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             }
         }
         /// <param name="touchRadius">Touch.radius 的长度，鼠标为 0</param>
-        void HandlePointer(int id, Vector2 screenPosition, float touchRadius, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime, ReadOnlySpan<float> slideXs)
+        void HandlePointer(int id, Vector2 screenPosition, float touchRadius, bool isBegan, Camera camera, Vector4 subScreenEdge, float deltaTime)
         {
             _activeTouchIds.Add(id);
             var world = camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, -camera.transform.position.z));
@@ -349,6 +464,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                     LastPosition = position,
                     LastFloatSensors = 0,
                     IsFlickArmed = true,
+                    Key = ++_nextFingerKey,
                     // 按在暂停键、跳过键上的手指不打音符
                     IsIgnored = LaneHud.IsPointerBlocked(screenPosition)
                 };
@@ -388,9 +504,12 @@ namespace MajdataPlay.Scenes.Game.Lane
             var neighborLane = LaneLayout.GetNeighborLane(position.x, lane);
             var isInLineArea = lane != 0 &&
                                (LaneMode.IsVerticalJudge || Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT);
+            if (IsInSlideArea(lane, position.y, isInLineArea))
+            {
+                AddSlideFinger(record.Key, position.x);
+            }
             if (isInLineArea)
             {
-                AddDragX(position.x);
                 _laneHeld[lane - 1] = true;
                 if (neighborLane != 0)
                 {
@@ -406,10 +525,10 @@ namespace MajdataPlay.Scenes.Game.Lane
                     });
                 }
             }
-            // 扫键：按住的手指划进新的一列也算点击这一列；正在跟星星的手指不算，免得把星星途经列上的 Tap 提前扫掉
+            // 扫键：按住的手指划进新的一列也算点击这一列；正在打星星的手指（每列最多一根）不算，免得把星星途经列上的 Tap 提前扫掉
             var sweepLane = isInLineArea ? GetSweepLane(position.x, lane, record.SweepLane) : 0;
             if (LaneMode.IsSweepEnabled && !isBegan && sweepLane != 0 && sweepLane != record.SweepLane &&
-                !IsFollowingSlide(position.x, slideXs))
+                !IsGuarded(record.Key, sweepLane))
             {
                 AddSweepClicks(record.SweepLane, sweepLane);
             }

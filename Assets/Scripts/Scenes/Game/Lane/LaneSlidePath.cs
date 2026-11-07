@@ -67,9 +67,17 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly Color _color = Color.white;
         readonly float _scale = 1f;
         /// <summary>
-        /// 低于该高度的箭头不显示：箭头到判定线即隐藏，Flick 标记则继续落到画面下方，直到结算
+        /// 低于该高度的箭头不显示：箭头到判定线（悬空式为第二判定线）即隐藏，Flick 标记则继续落到画面下方，直到结算
         /// </summary>
         readonly float _bottomY = LaneLayout.JUDGE_LINE_Y;
+        /// <summary>
+        /// 箭头在判定时刻所在的高度：判定线，悬空式为第二判定线
+        /// </summary>
+        readonly float _arrivalY = LaneLayout.JUDGE_LINE_Y;
+        /// <summary>
+        /// 是否画出箭头；Mod“去掉 Slide”时不画，判定照常
+        /// </summary>
+        readonly bool _isVisible = true;
         // 只为同屏可见的箭头创建渲染器，结束后销毁
         readonly List<SpriteRenderer> _renderers = new();
         int _enabledCount = 0;
@@ -78,12 +86,21 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// <param name="paths">由 <see cref="BuildPaths"/> 生成的路径，与判定（LaneSlideJudge）共用</param>
         /// <param name="speed">与音符相同的下落速度</param>
         /// <param name="sprite">Slide 箭头，前进方向为本地 -X</param>
+        /// <param name="material">箭头的材质</param>
+        /// <param name="sortingOrder">同组内的绘制顺序</param>
+        /// <param name="arrivalY">箭头在判定时刻所在的高度：判定线，悬空式为第二判定线</param>
+        /// <param name="isVisible">是否画出箭头；为 false 时只保留判定用的路径</param>
         public LaneSlidePath(LanePathVertex[][] paths,
                              float speed,
                              Sprite? sprite,
                              Material material,
-                             int sortingOrder)
+                             int sortingOrder,
+                             float arrivalY,
+                             bool isVisible)
         {
+            _arrivalY = arrivalY;
+            _bottomY = arrivalY;
+            _isVisible = isVisible;
             _heightPerSec = Mathf.Abs(speed) * LaneLayout.DistanceScale;
             _sprite = sprite != null ? sprite : LaneVisuals.WhiteSprite;
             _material = material;
@@ -148,11 +165,11 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public void Update(float thisFrameSec)
         {
-            if (_isEnded)
+            if (_isEnded || !_isVisible)
             {
                 return;
             }
-            var offset = LaneLayout.JUDGE_LINE_Y - thisFrameSec * _heightPerSec;
+            var offset = _arrivalY - thisFrameSec * _heightPerSec;
             var top = LaneLayout.TOP_Y + TOP_MARGIN;
             var used = 0;
             for (var i = 0; i < _paths.Length; i++)
