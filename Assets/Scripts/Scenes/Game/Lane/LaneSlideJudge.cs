@@ -73,6 +73,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         public int HitCount { get; private set; } = 0;
         public int TotalCount => _samples.Length;
         /// <summary>
+        /// Gets the number of paths: three for a Wifi slide, one otherwise, none for a Flick.
+        /// </summary>
+        public int PathCount => _pathCount;
+        /// <summary>
         /// 全部点都已结算
         /// </summary>
         public bool IsResolved => _next >= _samples.Length;
@@ -288,6 +292,16 @@ namespace MajdataPlay.Scenes.Game.Lane
                 }
             }
             return isAnyNear;
+        }
+        /// <summary>
+        /// Gets where a path is at a time: its start before the star moves, its end after it arrives, and in between along the path.
+        /// </summary>
+        /// <param name="pathIndex">The path, from 0 to <see cref="PathCount"/> − 1.</param>
+        /// <param name="time">The time in seconds.</param>
+        /// <returns>The horizontal world position.</returns>
+        public float GetPathX(int pathIndex, float time)
+        {
+            return GetX(_paths[pathIndex], time);
         }
         /// <summary>
         /// 路径在 <paramref name="timing"/> 时的横坐标，在相邻顶点之间线性插值，与箭头的摆放一致

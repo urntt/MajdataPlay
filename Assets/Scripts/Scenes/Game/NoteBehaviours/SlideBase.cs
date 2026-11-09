@@ -223,9 +223,14 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         private bool _isLaneFlick;
         private SlideBase? _laneFlickOwner;
         /// <summary>
-        /// 扫键保护：正在打这条星星的手指（键见 <see cref="LaneFinger.Key"/>），在这条星星结算前每帧报告给 NoteManager
+        /// 扫键保护：本帧在这条星星可命中的检查点附近的手指（键见 <see cref="LaneFinger.Key"/>），每帧重新收集
         /// </summary>
-        private readonly List<int> _laneGuardKeys = new(4);
+        private readonly List<int> _laneHitKeys = new(4);
+        /// <summary>
+        /// 扫键保护：这条星星受保护的手指，没有时为 0。每条星星同时只保护一根：最先打到它的星星手指；
+        /// 这根抬起后，之后最先打到它的另一根星星手指接上
+        /// </summary>
+        private int _laneGuardKey;
         /// <summary>
         /// 下落式 Slide 样式为标准时，星星开始移动前多久开始认定手指在打它（与下落式检查点的提前量相同）
         /// </summary>
@@ -421,10 +426,13 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             else if (IsMine || IsEnded || !IsInited || IsFinished)
             {
-                _laneGuardKeys.Clear();
+                _laneGuardKey = 0;
                 return;
             }
-            if (ThisFrameSec >= StartTiming - FALLING_STAR_REPORT_EARLY_SEC)
+            _laneHitKeys.Clear();
+            var isStarted = ThisFrameSec >= StartTiming - FALLING_STAR_REPORT_EARLY_SEC;
+            var isPressable = ThisFrameSec >= GetLaneStarPressStart();
+            if (isStarted || isPressable)
             {
                 var fingers = NoteManager.LaneSlideFingers;
                 var stars = Stars.Span;
@@ -438,25 +446,77 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                         continue;
                     }
                     var starX = starTransform.position.x;
+                    if (isPressable)
+                    {
+                        NoteManager.AddLaneStarZone(starX);
+                    }
+                    if (!isStarted)
+                    {
+                        continue;
+                    }
                     foreach (var finger in fingers)
                     {
-                        if (Mathf.Abs(finger.X - starX) <= LaneSlideJudge.HitHalfWidth && !_laneGuardKeys.Contains(finger.Key))
+                        if (Mathf.Abs(finger.X - starX) <= LaneSlideJudge.HitHalfWidth && !_laneHitKeys.Contains(finger.Key))
                         {
-                            _laneGuardKeys.Add(finger.Key);
+                            _laneHitKeys.Add(finger.Key);
                         }
                     }
                 }
             }
-            ReportLaneGuardFingers();
+            UpdateLaneGuardFinger();
         }
         /// <summary>
-        /// 把正在打这条星星的手指报告给 NoteManager，下一帧这些手指划过的列不扫键
+        /// 选出并报告这条星星受保护的手指：已受保护的手指抬起后清空；没有受保护的手指时，从本帧命中的手指（<see cref="_laneHitKeys"/>）里
+        /// 取第一根星星手指（按下时就在星星头或星星位置附近，见 <see cref="NoteManager.IsLaneStarFinger"/>）。
+        /// 每条星星同时只保护一根，下一帧这根手指划过的列不扫键
         /// </summary>
-        void ReportLaneGuardFingers()
+        void UpdateLaneGuardFinger()
         {
-            foreach (var key in _laneGuardKeys)
+            if (_laneGuardKey != 0 && !NoteManager.IsLaneFingerDown(_laneGuardKey))
             {
-                NoteManager.AddLaneGuardFinger(key);
+                _laneGuardKey = 0;
+            }
+            if (_laneGuardKey == 0)
+            {
+                foreach (var key in _laneHitKeys)
+                {
+                    if (NoteManager.IsLaneStarFinger(key))
+                    {
+                        _laneGuardKey = key;
+                        break;
+                    }
+                }
+            }
+            if (_laneGuardKey != 0)
+            {
+                NoteManager.AddLaneGuardFinger(_laneGuardKey);
+            }
+        }
+        /// <summary>
+        /// 星星的按下范围从何时开始：整组第一段从星星头判定前 <see cref="FALLING_STAR_REPORT_EARLY_SEC"/> 开始，
+        /// 连接 Slide 的后面各段从各自开始移动前同样的时间开始
+        /// </summary>
+        /// <returns>The time in seconds.</returns>
+        float GetLaneStarPressStart()
+        {
+            var isGroupHead = ConnectInfo.IsGroupPartHead || !ConnectInfo.IsConnSlide;
+            return (isGroupHead ? Timing : StartTiming) - FALLING_STAR_REPORT_EARLY_SEC;
+        }
+        /// <summary>
+        /// 报告这条星星的按下范围：在按下范围的时间内，把各条路径此刻的位置（开始移动前为起点）报告给 NoteManager，
+        /// 下一帧在附近新按下的手指算作星星手指
+        /// </summary>
+        /// <param name="laneJudge">这条星星的检查点判定</param>
+        /// <param name="judgeSec">本帧的判定时刻</param>
+        void ReportLaneStarZones(LaneSlideJudge laneJudge, float judgeSec)
+        {
+            if (laneJudge.IsResolved || judgeSec < GetLaneStarPressStart())
+            {
+                return;
+            }
+            for (var i = 0; i < laneJudge.PathCount; i++)
+            {
+                NoteManager.AddLaneStarZone(laneJudge.GetPathX(i, judgeSec));
             }
         }
         /// <summary>
@@ -483,7 +543,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             _laneJudge = null;
             _isLaneFlick = false;
             _laneFlickOwner = null;
-            _laneGuardKeys.Clear();
+            _laneHitKeys.Clear();
+            _laneGuardKey = 0;
             if (!LaneMode.IsEnabled || LaneMode.IsSlideOriginal)
             {
                 return;
@@ -604,12 +665,17 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
                 return;
             }
             var judgeSec = ThisFrameSec - USERSETTING_TOUCHPANEL_OFFSET_SEC;
-            // 扫键保护：命中过检查点的手指记下来，这条星星结算前每帧报告，这些手指划过的列不扫键
+            // 扫键保护：报告按下范围，并从本帧命中检查点的手指里选出受保护的那一根（每条星星同时只保护一根），结算前每帧报告
             var isGuardEnabled = LaneMode.IsSweepEnabled && LaneMode.IsSweepSlideGuardEnabled;
-            laneJudge.Update(judgeSec, NoteManager.LaneSlideFingers, isGuardEnabled ? _laneGuardKeys : null);
+            if (isGuardEnabled)
+            {
+                ReportLaneStarZones(laneJudge, judgeSec);
+            }
+            _laneHitKeys.Clear();
+            laneJudge.Update(judgeSec, NoteManager.LaneSlideFingers, isGuardEnabled ? _laneHitKeys : null);
             if (isGuardEnabled && !laneJudge.IsResolved)
             {
-                ReportLaneGuardFingers();
+                UpdateLaneGuardFinger();
             }
             // 音效在命中的检查点到达判定线时才播放：手指提前停在星星经过的位置也不会早响；
             // 命中的点要到达判定线才结算，所以星星结束前一定会播放
@@ -620,7 +686,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
             }
             if (laneJudge.IsResolved)
             {
-                _laneGuardKeys.Clear();
+                _laneGuardKey = 0;
                 ClearAllJudgeQueue();
             }
         }

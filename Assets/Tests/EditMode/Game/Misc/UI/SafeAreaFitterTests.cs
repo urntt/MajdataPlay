@@ -40,33 +40,6 @@ namespace MajdataPlay.Tests.Game.Misc.UI
             Assert.That(noScreenMax, Is.EqualTo(Vector2.one));
         }
 
-        /// <summary>Checks that the scaled offsets make the rectangle 1 / scale as large, so after scaling it covers the safe area.</summary>
-        [Test]
-        public void GetScaledOffsets_ShrinksTheRectangleByTheScale()
-        {
-            var safeSize = new Vector2(1000f, 500f);
-
-            SafeAreaFitter.GetScaledOffsets(safeSize, 2f, out var offsetMin, out var offsetMax);
-
-            var size = safeSize - offsetMin + offsetMax;
-            Assert.That(size.x * 2f, Is.EqualTo(safeSize.x).Within(TOLERANCE));
-            Assert.That(size.y * 2f, Is.EqualTo(safeSize.y).Within(TOLERANCE));
-            Assert.That(offsetMin + offsetMax, Is.EqualTo(Vector2.zero), "the rectangle stays centered");
-        }
-
-        /// <summary>Checks that a scale of one, or an invalid scale, leaves the rectangle over the safe area.</summary>
-        [Test]
-        public void GetScaledOffsets_ScaleOneOrInvalidKeepsTheSafeArea()
-        {
-            SafeAreaFitter.GetScaledOffsets(new Vector2(1000f, 500f), 1f, out var oneMin, out var oneMax);
-            SafeAreaFitter.GetScaledOffsets(new Vector2(1000f, 500f), 0f, out var zeroMin, out var zeroMax);
-
-            Assert.That(oneMin, Is.EqualTo(Vector2.zero));
-            Assert.That(oneMax, Is.EqualTo(Vector2.zero));
-            Assert.That(zeroMin, Is.EqualTo(Vector2.zero));
-            Assert.That(zeroMax, Is.EqualTo(Vector2.zero));
-        }
-
         /// <summary>Checks the docked sidebar width: a quarter of the page, clamped to 260–360 only on short pages.</summary>
         [Test]
         public void GetDockedWidth_ClampsOnlyOnShortPages()

@@ -109,7 +109,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         RectTransform _root = null!;
         /// <summary>
         /// Holds the pause and skip buttons, the score, the title and the difficulty. It covers the screen, pulled in from an edge
-        /// only where the safe area reaches further than the margins, and is enlarged on phones; see <see cref="LayoutHudArea"/>.
+        /// only where the safe area reaches further than the margins, at the same size on every screen; see <see cref="LayoutHudArea"/>.
         /// </summary>
         RectTransform _hudArea = null!;
         /// <summary>
@@ -265,7 +265,7 @@ namespace MajdataPlay.Scenes.Game.Lane
             // 背景铺满屏幕：在 LateUpdate 中按显示中的封面或视频尺寸缩放
             _background = bgManager.CoverRenderer.rectTransform.parent as RectTransform;
 
-            // 四角的按钮与文字：离屏幕边取原边距与安全区边距中较大的一个，手机上按物理尺寸放大；由 LayoutHudArea 摆放
+            // 四角的按钮与文字：离屏幕边取原边距与安全区边距中较大的一个，手机上不放大；由 LayoutHudArea 摆放
             _hudArea = CreateRect("HudArea", _root, layer);
 
             // 进度条
@@ -743,7 +743,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// On each side but the bottom, the corner items keep the larger of their margin and the safe-area inset from the screen
         /// edge, instead of adding the two. The bottom ignores the home indicator, which sits in the middle while the title and
         /// the difficulty sit at the ends; they stay in the gap below the judge line, see <see cref="GetBottomTextBox"/>.
-        /// On phones everything is enlarged by <see cref="UiScaling.GetEnlargement"/>.
+        /// The corner items are not enlarged on phones; only the pause menu is, see <see cref="FitPauseMenu"/>.
         /// </remarks>
         /// <param name="isForced">Whether to lay out even when nothing changed.</param>
         void LayoutHudArea(bool isForced)
@@ -767,26 +767,21 @@ namespace MajdataPlay.Scenes.Game.Lane
             _lastScreenSize = screenSize;
             _lastSafeArea = safeArea;
             _lastJudgeLineScreenY = judgeLineScreenY;
-            var scale = UiScaling.GetEnlargement(screenSize.x, screenSize.y, Screen.dpi);
             var unitsPerPixel = new Vector2(rootSize.x / screenSize.x, rootSize.y / screenSize.y);
-            var margin = EDGE_MARGIN * scale;
             // 安全区比边距更靠里时才往里收，收的量是两者之差
-            var insetLeft = Mathf.Max(0f, safeArea.xMin * unitsPerPixel.x - margin);
-            var insetRight = Mathf.Max(0f, (screenSize.x - safeArea.xMax) * unitsPerPixel.x - margin);
-            var insetTop = Mathf.Max(0f, (screenSize.y - safeArea.yMax) * unitsPerPixel.y - margin);
-            var anchorMin = new Vector2(insetLeft / rootSize.x, 0f);
-            var anchorMax = new Vector2(1f - insetRight / rootSize.x, 1f - insetTop / rootSize.y);
-            SafeAreaFitter.GetScaledOffsets(Vector2.Scale(rootSize, anchorMax - anchorMin), scale, out var offsetMin, out var offsetMax);
-            _hudArea.anchorMin = anchorMin;
-            _hudArea.anchorMax = anchorMax;
+            var insetLeft = Mathf.Max(0f, safeArea.xMin * unitsPerPixel.x - EDGE_MARGIN);
+            var insetRight = Mathf.Max(0f, (screenSize.x - safeArea.xMax) * unitsPerPixel.x - EDGE_MARGIN);
+            var insetTop = Mathf.Max(0f, (screenSize.y - safeArea.yMax) * unitsPerPixel.y - EDGE_MARGIN);
+            _hudArea.anchorMin = new Vector2(insetLeft / rootSize.x, 0f);
+            _hudArea.anchorMax = new Vector2(1f - insetRight / rootSize.x, 1f - insetTop / rootSize.y);
             _hudArea.pivot = new Vector2(0.5f, 0.5f);
-            _hudArea.localScale = new Vector3(scale, scale, 1f);
-            _hudArea.offsetMin = offsetMin;
-            _hudArea.offsetMax = offsetMax;
+            _hudArea.localScale = Vector3.one;
+            _hudArea.offsetMin = Vector2.zero;
+            _hudArea.offsetMax = Vector2.zero;
 
-            // 判定线下方的空隙，换成 HUD 区域里的单位；拿不到相机时按原来的位置摆
+            // 判定线下方的空隙，换成 HUD 的单位；拿不到相机时按原来的位置摆
             var gap = judgeLineScreenY >= 0f
-                ? judgeLineScreenY * unitsPerPixel.y / scale
+                ? judgeLineScreenY * unitsPerPixel.y
                 : BOTTOM_TEXT_Y + BOTTOM_TEXT_HEIGHT + BOTTOM_TEXT_GAP;
             GetBottomTextBox(gap, out var bottom, out var height);
             SetBottomRow(_titleText, 0f, TITLE_SHARE, EDGE_MARGIN, TITLE_GAP * 0.5f, bottom, height);

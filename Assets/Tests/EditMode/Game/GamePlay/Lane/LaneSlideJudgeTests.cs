@@ -54,6 +54,19 @@ namespace MajdataPlay.Tests.Game.GamePlay.Lane
             Assert.That(judge.FirstHitTiming!.Value, Is.LessThanOrEqualTo(1.36f + 0.3f));
         }
 
+        /// <summary>Checks the path position used for the press zone: the start before the star moves, then along the path, then the end.</summary>
+        [Test]
+        public void GetPathX_FollowsThePath()
+        {
+            var path = new[] { new LanePathVertex(1f, -2f), new LanePathVertex(1.5f, 2f) };
+            var judge = new LaneSlideJudge(new[] { path }, 1f, 0.5f);
+
+            Assert.That(judge.PathCount, Is.EqualTo(1));
+            Assert.That(judge.GetPathX(0, 0.5f), Is.EqualTo(-2f).Within(TOLERANCE), "before the star moves");
+            Assert.That(judge.GetPathX(0, 1.25f), Is.EqualTo(0f).Within(TOLERANCE), "halfway");
+            Assert.That(judge.GetPathX(0, 2f), Is.EqualTo(2f).Within(TOLERANCE), "after it arrives");
+        }
+
         /// <summary>Checks that a finger far from the slide never hits it.</summary>
         [Test]
         public void FirstHitTiming_FarFingerNeverHits()

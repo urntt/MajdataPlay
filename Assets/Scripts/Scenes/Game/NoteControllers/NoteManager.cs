@@ -95,6 +95,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         readonly List<int> _pendingLaneGuardKeys = new(8);
         int[] _laneGuardKeys = new int[8];
         int _laneGuardCount = 0;
+        // 扫键保护：本帧各条进行中星星的按下范围（横坐标），下一帧交给轨道输入，用来认定新按下的手指是否在打星星
+        readonly List<float> _pendingLaneStarZones = new(8);
+        float[] _laneStarZones = new float[8];
+        int _laneStarZoneCount = 0;
         /// <summary>
         /// 两列的音符离判定时刻差不多时（在此范围内），轨道点击优先给手指所在的列
         /// </summary>
@@ -330,6 +334,8 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _laneSlideFingerCount = 0;
             _pendingLaneGuardKeys.Clear();
             _laneGuardCount = 0;
+            _pendingLaneStarZones.Clear();
+            _laneStarZoneCount = 0;
         }
         public void ResetCounter()
         {
@@ -412,7 +418,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             _pendingLaneGuardKeys.CopyTo(_laneGuardKeys);
             _laneGuardCount = _pendingLaneGuardKeys.Count;
             _pendingLaneGuardKeys.Clear();
-            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge, new ReadOnlySpan<int>(_laneGuardKeys, 0, _laneGuardCount));
+            if (_laneStarZones.Length < _pendingLaneStarZones.Count)
+            {
+                _laneStarZones = new float[_pendingLaneStarZones.Count * 2];
+            }
+            _pendingLaneStarZones.CopyTo(_laneStarZones);
+            _laneStarZoneCount = _pendingLaneStarZones.Count;
+            _pendingLaneStarZones.Clear();
+            _laneInput.Update(SceneSwitcher.MainCamera, InputManager.SubScreenEdge, new ReadOnlySpan<int>(_laneGuardKeys, 0, _laneGuardCount),
+                              new ReadOnlySpan<float>(_laneStarZones, 0, _laneStarZoneCount));
 
             var previousButtonStatus = InputManager.ButtonStatusInPreviousFrame;
             var currentButtonStatus = InputManager.ButtonStatusInThisFrame;
@@ -510,6 +524,32 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
             {
                 _pendingLaneGuardKeys.Add(fingerKey);
             }
+        }
+        /// <summary>
+        /// 下落式扫键保护：进行中的星星报告它的按下范围（星星头或星星当前位置的横坐标），下一帧在附近新按下的手指算作星星手指
+        /// </summary>
+        /// <param name="x">按下范围中心的横坐标（世界坐标）</param>
+        public void AddLaneStarZone(float x)
+        {
+            _pendingLaneStarZones.Add(x);
+        }
+        /// <summary>
+        /// Gets whether a lane finger was pressed on a star, see <see cref="LaneInputProvider.IsStarFinger"/>.
+        /// </summary>
+        /// <param name="fingerKey">The finger key, see <see cref="LaneFinger.Key"/>.</param>
+        /// <returns>True for a star finger that is still down.</returns>
+        public bool IsLaneStarFinger(int fingerKey)
+        {
+            return _laneInput.IsStarFinger(fingerKey);
+        }
+        /// <summary>
+        /// Gets whether a lane finger is still down, see <see cref="LaneInputProvider.IsFingerDown"/>.
+        /// </summary>
+        /// <param name="fingerKey">The finger key, see <see cref="LaneFinger.Key"/>.</param>
+        /// <returns>True while the finger is down.</returns>
+        public bool IsLaneFingerDown(int fingerKey)
+        {
+            return _laneInput.IsFingerDown(fingerKey);
         }
         static Dictionary<long, float>[] CreateLaneNoteTimings()
         {

@@ -183,7 +183,7 @@
     "MAJSETTING_PROPERTY_FallingSweep": "スライド入力",
     "MAJSETTING_PROPERTY_FallingSweep_DESC": "オンにすると、押したまま指をレーンに滑り込ませてもタップとして判定されます（筐体でボタンをなぞるのと同様）。高速な階段配置をなぞって処理できます。☆を処理している指をなぞり判定から外すかは「☆の指を保護」で設定します。オフでは新しく押したときのみ判定します",
     "MAJSETTING_PROPERTY_FallingSweepSlideGuard": "☆の指を保護",
-    "MAJSETTING_PROPERTY_FallingSweepSlideGuard_DESC": "スライド入力がオンのときのみ有効。オンにすると、☆のチェックポイントに当たった指はその☆を処理中とみなし、☆（つながったスライドはまとめて）の判定が終わるか指を離すまで、その指がなぞったレーンはなぞり判定しません。ほかの指は通常どおりです。1 レーンで保護される指は同時に 1 本（最も早い指）だけです。オフではすべての指がなぞり判定されます",
+    "MAJSETTING_PROPERTY_FallingSweepSlideGuard_DESC": "スライド入力がオンのときのみ有効。オンにすると、押した瞬間に☆の頭か☆の現在位置の近く（左右 1 レーン以内）にあった指は、その☆のチェックポイントに当たると☆を処理中とみなされ、☆（つながったスライドはその区間）の判定が終わるか指を離すまで、なぞったレーンはなぞり判定しません。保護されるのは 1 つの☆につき最初に当たった 1 本だけで、その指を離すと、続けて処理する別の指に引き継がれます。途中でほかの場所から滑り込んできた指は通常どおりなぞり判定されます。1 レーンで保護される指は同時に 1 本（最も早い指）だけです。オフではすべての指がなぞり判定されます",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay": "情報表示の設定に従う",
     "MAJSETTING_PROPERTY_FallingInfoFollowDisplay_DESC": "オン：コンボ・第二情報・サブ画面情報は表示設定に従います。オフ：右上にスコアと達成率、上部中央にコンボを表示します",
     "MAJSETTING_PROPERTY_FallingDifficultyColor": "難易度の色",

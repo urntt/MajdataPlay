@@ -42,28 +42,6 @@ namespace MajdataPlay
         }
 
         /// <summary>
-        /// Converts the size of the safe area to the offsets that keep a centered rectangle scaled by <paramref name="scale"/>
-        /// exactly over it: the rectangle is made 1 / <paramref name="scale"/> as large, then scaled.
-        /// </summary>
-        /// <param name="safeSize">The size of the safe area in the parent's units.</param>
-        /// <param name="scale">The scale of the content; 1 or more.</param>
-        /// <param name="offsetMin">The lower left offset.</param>
-        /// <param name="offsetMax">The upper right offset.</param>
-        public static void GetScaledOffsets(Vector2 safeSize, float scale, out Vector2 offsetMin, out Vector2 offsetMax)
-        {
-            if (scale <= 0f)
-            {
-                offsetMin = Vector2.zero;
-                offsetMax = Vector2.zero;
-                return;
-            }
-            var sizeDelta = safeSize * (1f / scale - 1f);
-            offsetMin = -sizeDelta * 0.5f;
-            offsetMax = sizeDelta * 0.5f;
-        }
-
-
-        /// <summary>
         /// Converts a safe area to normalized anchors of the screen.
         /// </summary>
         /// <param name="safeArea">The safe area in screen pixels.</param>

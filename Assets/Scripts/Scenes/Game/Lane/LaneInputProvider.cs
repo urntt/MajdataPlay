@@ -60,6 +60,10 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 扫键时越过两列分界线这么远才算进入新的一列，手指停在分界线上来回抖时不会连续触发
         /// </summary>
         static float SweepHysteresis => LaneLayout.LaneWidth * 0.15f;
+        /// <summary>
+        /// 星星的按下范围：在星星位置左右各一列以内按下的手指算作星星手指
+        /// </summary>
+        static float StarPressHalfWidth => LaneLayout.LaneWidth;
 
         public ReadOnlySpan<bool> LaneHeld => _laneHeld;
         /// <summary>
@@ -106,6 +110,15 @@ namespace MajdataPlay.Scenes.Game.Lane
         readonly int[] _guardOwnerKeys = new int[LaneLayout.LANE_COUNT];
         readonly int[] _guardOwnerOrders = new int[LaneLayout.LANE_COUNT];
         int _nextGuardOrder = 0;
+        /// <summary>
+        /// 星星手指：按下的那一刻就在某条星星的按下范围内（星星头或星星当前位置附近）的手指，只有它们会受扫键保护
+        /// </summary>
+        readonly HashSet<int> _starFingerKeys = new();
+        /// <summary>
+        /// 上一帧各条星星报告的按下范围的中心（横坐标），见 <see cref="StarPressHalfWidth"/>
+        /// </summary>
+        float[] _starZones = new float[16];
+        int _starZoneCount = 0;
         /// <summary>
         /// 手指的键：每次按下分配一个新的，抬起后不再使用
         /// </summary>
@@ -182,8 +195,15 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// 正在打星星的手指（上一帧由进行中的星星报告）。扫键与保护开启时，这些手指划过的列不扫键，
         /// 但同一列只保护登记最早的一根
         /// </param>
-        public void Update(Camera? camera, Vector4 subScreenEdge, ReadOnlySpan<int> guardKeys)
+        /// <param name="starZones">上一帧各条星星报告的按下范围的中心，新按下的手指在其中之一附近时算作星星手指</param>
+        public void Update(Camera? camera, Vector4 subScreenEdge, ReadOnlySpan<int> guardKeys, ReadOnlySpan<float> starZones)
         {
+            if (_starZones.Length < starZones.Length)
+            {
+                _starZones = new float[starZones.Length * 2];
+            }
+            starZones.CopyTo(_starZones);
+            _starZoneCount = starZones.Length;
             Array.Clear(_laneHeld, 0, _laneHeld.Length);
             Array.Clear(_highlightLanes, 0, _highlightLanes.Length);
             _clicks.Clear();
@@ -242,6 +262,7 @@ namespace MajdataPlay.Scenes.Game.Lane
                 if (_records.TryGetValue(id, out var staleRecord))
                 {
                     _guardOrders.Remove(staleRecord.Key);
+                    _starFingerKeys.Remove(staleRecord.Key);
                 }
                 _records.Remove(id);
             }
@@ -379,6 +400,8 @@ namespace MajdataPlay.Scenes.Game.Lane
             _slideFingerCount = 0;
             _guardOrders.Clear();
             Array.Clear(_guardOwnerKeys, 0, _guardOwnerKeys.Length);
+            _starFingerKeys.Clear();
+            _starZoneCount = 0;
             Array.Clear(_flickLatch, 0, _flickLatch.Length);
             Array.Clear(_floatSensorHeld, 0, _floatSensorHeld.Length);
             Array.Clear(_floatSensorClickedCount, 0, _floatSensorClickedCount.Length);
@@ -386,6 +409,50 @@ namespace MajdataPlay.Scenes.Game.Lane
             Array.Clear(_mineSensorClickedCount, 0, _mineSensorClickedCount.Length);
             Array.Clear(_circleSensorHeld, 0, _circleSensorHeld.Length);
             Array.Clear(_circleSensorClickedCount, 0, _circleSensorClickedCount.Length);
+        }
+        /// <summary>
+        /// Gets whether a finger was pressed on a star: at its press it was within <see cref="StarPressHalfWidth"/> of the head
+        /// or the current position of a star in progress.
+        /// </summary>
+        /// <param name="key">The finger key, see <see cref="LaneFinger.Key"/>.</param>
+        /// <returns>True for a star finger that is still down.</returns>
+        public bool IsStarFinger(int key)
+        {
+            return _starFingerKeys.Contains(key);
+        }
+        /// <summary>
+        /// Gets whether a finger is still down and taking part in judging.
+        /// </summary>
+        /// <param name="key">The finger key, see <see cref="LaneFinger.Key"/>.</param>
+        /// <returns>True while the finger is down and was not started on a HUD button.</returns>
+        public bool IsFingerDown(int key)
+        {
+            foreach (var record in _records.Values)
+            {
+                if (record.Key == key)
+                {
+                    return !record.IsIgnored;
+                }
+            }
+            return false;
+        }
+        /// <summary>
+        /// Gets whether a position lies within <paramref name="halfWidth"/> of any of the zone centers.
+        /// </summary>
+        /// <param name="x">The horizontal world position.</param>
+        /// <param name="zones">The zone centers.</param>
+        /// <param name="halfWidth">How far from a center still counts.</param>
+        /// <returns>True when the position is in a zone.</returns>
+        internal static bool IsInStarZone(float x, ReadOnlySpan<float> zones, float halfWidth)
+        {
+            foreach (var zone in zones)
+            {
+                if (Mathf.Abs(x - zone) <= halfWidth)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
         void AddSlideFinger(int key, float x)
         {
@@ -504,9 +571,16 @@ namespace MajdataPlay.Scenes.Game.Lane
             var neighborLane = LaneLayout.GetNeighborLane(position.x, lane);
             var isInLineArea = lane != 0 &&
                                (LaneMode.IsVerticalJudge || Mathf.Abs(position.y - LaneLayout.JUDGE_LINE_Y) <= LaneLayout.JUDGE_BAND_HALF_HEIGHT);
-            if (IsInSlideArea(lane, position.y, isInLineArea))
+            var isInSlideArea = IsInSlideArea(lane, position.y, isInLineArea);
+            if (isInSlideArea)
             {
                 AddSlideFinger(record.Key, position.x);
+            }
+            // 按下的那一刻就在星星头或星星当前位置附近的手指才是星星手指，中途从别处划过来的手指不是
+            if (!hasRecord && isInSlideArea &&
+                IsInStarZone(position.x, new ReadOnlySpan<float>(_starZones, 0, _starZoneCount), StarPressHalfWidth))
+            {
+                _starFingerKeys.Add(record.Key);
             }
             if (isInLineArea)
             {
