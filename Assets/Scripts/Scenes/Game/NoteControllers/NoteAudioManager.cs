@@ -87,14 +87,15 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     _noteSFXs[i] = sfx;
                 }
             }
-            var settings = MajEnv.Settings;
-            if (settings.Debug.OffsetUnit == OffsetUnitOption.Second)
+            var userSettings = MajEnv.UserSettings;
+            var systemSettings = MajEnv.SystemSettings;
+            if (userSettings.Judge.OffsetUnit == OffsetUnitOption.Second)
             {
-                _answerOffsetSec = settings.Judge.AnswerOffset + settings.Debug.DisplayOffset;
+                _answerOffsetSec = userSettings.Judge.AnswerOffset + systemSettings.Debug.DisplayOffset;
             }
             else
             {
-                _answerOffsetSec = (settings.Judge.AnswerOffset + settings.Debug.DisplayOffset) * MajEnv.FRAME_LENGTH_SEC;
+                _answerOffsetSec = (userSettings.Judge.AnswerOffset + systemSettings.Debug.DisplayOffset) * MajEnv.FRAME_LENGTH_SEC;
             }
         }
         private void Start()
@@ -447,7 +448,10 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                                               var isMine = false;
                                               foreach (var note in x.Notes)
                                               {
-                                                  if(note.IsSlideNoHead)
+                                                  // A slide path never answers by itself: the star head of a slide is
+                                                  // its own Tap note since MajSimai 3.0 and answers with its own mine
+                                                  // flag, and a slide without a head has nothing to answer.
+                                                  if(note.Type == SimaiNoteType.Slide)
                                                   {
                                                       continue;
                                                   }

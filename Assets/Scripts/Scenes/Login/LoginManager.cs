@@ -3,6 +3,8 @@ using MajdataPlay.Buffers;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.IO;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
+using MajdataPlay.Settings.Sync;
 using QRCoder;
 using System;
 using System.Linq;
@@ -253,8 +255,9 @@ namespace MajdataPlay.Scenes.Login
                                             userInfo = userData.Profile;
                                             userScores = userData.Scores;
                                         }
-                                        ScoreManager.LoadOnlineScores(userScores);
+                                        ScoreManager.LoadOnlineScores(endpoint, userScores);
                                         await UpdateApiEndpointRuntimeConfigAsync(endpoint, userInfo);
+                                        await AttachUserSettingsAsync(endpoint);
                                         break;
                                     }
                                     else if (rsp.StatusCode is HttpStatusCode.Accepted)
@@ -280,7 +283,7 @@ namespace MajdataPlay.Scenes.Login
                             {
                                 if (authCheckCooldownSec < 0)
                                 {
-                                    authCheckTask = Online.AuthCheckAsync(endpoint, authRequestId, cts.Token);
+                                    authCheckTask = Online.Machine.AuthCheckAsync(endpoint, authRequestId, cts.Token);
                                     authCheckCooldownSec = 2d;
                                     MajDebug.LogDebug("Checking the auth session");
                                 }
@@ -339,7 +342,7 @@ namespace MajdataPlay.Scenes.Login
                             var username = _usernameInput.text;
                             var password = _passwordInput.text;
                             MajDebug.LogInfo("Trying to log in via Plain");
-                            var task = Online.LoginAsync(endpoint, username, password);
+                            var task = Online.Account.LoginAsync(endpoint, username, password);
 
                             _loading.SetActive(true);
                             while (!task.IsCompleted)
@@ -401,10 +404,11 @@ namespace MajdataPlay.Scenes.Login
                                     userInfo = getUserInfoTask.Result.Profile;
                                     userScores = getUserInfoTask.Result.Scores;
                                 }
-                                ScoreManager.LoadOnlineScores(userScores);
+                                ScoreManager.LoadOnlineScores(endpoint, userScores);
                                 Hint();
                                 _loading.SetActive(false);
                                 await UpdateApiEndpointRuntimeConfigAsync(endpoint, userInfo);
+                                await AttachUserSettingsAsync(endpoint);
                                 break;
                             }
                         }
@@ -440,7 +444,7 @@ namespace MajdataPlay.Scenes.Login
             {
                 MajInstances.SceneSwitcher.SetLoadingText(e);
             };
-            var task = SongStorage.RefreshOnline(progress);
+            var task = RefreshOnlineScoresAndChartsAsync(progress);
             while (!task.IsCompleted)
             {
                 await UniTask.Yield();
@@ -477,10 +481,35 @@ namespace MajdataPlay.Scenes.Login
             await UniTask.Delay(500);
             sceneSwitcher.SwitchScene("List", false);
         }
+        /// <summary>Refreshes all endpoint lists before resolving old local and signed-in online score identities.</summary>
+        /// <param name="progress">Reports chart-list refresh progress.</param>
+        /// <returns>A task completing after the lists and their legacy scores have been refreshed.</returns>
+        private static async Task RefreshOnlineScoresAndChartsAsync(IProgress<string> progress)
+        {
+            var token = Application.exitCancellationToken;
+            await SongStorage.RefreshOnline(progress, token);
+            await ScoreManager.MigrateLegacyScoresAsync(
+                SongStorage.Collections.SelectMany(collection => collection.GetOriginSnapshot()).Where(song => song.IsOnline), token);
+        }
+
+        /// <summary>Switches the user settings to the copy of the account, and warns when the local copy stays in use.</summary>
+        /// <param name="endpoint">The endpoint the user just logged in on.</param>
+        /// <returns>A task completing when the settings have a source for this session.</returns>
+        private async UniTask AttachUserSettingsAsync(ApiEndpoint endpoint)
+        {
+            var result = await UserSettingSync.AttachAsync(endpoint);
+            if (result is UserSettingAttachResult.Degraded)
+            {
+                Hint("MAJTEXT_LOGIN_SETTING_SYNC_FAILED".i18n(), true);
+                // Keep the message readable before the login scene fades out to the list.
+                await UniTask.Delay(1500);
+            }
+        }
+
         private async ValueTask<UserData> FetchUserDataAsync(ApiEndpoint endpoint, CancellationToken token = default)
         {
-            var fetchProfileRsp = await Online.GetUserProfileAsync(endpoint, token);
-            var userScores = await Online.GetUserScoresAsync(endpoint, token);
+            var fetchProfileRsp = await Online.Account.GetProfileAsync(endpoint, token);
+            var userScores = await Online.Account.GetScoresAsync(endpoint, token);
             var userInfo = default(UserProfile?);
             if (fetchProfileRsp.TryDeserialize(out var userInfoOut, out var e))
             {
@@ -507,7 +536,7 @@ namespace MajdataPlay.Scenes.Login
                 var result = (UserProfile)userInfo;
                 _loading.SetActive(true);
                 Hint("MAJTEXT_LOGIN_DOWNLOADING_AVATAR".i18n(), false);
-                var avatarTask = Online.GetAvatarAsync(endpoint, result.AvatarId, onError: Hint);
+                var avatarTask = Online.Account.GetAvatarAsync(endpoint, result.AvatarId, onError: Hint);
                 while (!avatarTask.IsCompleted)
                 {
                     await UniTask.Yield();
@@ -539,7 +568,7 @@ namespace MajdataPlay.Scenes.Login
         }
         private async UniTask RevokeAuthSession(ApiEndpoint endpoint, string authId, CancellationToken token = default)
         {
-            var revokeTask = Online.AuthRevokeAsync(endpoint, authId);
+            var revokeTask = Online.Machine.AuthRevokeAsync(endpoint, authId);
             while (!revokeTask.IsCompleted)
             {
                 await UniTask.Yield();
@@ -558,12 +587,12 @@ namespace MajdataPlay.Scenes.Login
         {
             await UniTask.SwitchToThreadPool();
             EndpointResponse rsp;
-            if (!Online.IsMachineRegistered(endpoint))
+            if (!Online.Machine.IsRegistered(endpoint))
             {
                 try
                 {
 
-                    rsp = await Online.RegisterAsync(endpoint, MajEnv.MachineInfo, token);
+                    rsp = await Online.Machine.RegisterAsync(endpoint, MajEnv.SystemSettings.Network.Online.Machine, token);
                     if (!rsp.IsSuccessfully)
                     {
                         throw s_exception;
@@ -578,7 +607,7 @@ namespace MajdataPlay.Scenes.Login
 
             try
             {
-                rsp = await Online.AuthRequestAsync(endpoint, token);
+                rsp = await Online.Machine.AuthRequestAsync(endpoint, token);
                 if (!rsp.IsDeserializable || rsp.StatusCode != HttpStatusCode.Created)
                 {
                     throw s_exception;

@@ -4,6 +4,7 @@ using Cysharp.Threading.Tasks;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.IO;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using LitMotion;
 using TMPro;
 using UnityEngine;
@@ -35,6 +36,7 @@ namespace MajdataPlay.Scenes.Result.Components
         [SerializeField] TMP_Text _nextLabel = null!;
 
         public bool IsOpen => _panel.activeSelf;
+        /// <summary>Gets whether the panel may be shown: the player may send and the server answers the interaction API.</summary>
         public bool IsAvailable { get; private set; }
         public bool IsFirstPlay { get; private set; }
         public bool IsBusy { get; private set; }
@@ -47,7 +49,11 @@ namespace MajdataPlay.Scenes.Result.Components
         bool _loading;
         int _vote;
         int _submittedVote;
-        bool _voteNeedsRefresh;
+        /// <summary>
+        /// Whether the last vote request failed, so the server may or may not hold it; the next submit then sends the
+        /// vote even when it equals <see cref="_submittedVote"/>.
+        /// </summary>
+        bool _isVoteUnconfirmed;
         bool _likeHeld;
         bool _dislikeHeld;
         MotionHandle _fade;
@@ -59,16 +65,22 @@ namespace MajdataPlay.Scenes.Result.Components
             _commentInput.richText = false;
         }
 
-        public void Init(ISongDetail song, bool allowFeedback)
+        /// <summary>
+        /// Prepares the panel for a played chart and offers it only when the server provides the chart interaction
+        /// API, which is found by reading the counts of the chart.
+        /// </summary>
+        /// <param name="song">The chart that was played.</param>
+        /// <param name="allowFeedback">Whether the result screen allows rating the chart, which it disallows in dan mode.</param>
+        /// <returns>A task that completes when the availability of the panel is settled.</returns>
+        public async UniTask InitAsync(ISongDetail song, bool allowFeedback)
         {
             _song = song as OnlineSongDetail;
-            IsAvailable = allowFeedback && _song != null
-                && string.Equals(_song.ServerInfo.Url.Host, "majdata.net", StringComparison.OrdinalIgnoreCase)
+            IsAvailable = false;
+            IsFirstPlay = false;
+            _canSend = allowFeedback && _song != null
                 && _song.ServerInfo.RuntimeConfig.IsLoggedIn
                 && _song.ServerInfo.RuntimeConfig.AuthMethod != NetAuthMethodOption.None;
-            _canSend = IsAvailable;
-            IsFirstPlay = false;
-            if (IsAvailable)
+            if (_canSend)
             {
                 // Ratings belong to the song/chart ID, shared by all its difficulties.
                 // Capture this before saving the current result increments PlayCount.
@@ -79,6 +91,20 @@ namespace MajdataPlay.Scenes.Result.Components
                     && history.UTAGE.PlayCount == 0;
             }
             SetVisible(false);
+            if (!_canSend)
+            {
+                return;
+            }
+            // A server without GET maichart/{chartId}/interactsum has no votes or comments to show, so reading the
+            // counts is also the check for the API; the counts are then reused when the panel opens.
+            await LoadInteractionAsync();
+            if (this == null)
+            {
+                return;
+            }
+            IsAvailable = _loaded;
+            SetVisible(false);
+            RefreshControls();
         }
 
         public async UniTask OpenAsync()
@@ -168,6 +194,8 @@ namespace MajdataPlay.Scenes.Result.Components
             if (!visible) _commentInput.DeactivateInputField();
         }
 
+        /// <summary>Loads the current vote of the user on the song from <c>GET maichart/{chartId}/interactsum</c>.</summary>
+        /// <returns>A task that completes when the vote was loaded or the failure was shown.</returns>
         async UniTask LoadInteractionAsync()
         {
             _loading = true;
@@ -176,17 +204,17 @@ namespace MajdataPlay.Scenes.Result.Components
             var token = this.GetCancellationTokenOnDestroy();
             try
             {
-                var response = await Online.GetChartInteractAsync(_song!, token, forceRefresh: true);
+                var response = await Online.MaiChart.GetInteractSummaryAsync(_song!, token, forceRefresh: true);
                 await UniTask.SwitchToMainThread(token);
-                if (response is not MajNetSongInteract interaction)
+                if (response is not MajNetChartInteractSummary summary)
                 {
                     _status.text = "MAJTEXT_FEEDBACK_LOAD_FAILED".i18n();
                     return;
                 }
                 _loaded = true;
-                _vote = interaction.IsLiked ? 1 : interaction.IsDisLiked ? -1 : 0;
+                _vote = Math.Sign(summary.MyVote);
                 _submittedVote = _vote;
-                _voteNeedsRefresh = false;
+                _isVoteUnconfirmed = false;
                 _status.text = "";
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -224,6 +252,11 @@ namespace MajdataPlay.Scenes.Result.Components
             else if (dislikePressed) SelectVote(-1);
         }
 
+        /// <summary>
+        /// Sends the vote when it changed or its last request failed, then the comment when one was written. The vote
+        /// states the wanted result, so it is safe to send again; the comment is sent once.
+        /// </summary>
+        /// <returns>True when nothing is left to send and the result screen may continue; false while busy or after a failure.</returns>
         public async UniTask<bool> SubmitAsync()
         {
             if (IsBusy || _loading) return false;
@@ -235,7 +268,11 @@ namespace MajdataPlay.Scenes.Result.Components
             }
             var vote = _vote;
             var comment = _commentInput.text.Trim();
-            if (vote == 0 && _submittedVote == 0 && !_voteNeedsRefresh && comment.Length == 0) return true;
+            var sendsVote = vote != _submittedVote || _isVoteUnconfirmed;
+            if (!sendsVote && comment.Length == 0)
+            {
+                return true;
+            }
 
             IsBusy = true;
             _commentInput.DeactivateInputField();
@@ -244,31 +281,11 @@ namespace MajdataPlay.Scenes.Result.Components
             var token = this.GetCancellationTokenOnDestroy();
             try
             {
-                if (_voteNeedsRefresh)
+                if (sendsVote)
                 {
-                    // A failed response does not prove that the server rejected the previous vote.
-                    // Refresh only the server baseline, preserving the player's current draft.
-                    var interaction = await Online.GetChartInteractAsync(_song!, token, forceRefresh: true);
-                    await UniTask.SwitchToMainThread(token);
-                    if (interaction is not MajNetSongInteract current)
-                    {
-                        ShowFailure(null);
-                        return false;
-                    }
-                    _submittedVote = current.IsLiked ? 1 : current.IsDisLiked ? -1 : 0;
-                    _voteNeedsRefresh = false;
-                }
-                if (vote != 0 || _submittedVote != 0)
-                {
-                    _voteNeedsRefresh = true;
-                    var response = await (vote switch
-                    {
-                        1 => Online.PostLikeAsync(_song!, token),
-                        -1 => Online.PostDislikeAsync(_song!, token),
-                        _ => _submittedVote > 0
-                            ? Online.DeleteLikeAsync(_song!, token)
-                            : Online.DeleteDislikeAsync(_song!, token)
-                    });
+                    // A failed response does not prove that the server rejected the vote, so it stays unconfirmed.
+                    _isVoteUnconfirmed = true;
+                    var response = await Online.MaiChart.VoteAsync(_song!, vote, token);
                     await UniTask.SwitchToMainThread(token);
                     if (!response.IsSuccessfully)
                     {
@@ -276,11 +293,11 @@ namespace MajdataPlay.Scenes.Result.Components
                         return false;
                     }
                     _submittedVote = vote;
-                    _voteNeedsRefresh = false;
+                    _isVoteUnconfirmed = false;
                 }
                 if (comment.Length != 0)
                 {
-                    var response = await Online.PostCommentAsync(_song!, comment, token);
+                    var response = await Online.MaiChart.PostCommentAsync(_song!, comment, token);
                     await UniTask.SwitchToMainThread(token);
                     if (!response.IsSuccessfully)
                     {

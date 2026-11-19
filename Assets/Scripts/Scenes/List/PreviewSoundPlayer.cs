@@ -55,12 +55,12 @@ namespace MajdataPlay.Scenes.List
             var selectSound = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             AudioSampleWrap? previewSample = null;
             // 选歌即时切换预览：切歌时背景音乐保持静音，直接接新歌的预览；只有加载失败时才恢复
-            var isInstantPreview = MajEnv.Settings.Display.ListInstantPreview;
+            var isInstantPreview = MajEnv.SystemSettings.Common.ListInstantPreview;
             try
             {
                 if (!isInstantPreview)
                 {
-                    selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+                    selectSound.SetVolume(MajEnv.UserSettings.Volume.BGM);
                 }
                 await UniTask.SwitchToThreadPool();
                 await Task.Delay(loadDelayMS, cancellationToken: token);
@@ -144,7 +144,7 @@ namespace MajdataPlay.Scenes.List
                     previewLengthSec = Math.Max(0, previewLengthSec);
                 }
                 MajDebug.LogDebug($"Playing preview song\nOffset: {previewOffsetSec}s\nLength: {previewLengthSec}s");
-                previewSample.SetVolume(MajEnv.Settings.Audio.Volume.BGM * VolumeScale);
+                previewSample.SetVolume(MajEnv.UserSettings.Volume.BGM * VolumeScale);
                 //set sample.CurrentSec Not implmented
                 previewSample.IsLoop = true;
                 if(previewSample.CanSeek)
@@ -167,12 +167,12 @@ namespace MajdataPlay.Scenes.List
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 while (stopwatch.Elapsed.TotalSeconds < 0.5)
                 {
-                    previewSample.Volume = MajEnv.Settings.Audio.Volume.BGM * VolumeScale;
+                    previewSample.Volume = MajEnv.UserSettings.Volume.BGM * VolumeScale;
                     await UniTask.Yield(token, cancelImmediately: true);
                 }
                 token.ThrowIfCancellationRequested();
                 // 即时切换时从当前音量淡出：背景音乐已静音时不会被拉回原音量
-                var fadeFromVolume = isInstantPreview ? selectSound.Volume : MajEnv.Settings.Audio.Volume.BGM;
+                var fadeFromVolume = isInstantPreview ? selectSound.Volume : MajEnv.UserSettings.Volume.BGM;
                 stopwatch.Restart();
                 while (true)
                 {
@@ -182,7 +182,7 @@ namespace MajdataPlay.Scenes.List
                         break;
                     }
                     selectSound.Volume = (1f - progress) * fadeFromVolume;
-                    previewSample.Volume = MajEnv.Settings.Audio.Volume.BGM * VolumeScale;
+                    previewSample.Volume = MajEnv.UserSettings.Volume.BGM * VolumeScale;
                     await UniTask.Yield(token, cancelImmediately: true);
                 }
                 selectSound.Volume = 0f;
@@ -198,18 +198,18 @@ namespace MajdataPlay.Scenes.List
                                 for (var i = 1f; i > 0; i = i - 0.2f)
                                 {
                                     token.ThrowIfCancellationRequested();
-                                    previewSample.Volume = i * MajEnv.Settings.Audio.Volume.BGM * VolumeScale;
+                                    previewSample.Volume = i * MajEnv.UserSettings.Volume.BGM * VolumeScale;
                                     await UniTask.Delay(100, cancellationToken: token, cancelImmediately: true);
                                 }
                                 previewSample.Pause();
                                 await UniTask.Delay(1000, cancellationToken: token, cancelImmediately: true);
-                                previewSample.Volume = MajEnv.Settings.Audio.Volume.BGM * VolumeScale;
+                                previewSample.Volume = MajEnv.UserSettings.Volume.BGM * VolumeScale;
                                 previewSample.CurrentSec = previewOffsetSec;
                                 previewSample.Play();
                             }
                         }
                     }
-                    previewSample.Volume = MajEnv.Settings.Audio.Volume.BGM * VolumeScale;
+                    previewSample.Volume = MajEnv.UserSettings.Volume.BGM * VolumeScale;
                     await UniTask.Yield(token, cancelImmediately: true);
                 }
             }
@@ -220,7 +220,7 @@ namespace MajdataPlay.Scenes.List
                     // 即时切换时预览没能播放（加载失败）且没有切到别的歌：恢复选歌背景音乐
                     if (isInstantPreview && !_isPreviewPlaying && !token.IsCancellationRequested)
                     {
-                        selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+                        selectSound.SetVolume(MajEnv.UserSettings.Volume.BGM);
                     }
                     _currentPreviewSong = null;
                     _isPreviewPlaying = false;
@@ -235,7 +235,7 @@ namespace MajdataPlay.Scenes.List
         private void OnDestroy()
         {
             var selectSound = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
-            selectSound.SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+            selectSound.SetVolume(MajEnv.UserSettings.Volume.BGM);
         }
     }
 }

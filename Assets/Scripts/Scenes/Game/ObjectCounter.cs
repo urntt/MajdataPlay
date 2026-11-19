@@ -304,7 +304,7 @@ namespace MajdataPlay.Scenes.Game
         {
             Majdata<ObjectCounter>.Instance = this;
             // 直接读设置：本组件与 GamePlayManager 的 Awake 先后不确定，此时 LaneMode 可能尚未启用
-            _topInfoOption = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling ? TopInfoDisplayOption.None : MajEnv.Settings.Game.TopInfo;
+            _topInfoOption = MajEnv.SystemSettings.Falling.PlayStyle == PlayStyleOption.Falling ? TopInfoDisplayOption.None : MajEnv.UserSettings.Display.TopInfo;
             _rate = GameObject.Find("ObjectRate").GetComponent<TextMeshProUGUI>();
 
             _centerInfoDisplayerObject = _centerInfoDisplayerText.gameObject;
@@ -328,15 +328,15 @@ namespace MajdataPlay.Scenes.Game
                 _gaugeScaleBindings[i] = new(_judgeTimingGaugeScaleTransforms[i], scaleImage);
             }
 
-            _breakFastLateDisplayOption = MajEnv.Settings.Display.BreakFastLateType;
-            _noteFastLateDisplayOption = MajEnv.Settings.Display.FastLateType;
-            _centerInfoDisplayOption = MajEnv.Settings.Game.BGInfo;
-            _secondaryInfoDisplayOption = MajEnv.Settings.Game.SecondaryBGInfo;
-            _subScreenInfoDisplayOption = MajEnv.Settings.Game.SubScreenBGInfo;
-            _isJudgeTimingGaugeEnabled = MajEnv.Settings.Game.EnableJudgeTimingGauge;
-            if (MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling)
+            _breakFastLateDisplayOption = MajEnv.UserSettings.Judge.BreakFastLateType;
+            _noteFastLateDisplayOption = MajEnv.UserSettings.Judge.FastLateType;
+            _centerInfoDisplayOption = MajEnv.UserSettings.Display.BGInfo;
+            _secondaryInfoDisplayOption = MajEnv.UserSettings.Display.SecondaryBGInfo;
+            _subScreenInfoDisplayOption = MajEnv.UserSettings.Display.SubScreenBGInfo;
+            _isJudgeTimingGaugeEnabled = MajEnv.UserSettings.Judge.EnableJudgeTimingGauge;
+            if (MajEnv.SystemSettings.Falling.PlayStyle == PlayStyleOption.Falling)
             {
-                if (!MajEnv.Settings.Falling.FallingInfoFollowDisplay)
+                if (!MajEnv.SystemSettings.Falling.FallingInfoFollowDisplay)
                 {
                     // 下落式默认布局：顶部中间连击，右上分数（达成率从 0% 往上涨）
                     _centerInfoDisplayOption = BGInfoOption.Combo;
@@ -344,7 +344,7 @@ namespace MajdataPlay.Scenes.Game
                     _subScreenInfoDisplayOption = BGInfoOption.Achievement;
                     _isJudgeTimingGaugeEnabled = false;
                 }
-                _isScoreColorEnabled = MajEnv.Settings.Falling.FallingScoreColor;
+                _isScoreColorEnabled = MajEnv.SystemSettings.Falling.FallingScoreColor;
             }
 
             if (_isJudgeTimingGaugeEnabled)
@@ -704,6 +704,17 @@ namespace MajdataPlay.Scenes.Game
             _accRate[3] = decimal.ToDouble(newAccRate[3] * 100);
             _accRate[4] = decimal.ToDouble(newAccRate[4] * 100);
         }
+        /// <summary>
+        /// Counts the notes of a chart by kind and sets the note sums, the total scores and the total DX score.
+        /// </summary>
+        /// <remarks>
+        /// Since MajSimai 3.0 the star head of a slide is its own <see cref="SimaiNoteType.Tap"/> note, so it is counted
+        /// once as a tap (or a break when the head is a break), and every <see cref="SimaiNoteType.Slide"/> note counts
+        /// only its path (a break when the path is a break). This gives the same sums as the 2.x model, where a slide
+        /// with a head counted one star plus one slide and a slide without a head only the slide.
+        /// </remarks>
+        /// <param name="chart">The chart whose notes are counted.</param>
+        /// <returns>A task that completes when the sums are set and the outputs are refreshed on the main thread.</returns>
         internal async ValueTask CountNoteSumAsync(SimaiChart chart)
         {
             await Task.Run(() =>
@@ -724,20 +735,7 @@ namespace MajdataPlay.Scenes.Game
                                     HoldSum++;
                                     break;
                                 case SimaiNoteType.Slide:
-                                    if (!note.IsSlideNoHead)
-                                    {
-                                        TapSum++;
-                                    }
-
-                                    if (note.IsSlideBreak)
-                                    {
-                                        BreakSum++;
-                                    }
-                                    else
-                                    {
-                                        SlideSum++;
-                                    }
-
+                                    SlideSum++;
                                     break;
                                 case SimaiNoteType.Touch:
                                     TouchSum++;
@@ -746,26 +744,7 @@ namespace MajdataPlay.Scenes.Game
                         }
                         else
                         {
-                            if (note.Type == SimaiNoteType.Slide)
-                            {
-                                if (!note.IsSlideNoHead)
-                                {
-                                    BreakSum++;
-                                }
-
-                                if (note.IsSlideBreak)
-                                {
-                                    BreakSum++;
-                                }
-                                else
-                                {
-                                    SlideSum++;
-                                }
-                            }
-                            else
-                            {
-                                BreakSum++;
-                            }
+                            BreakSum++;
                         }
                     }
                 }

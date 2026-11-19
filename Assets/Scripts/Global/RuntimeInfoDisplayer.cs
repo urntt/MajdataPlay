@@ -15,10 +15,13 @@ namespace MajdataPlay
         const string NEW_VERSION_AVAILABLE_I18N_KEY = "MAJTEXT_NEW_VERSION_AVAILABLE";
         const float REFRESH_INTERVAL_SECONDS = 1f;
 
+        /// <summary>Places the diagnostics text after every scene UI material, including transition overlays (4000).</summary>
+        private const int FrontQueue = 4500;
+
         readonly FrameTimingDiagnostics _frameTimingDiagnostics = new();
         FPSMonitor _fpsMonitor = null!;
         TextMeshProUGUI _textDisplayer = null!;
-        GameSetting _setting = null!;
+        SystemSetting _setting = null!;
 
         string _versionText = string.Empty;
         string _newVersionAvailableText = string.Empty;
@@ -32,6 +35,9 @@ namespace MajdataPlay
             Majdata<RuntimeInfoDisplayer>.SetAsSingleton(this);
             _fpsMonitor = GetComponent<FPSMonitor>();
             _textDisplayer = GetComponent<TextMeshProUGUI>();
+            // 诊断文字必须压在所有场景 UI 之上；只改 TMP 的实例材质，不碰共享字体材质。
+            _textDisplayer.fontMaterial.renderQueue = FrontQueue;
+            _textDisplayer.SetMaterialDirty();
             _textDisplayer.enabled = false;
             _lastUpdateTiming = MajTimeline.UnscaledTime;
             Localization.OnLanguageChanged += OnLanguageChanged;
@@ -49,16 +55,16 @@ namespace MajdataPlay
 
         internal void Init()
         {
-            _setting = MajEnv.Settings;
+            _setting = MajEnv.SystemSettings;
             _versionText = MajInstances.GameVersion.ToString();
-            _textDisplayer.enabled = _setting.Debug.DisplayRuntimeInfo;
+            _textDisplayer.enabled = _setting.Rendering.DisplayRuntimeInfo;
             enabled = true;
             CheckForUpdateAsync().Forget();
         }
 
         void LateUpdate()
         {
-            _textDisplayer.enabled = _setting.Debug.DisplayRuntimeInfo;
+            _textDisplayer.enabled = _setting.Rendering.DisplayRuntimeInfo;
 
             var currentTime = MajTimeline.UnscaledTime;
             var delta = currentTime - _lastUpdateTiming;
@@ -117,7 +123,7 @@ namespace MajdataPlay
                 return;
             }
 
-            _frameTimingDiagnostics.Tick(currentTime, LowLatencyVSync.LastWaitMilliseconds);
+            _frameTimingDiagnostics.Tick(currentTime, VulkanLowLatencyVSync.LastWaitMilliseconds);
         }
 
         void OnLanguageChanged(object? sender, Language language)

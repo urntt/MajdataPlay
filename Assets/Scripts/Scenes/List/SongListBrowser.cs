@@ -4,6 +4,7 @@ using MajdataPlay.Collections;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.IO;
 using MajdataPlay.Misc.Base;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Scenes.Game;
 using MajdataPlay.Settings;
 using MajdataPlay.Utils;
@@ -186,7 +187,7 @@ namespace MajdataPlay.Scenes.List
 
         readonly List<ISongDetail> _filteredSongs = new();
         readonly List<CardView> _cards = new();
-        readonly Dictionary<string, MajNetSongInteract> _interactCache = new();
+        readonly Dictionary<string, MajNetChartInteractSummary> _interactCache = new();
         readonly Dictionary<(string Hash, ChartLevel Level), MaidataAnalyzeResult> _chartInfoCache = new();
         int _page = 0;
         string _query = string.Empty;
@@ -205,7 +206,7 @@ namespace MajdataPlay.Scenes.List
         float? _pendingScrollY;
 
         static ChartLevel GlobalLevel => MajEnv.RuntimeConfig.List.SelectedDiff;
-        static int PageSize => Mathf.Clamp(MajEnv.Settings.Display.ListPageSize, 5, 100);
+        static int PageSize => Mathf.Clamp(MajEnv.SystemSettings.Common.ListPageSize, 5, 100);
 
         public static SongListBrowser? Create(ListManager listManager, CollectionListManager collections, CoverListManager covers)
         {
@@ -1285,7 +1286,7 @@ namespace MajdataPlay.Scenes.List
             ResetPreviewVolume();
             _canvasRoot.gameObject.SetActive(false);
             RestoreSceneCanvases();
-            MajInstances.AudioManager.GetSFX("bgm_select.mp3").SetVolume(MajEnv.Settings.Audio.Volume.BGM);
+            MajInstances.AudioManager.GetSFX("bgm_select.mp3").SetVolume(MajEnv.UserSettings.Volume.BGM);
         }
         /// <summary>
         /// 列表页跟着游戏转场淡入淡出（转场画在 GlobalCanvas 上，被 Overlay 画布挡住，只能这样配合）；转场进行中或正在离开时不接受点击
@@ -1381,7 +1382,7 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         void ShowShareDialog()
         {
-            var options = MajEnv.Settings.Score;
+            var options = MajEnv.SystemSettings.Score;
             if (Array.IndexOf(SHARE_DIALOG_SCOPES, options.ShareScope) < 0)
             {
                 // “当前谱面”改由详情页的“分享成绩”负责
@@ -1609,7 +1610,7 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         void ConfirmShare()
         {
-            var options = MajEnv.Settings.Score;
+            var options = MajEnv.SystemSettings.Score;
             if (options.ShareScope == ScoreShareScopeOption.Custom && ScoreExchange.SelectionCount == 0)
             {
                 return;

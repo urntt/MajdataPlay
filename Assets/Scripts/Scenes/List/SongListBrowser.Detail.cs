@@ -2,6 +2,7 @@ using Cysharp.Threading.Tasks;
 using LitMotion;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Utils;
 using MajdataPlay.Utils.ChartRadar;
 using System;
@@ -338,7 +339,7 @@ namespace MajdataPlay.Scenes.List
         void FadeInSelectBgm()
         {
             var selectSound = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
-            var target = MajEnv.Settings.Audio.Volume.BGM;
+            var target = MajEnv.UserSettings.Volume.BGM;
             _bgmMotion.TryCancel();
             _bgmMotion = LMotion.Create(selectSound.Volume, target, BGM_FADE_IN_SEC)
                                 .WithEase(Ease.OutQuad)
@@ -659,11 +660,11 @@ namespace MajdataPlay.Scenes.List
             var stats = CreateText(card, FormatPlayStats(score), 17f, MUTED_COLOR, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
             PlaceRow(stats.rectTransform, 30f, 150f, 30f, 30f);
         }
-        static void SetInteractValues(TextMeshProUGUI[] values, MajNetSongInteract interact)
+        static void SetInteractValues(TextMeshProUGUI[] values, MajNetChartInteractSummary interact)
         {
             values[5].text = interact.Plays.ToString(CultureInfo.InvariantCulture);
             values[6].text = GetLikeCount(interact).ToString(CultureInfo.InvariantCulture);
-            values[7].text = (interact.Comments?.Length ?? 0).ToString(CultureInfo.InvariantCulture);
+            values[7].text = interact.Comments.ToString(CultureInfo.InvariantCulture);
         }
         /// <summary>
         /// Loads the like and comment counts of the chart on the detail page again from the server, after feedback was sent.
@@ -692,7 +693,7 @@ namespace MajdataPlay.Scenes.List
             {
                 var interact = await GetInteractAsync(song, token, forceRefresh);
                 await UniTask.SwitchToMainThread();
-                if (token.IsCancellationRequested || interact is not MajNetSongInteract value)
+                if (token.IsCancellationRequested || interact is not MajNetChartInteractSummary value)
                 {
                     return;
                 }

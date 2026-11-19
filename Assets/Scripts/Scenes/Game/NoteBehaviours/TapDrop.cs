@@ -73,9 +73,9 @@ namespace MajdataPlay.Scenes.Game.Notes.Behaviours
         protected override void Awake()
         {
             base.Awake();
-            _noteAppearRate = MajEnv.Settings.Debug.NoteAppearRate;
-            _isStarRotation = Settings.Game.StarRotation;
             _isLaneMode = LaneMode.IsEnabled;
+            _noteAppearRate = MajEnv.UserSettings.Game.NoteAppearRate;
+            _isStarRotation = UserSettings.Game.StarRotation;
             _notePoolManager = FindAnyObjectByType<NotePoolManager>();
             _thisRenderer = GetComponent<SpriteRenderer>();
             _defaultColor = _thisRenderer.color;

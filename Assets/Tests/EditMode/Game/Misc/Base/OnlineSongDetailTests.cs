@@ -12,6 +12,7 @@ using MajdataPlay.Databases;
 using MajdataPlay.IO;
 using MajdataPlay.IO.Storage;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Tests;
 using MajdataPlay.Tests.Game.Misc.Support;
 using MajSimai;
@@ -264,6 +265,10 @@ namespace MajdataPlay.Tests.Game.Misc.Base
                 Assert.That(song.Record.TryGetDigest(OnlineChartResourceKind.Maidata, out var digest), Is.True);
                 Assert.That(digest.Sha256, Is.EqualTo(Sha256(s_chart)));
                 Assert.That(await ReadColumnAsync("MaidataSha256", song.Id), Is.EqualTo(Sha256(s_chart)));
+                Assert.That(song.GetLevelHash(ChartLevel.Master), Is.EqualTo(chart.Charts[4].Sha256));
+                Assert.That(song.GetLevelHash(ChartLevel.Easy), Is.Null);
+                var restored = _cache.GetOrCreateRecord(_endpoint, Detail(id: song.Id));
+                Assert.That(restored.LevelHashes[4], Is.EqualTo(chart.Charts[4].Sha256));
             });
         }
 
@@ -324,7 +329,7 @@ namespace MajdataPlay.Tests.Game.Misc.Base
                 var chart = await song.GetMaidataAsync();
 
                 Assert.That(chart.Title, Is.EqualTo("Online"));
-                Assert.That(_http.Requests.Length, Is.EqualTo(MajEnv.HTTP_REQUEST_MAX_RETRY + 2));
+                Assert.That(_http.Requests.Length, Is.EqualTo(MajEnv.HttpRequestMaxRetry + 2));
                 Assert.That(song.Record.TryGetDigest(OnlineChartResourceKind.Maidata, out var digest), Is.True);
                 Assert.That(digest.Sha256, Is.EqualTo(Sha256(s_chart)));
                 Assert.That(await ReadColumnAsync("MaidataSha256", song.Id), Is.EqualTo(Sha256(s_chart)));
@@ -346,7 +351,7 @@ namespace MajdataPlay.Tests.Game.Misc.Base
 
                 Assert.That(failure, Is.InstanceOf<HttpException>());
                 Assert.That(((HttpException)failure!).ErrorCode, Is.EqualTo(HttpErrorCode.IntegrityCheckFailed));
-                Assert.That(_http.Requests.Length, Is.EqualTo(MajEnv.HTTP_REQUEST_MAX_RETRY + 1));
+                Assert.That(_http.Requests.Length, Is.EqualTo(MajEnv.HttpRequestMaxRetry + 1));
                 Assert.That(song.IsMaidataLoaded, Is.False);
             });
         }

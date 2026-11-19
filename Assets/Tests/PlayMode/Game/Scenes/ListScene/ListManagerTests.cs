@@ -60,7 +60,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.ListScene
         /// <returns>The coroutine.</returns>
         private IEnumerator StartScene(bool onlineEnabled = false)
         {
-            MajEnv.Settings.Online.Enable = onlineEnabled;
+            MajEnv.SystemSettings.Network.Online.Enable = onlineEnabled;
             _manager = AddInactiveUi<ListManager>("List", Canvas);
             var user = AddInactiveUi<UserInfoDisplayer>("User", Canvas);
             PrivateMember.SetField(user, "_usernameDisplayer", CreateText("Name", user.transform));
@@ -170,8 +170,8 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.ListScene
             yield return StartScene();
 
             yield return PressButton(ButtonZone.A8);
-            Assert.That(MajEnv.RuntimeConfig!.List.SelectedDiff, Is.EqualTo(ChartLevel.UTAGE));
-            Assert.That(Sfx("original.wav").PlayOneShotCount, Is.EqualTo(1));
+            Assert.That(MajEnv.RuntimeConfig!.List.SelectedDiff, Is.EqualTo(ChartLevel.ReMaster));
+            Assert.That(Sfx("remaster.wav").PlayOneShotCount, Is.EqualTo(1));
 
             yield return PressButton(ButtonZone.A1);
             Assert.That(MajEnv.RuntimeConfig.List.SelectedDiff, Is.EqualTo(ChartLevel.Easy));

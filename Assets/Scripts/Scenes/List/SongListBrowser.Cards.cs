@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Utils;
 using System;
 using System.Collections.Generic;
@@ -289,15 +290,15 @@ namespace MajdataPlay.Scenes.List
             }
             card.Info.text = string.Join("  ·  ", parts);
         }
-        static void AddInteractParts(List<string> parts, MajNetSongInteract interact)
+        static void AddInteractParts(List<string> parts, MajNetChartInteractSummary interact)
         {
             parts.Add($"{"MAJTEXT_LIST_LABEL_PLAYS".i18n()} {interact.Plays.ToString(CultureInfo.InvariantCulture)}");
             parts.Add($"{"MAJTEXT_LIST_LABEL_LIKES".i18n()} {GetLikeCount(interact).ToString(CultureInfo.InvariantCulture)}");
-            parts.Add($"{"MAJTEXT_LIST_LABEL_COMMENTS".i18n()} {(interact.Comments?.Length ?? 0).ToString(CultureInfo.InvariantCulture)}");
+            parts.Add($"{"MAJTEXT_LIST_LABEL_COMMENTS".i18n()} {interact.Comments.ToString(CultureInfo.InvariantCulture)}");
         }
-        static int GetLikeCount(MajNetSongInteract interact)
+        static int GetLikeCount(MajNetChartInteractSummary interact)
         {
-            return (interact.Likes?.Length ?? 0) - interact.DisLikeCount;
+            return interact.Score;
         }
         /// <summary>
         /// 依次读取这一页卡片的时长与 BPM（随难度变化），再取网络谱面的游玩、赞、评论数；翻页、切换分类或难度时取消
@@ -357,7 +358,7 @@ namespace MajdataPlay.Scenes.List
                     var interact = await GetInteractAsync(onlineSong, token);
                     await UniTask.SwitchToMainThread();
                     token.ThrowIfCancellationRequested();
-                    if (interact is MajNetSongInteract value)
+                    if (interact is MajNetChartInteractSummary value)
                     {
                         _interactCache[onlineSong.Hash] = value;
                         RefreshCardInfo(card);
@@ -378,14 +379,14 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         /// <param name="song">The chart.</param>
         /// <param name="token">Cancels the request.</param>
-        /// <param name="forceRefresh">Bypasses the cache of <see cref="Online.GetChartInteractAsync"/>.</param>
+        /// <param name="forceRefresh">Bypasses the cache of <see cref="Online.MaiChart.GetInteractSummaryAsync"/>.</param>
         /// <returns>The interaction data, or <see langword="null"/> when it could not be loaded.</returns>
         /// <exception cref="OperationCanceledException"><paramref name="token"/> was canceled.</exception>
-        static async UniTask<MajNetSongInteract?> GetInteractAsync(OnlineSongDetail song, CancellationToken token, bool forceRefresh = false)
+        static async UniTask<MajNetChartInteractSummary?> GetInteractAsync(OnlineSongDetail song, CancellationToken token, bool forceRefresh = false)
         {
             try
             {
-                return await Online.GetChartInteractAsync(song, token, forceRefresh);
+                return await Online.MaiChart.GetInteractSummaryAsync(song, token, forceRefresh);
             }
             catch (OperationCanceledException)
             {

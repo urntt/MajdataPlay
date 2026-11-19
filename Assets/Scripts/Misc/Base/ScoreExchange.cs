@@ -24,7 +24,23 @@ namespace MajdataPlay
     internal static class ScoreExchange
     {
         const string BACKUP_FORMAT = "MajdataPlay.Scores";
-        const int BACKUP_VERSION = 1;
+        /// <summary>
+        /// 旧备份与旧版成绩文件中谱面 Hash 的键
+        /// </summary>
+        const string LEGACY_HASH_KEY = "Hash";
+        /// <summary>
+        /// 旧备份与旧版成绩文件中难度的键
+        /// </summary>
+        const string LEGACY_LEVEL_KEY = "ChartLevel";
+        /// <summary>
+        /// 旧备份中下落式成绩的谱面 Hash 前缀
+        /// </summary>
+        const string LEGACY_FALLING_PREFIX = "falling:";
+        /// <summary>
+        /// 备份格式版本：2 起每条成绩按难度 Hash（LevelHash）保存，下落式成绩带下落式分区前缀；
+        /// 1 与旧版成绩文件按谱面 Hash（Hash）加难度（ChartLevel）保存，导入时按当前歌曲列表换算成难度 Hash
+        /// </summary>
+        const int BACKUP_VERSION = 2;
 
         /// <summary>
         /// 完成或失败后过这么久回到 Ready，设置里重新显示“按 + …”
@@ -83,7 +99,7 @@ namespace MajdataPlay
             /// 等级的数值，用于排序：“13+”按 13.7 计，无法识别时为 -1
             /// </summary>
             public float LevelValue { get; init; } = -1;
-            public ChartLevel Level => Score.ChartLevel;
+            public required ChartLevel Level { get; init; }
             public bool IsPlayed => Score.PlayCount > 0;
             public string Title => Song?.Title ?? "MAJTEXT_SCORE_UNKNOWN_SONG".i18n();
             public string Artist => Song?.Artist ?? string.Empty;
@@ -177,23 +193,23 @@ namespace MajdataPlay
         /// <summary>
         /// 新结算界面：分享本局成绩（达成率、评级、FC/AP、DX 为本局，游玩次数由调用方填好）
         /// </summary>
-        public static void StartShareResult(ISongDetail song, MaiScore score, ScoreShareFormatOption format)
+        public static void StartShareResult(ISongDetail song, ChartLevel level, MaiScore score, ScoreShareFormatOption format)
         {
             if (ShareState == ScoreActionState.Running)
             {
                 return;
             }
             ShareState = ScoreActionState.Running;
-            ShareResultAsync(song, score, format).Forget();
+            ShareResultAsync(song, level, score, format).Forget();
         }
-        static async UniTaskVoid ShareResultAsync(ISongDetail song, MaiScore score, ScoreShareFormatOption format)
+        static async UniTaskVoid ShareResultAsync(ISongDetail song, ChartLevel level, MaiScore score, ScoreShareFormatOption format)
         {
             try
             {
-                var isFalling = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling;
+                var isFalling = MajEnv.SystemSettings.Falling.PlayStyle == PlayStyleOption.Falling;
                 var entries = new List<ScoreEntry>
                 {
-                    CreateEntry(score, song.Hash, new Dictionary<string, ISongDetail> { [song.Hash] = song })
+                    CreateEntry(score, song, song.Hash, level)
                 };
                 var header = BuildHeader(string.Empty, song.Title);
                 await ShareEntriesAsync(entries, header, format, isFalling);
@@ -281,15 +297,11 @@ namespace MajdataPlay
         {
             try
             {
-                var isFalling = MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling;
-                var score = ScoreManager.FindScore(song.Hash, level, isFalling) ?? new MaiScore()
-                {
-                    Hash = song.Hash,
-                    ChartLevel = level,
-                };
+                var isFalling = MajEnv.SystemSettings.Falling.PlayStyle == PlayStyleOption.Falling;
+                var score = ScoreManager.FindScore(song, level, isFalling) ?? new MaiScore();
                 var entries = new List<ScoreEntry>
                 {
-                    CreateEntry(score, song.Hash, new Dictionary<string, ISongDetail> { [song.Hash] = song })
+                    CreateEntry(score, song, song.Hash, level)
                 };
                 var header = BuildHeader(string.Empty, song.Title);
                 await ShareEntriesAsync(entries, header, format, isFalling);
@@ -421,14 +433,14 @@ namespace MajdataPlay
                 var token = JToken.Parse(json);
                 // 本功能导出的备份是带 scores 的对象，旧版成绩文件是纯列表
                 var scoresToken = token is JObject obj ? obj["scores"] : token;
-                var scores = scoresToken?.ToObject<List<MaiScore>>(JsonSerializer.Create(_jsonSettings));
-                if (scores is null)
+                if (scoresToken is not JArray items)
                 {
                     ImportState = ScoreActionState.Failed;
                     return;
                 }
+                var scores = ReadBackupScores(items, out var skippedCount);
                 var changedCount = await ScoreManager.MergeScoresAsync(scores);
-                MajDebug.LogInfo($"[ScoreExchange] Imported {fileName}: {scores.Count} records, {changedCount} changed");
+                MajDebug.LogInfo($"[ScoreExchange] Imported {fileName}: {scores.Count} records, {changedCount} changed, {skippedCount} without a known chart");
                 ImportState = ScoreActionState.Done;
             }
             catch (Exception e)
@@ -438,13 +450,102 @@ namespace MajdataPlay
                 ImportState = ScoreActionState.Failed;
             }
         }
+        /// <summary>
+        /// Reads the scores of a backup. Scores saved by level hash are taken as they are; scores of older backups and
+        /// score files, saved by chart hash and difficulty, get the level hash of that difficulty in the current song list.
+        /// </summary>
+        /// <param name="items">The score objects of the backup.</param>
+        /// <param name="skippedCount">The number of older scores whose chart is not in the song list or has no level hash.</param>
+        /// <returns>The scores that can be merged, with the falling partition prefix where the backup had it.</returns>
+        /// <exception cref="JsonException">A score object cannot be read.</exception>
+        static List<MaiScore> ReadBackupScores(JArray items, out int skippedCount)
+        {
+            var serializer = JsonSerializer.Create(_jsonSettings);
+            var scores = new List<MaiScore>(items.Count);
+            Dictionary<string, ISongDetail>? songs = null;
+            skippedCount = 0;
+            foreach (var item in items)
+            {
+                if (item is not JObject scoreObject)
+                {
+                    continue;
+                }
+                var levelHash = scoreObject.Value<string>(nameof(MaiScore.LevelHash));
+                if (string.IsNullOrEmpty(levelHash))
+                {
+                    // 旧格式：谱面 Hash（下落式带前缀）加难度，按当前歌曲列表换算成难度 Hash
+                    var legacyHash = scoreObject.Value<string>(LEGACY_HASH_KEY);
+                    if (string.IsNullOrEmpty(legacyHash) || !TryReadLegacyLevel(scoreObject[LEGACY_LEVEL_KEY], out var level))
+                    {
+                        skippedCount++;
+                        continue;
+                    }
+                    var isFalling = legacyHash!.StartsWith(LEGACY_FALLING_PREFIX, StringComparison.Ordinal);
+                    var songHash = isFalling ? legacyHash.Substring(LEGACY_FALLING_PREFIX.Length) : legacyHash;
+                    songs ??= BuildSongLookup();
+                    var currentLevelHash = songs.TryGetValue(songHash, out var song) ? song.GetLevelHash(level) : null;
+                    if (string.IsNullOrEmpty(currentLevelHash))
+                    {
+                        skippedCount++;
+                        continue;
+                    }
+                    levelHash = ScoreManager.GetStoreHash(currentLevelHash!, isFalling);
+                }
+                var score = scoreObject.ToObject<MaiScore>(serializer);
+                if (score is null)
+                {
+                    continue;
+                }
+                scores.Add(new MaiScore
+                {
+                    LevelHash = levelHash!,
+                    Acc = score.Acc,
+                    DXScore = score.DXScore,
+                    TotalDXScore = score.TotalDXScore,
+                    Fast = score.Fast,
+                    Late = score.Late,
+                    PlayCount = score.PlayCount,
+                    JudgeDetail = score.JudgeDetail,
+                    Timestamp = score.Timestamp,
+                    ComboState = score.ComboState,
+                });
+            }
+            return scores;
+        }
+        /// <summary>
+        /// Reads the difficulty of an older backup score, written as a number or as a name.
+        /// </summary>
+        /// <param name="token">The difficulty value, or null when the score has none.</param>
+        /// <param name="level">The difficulty when it could be read.</param>
+        /// <returns>True when the value names a difficulty from Easy to UTAGE; otherwise false.</returns>
+        static bool TryReadLegacyLevel(JToken? token, out ChartLevel level)
+        {
+            level = ChartLevel.Easy;
+            if (token is null)
+            {
+                return false;
+            }
+            if (token.Type == JTokenType.Integer)
+            {
+                var value = token.Value<int>();
+                if (value is < (int)ChartLevel.Easy or > (int)ChartLevel.UTAGE)
+                {
+                    return false;
+                }
+                level = (ChartLevel)value;
+                return true;
+            }
+            return token.Type == JTokenType.String &&
+                   Enum.TryParse(token.Value<string>(), out level) &&
+                   level is >= ChartLevel.Easy and <= ChartLevel.UTAGE;
+        }
         static bool IsFallingStore(ScoreOptions options)
         {
             return options.ScoreStore switch
             {
                 ScoreStoreOption.Standard => false,
                 ScoreStoreOption.Falling => true,
-                _ => MajEnv.Settings.Falling.PlayStyle == PlayStyleOption.Falling,
+                _ => MajEnv.SystemSettings.Falling.PlayStyle == PlayStyleOption.Falling,
             };
         }
         /// <summary>
@@ -458,16 +559,12 @@ namespace MajdataPlay
             if (options.ShareScope == ScoreShareScopeOption.CurrentChart)
             {
                 var listConfig = MajEnv.RuntimeConfig.List;
-                var hash = SongStorage.FindSelectedSong()?.Hash;
-                if (!string.IsNullOrEmpty(hash))
+                var song = SongStorage.FindSelectedSong();
+                if (song is not null && !string.IsNullOrEmpty(song.Hash))
                 {
                     var level = listConfig.SelectedDiff;
-                    var score = ScoreManager.FindScore(hash, level, isFalling) ?? new MaiScore()
-                    {
-                        Hash = hash,
-                        ChartLevel = level,
-                    };
-                    entries.Add(CreateEntry(score, hash, songs));
+                    var score = ScoreManager.FindScore(song, level, isFalling) ?? new MaiScore();
+                    entries.Add(CreateEntry(score, song, song.Hash, level));
                 }
                 return entries;
             }
@@ -475,9 +572,14 @@ namespace MajdataPlay
             {
                 return CollectSelectionEntries(options, isFalling, songs);
             }
+            var levels = BuildLevelLookup();
             foreach (var score in ScoreManager.GetAllScores(isFalling))
             {
-                entries.Add(CreateEntry(score, ScoreManager.GetSongHash(score), songs));
+                // 不在当前歌曲列表里的谱面不知道是哪一首、哪个难度，不分享
+                if (levels.TryGetValue(ScoreManager.GetLevelHash(score), out var chart))
+                {
+                    entries.Add(CreateEntry(score, chart.Song, chart.Song.Hash, chart.Level));
+                }
             }
             entries.Sort(GetComparison(options.ShareSort));
             if (options.ShareScope == ScoreShareScopeOption.Best && entries.Count > options.ShareBestCount)
@@ -501,14 +603,36 @@ namespace MajdataPlay
             }
             return songs;
         }
-        static ScoreEntry CreateEntry(MaiScore score, string songHash, Dictionary<string, ISongDetail> songs)
+        /// <summary>
+        /// Maps the level hash of every difficulty in the song list to its chart and difficulty.
+        /// </summary>
+        /// <returns>The charts and difficulties by level hash; the first chart wins when two share a level hash.</returns>
+        static Dictionary<string, (ISongDetail Song, ChartLevel Level)> BuildLevelLookup()
         {
-            songs.TryGetValue(songHash, out var song);
+            var levels = new Dictionary<string, (ISongDetail Song, ChartLevel Level)>(StringComparer.Ordinal);
+            foreach (var collection in SongStorage.Collections)
+            {
+                foreach (var song in collection)
+                {
+                    for (var level = ChartLevel.Easy; level <= ChartLevel.UTAGE; level++)
+                    {
+                        var levelHash = song.GetLevelHash(level);
+                        if (!string.IsNullOrEmpty(levelHash))
+                        {
+                            levels.TryAdd(levelHash!, (song, level));
+                        }
+                    }
+                }
+            }
+            return levels;
+        }
+        static ScoreEntry CreateEntry(MaiScore score, ISongDetail? song, string songHash, ChartLevel level)
+        {
             var levelText = string.Empty;
             if (song is not null)
             {
                 var levels = song.Levels;
-                var index = (int)score.ChartLevel;
+                var index = (int)level;
                 if (index < levels.Length)
                 {
                     levelText = levels[index] ?? string.Empty;
@@ -519,6 +643,7 @@ namespace MajdataPlay
                 Score = score,
                 SongHash = songHash,
                 Song = song,
+                Level = level,
                 LevelText = levelText,
                 LevelValue = ParseLevel(levelText),
             };
@@ -568,7 +693,7 @@ namespace MajdataPlay
         /// <summary>
         /// 自选谱面：列表式选歌里勾选，保存在 ScoreOptions.ShareSelection（每项为“哈希|难度”，按勾选顺序）
         /// </summary>
-        static List<string> Selection => MajEnv.Settings.Score.ShareSelection ??= new List<string>();
+        static List<string> Selection => MajEnv.SystemSettings.Score.ShareSelection ??= new List<string>();
         static string GetSelectionKey(string hash, ChartLevel level) => $"{hash}|{level}";
         public static int SelectionCount => Selection.Count;
         public static bool IsSelected(string hash, ChartLevel level)
@@ -610,12 +735,9 @@ namespace MajdataPlay
                     continue;
                 }
                 var hash = item.Substring(0, separator);
-                var score = ScoreManager.FindScore(hash, level, isFalling) ?? new MaiScore()
-                {
-                    Hash = hash,
-                    ChartLevel = level,
-                };
-                entries.Add(CreateEntry(score, hash, songs));
+                songs.TryGetValue(hash, out var song);
+                var score = (song is null ? null : ScoreManager.FindScore(song, level, isFalling)) ?? new MaiScore();
+                entries.Add(CreateEntry(score, song, hash, level));
             }
             if (options.ShareCustomSort == ScoreShareCustomSortOption.FollowSort)
             {
@@ -650,7 +772,7 @@ namespace MajdataPlay
         {
             try
             {
-                var options = MajEnv.Settings.Score;
+                var options = MajEnv.SystemSettings.Score;
                 var isFalling = IsFallingStore(options);
                 var entries = CollectSelectionEntries(options, isFalling, BuildSongLookup());
                 if (entries.Count == 0)

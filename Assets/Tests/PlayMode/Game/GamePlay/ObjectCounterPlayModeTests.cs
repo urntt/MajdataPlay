@@ -71,7 +71,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             var services = _objects.Create("Services");
             services.SetActive(false);
             _manager = services.AddComponent<GamePlayManager>();
-            PrivateMember.SetProperty(_manager, nameof(GamePlayManager.ModInfo), new GameModInfo(new ModOptions()));
+            PrivateMember.SetProperty(_manager, nameof(GamePlayManager.ModInfo), new GameModInfo(new ModOptions(), new GameOptions()));
             _slots.Add(new SingletonScope<GamePlayManager>(_manager));
             _slots.Add(new SingletonScope<OutlineLoader>(services.AddComponent<OutlineLoader>()));
             var xxlbSlot = new SingletonScope<XxlbAnimationController>();
@@ -122,6 +122,41 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             Assert.That(_counter.AllFinished, Is.False);
         });
 
+        /// <summary>
+        /// Checks that the slide shapes of MajSimai 3.0 give the note sums of the 2.x model: a slide with a head counts
+        /// one star (a tap, or a break for a break head) plus one slide (a break for a break path), the later slides of a
+        /// same-head group and slides without a head only count their path, and mine or <c>@</c> heads count like taps.
+        /// </summary>
+        /// <returns>The test coroutine.</returns>
+        [UnityTest]
+        public IEnumerator CountNoteSumAsync_SlideShapes_MatchLegacySums() => UniTask.ToCoroutine(async () =>
+        {
+            var cases = new (string Fumen, (int Tap, int Break, int Hold, int Touch, int Slide) Sums)[]
+            {
+                ("(120){4}1-5[8:1],E", (1, 0, 0, 0, 1)),
+                ("(120){4}1-3[8:1]*-5[8:1],E", (1, 0, 0, 0, 2)),
+                ("(120){4}1?-5[8:1],E", (0, 0, 0, 0, 1)),
+                ("(120){4}1!-5[8:1],E", (0, 0, 0, 0, 1)),
+                ("(120){4}1b-5[8:1],E", (0, 1, 0, 0, 1)),
+                ("(120){4}1-5[8:1]b,E", (1, 1, 0, 0, 0)),
+                ("(120){4}1b-3[8:1]*-5[8:1]b,E", (0, 2, 0, 0, 1)),
+                ("(120){4}1-5[8:1]m,E", (1, 0, 0, 0, 1)),
+                ("(120){4}1m-5[8:1],E", (1, 0, 0, 0, 1)),
+                ("(120){4}1@-5[8:1],E", (1, 0, 0, 0, 1)),
+                ("(120){4}1-5[8:1]/2-6[8:1],E", (2, 0, 0, 0, 2)),
+            };
+            foreach (var (fumen, sums) in cases)
+            {
+                CreateCounter();
+
+                await _counter.CountNoteSumAsync(SimaiParser.ParseChart(fumen));
+
+                Assert.That((_counter.TapSum, _counter.BreakSum, _counter.HoldSum, _counter.TouchSum, _counter.SlideSum), Is.EqualTo(sums), fumen);
+                Assert.That(_counter.NoteSum, Is.EqualTo(sums.Tap + sums.Break + sums.Hold + sums.Touch + sums.Slide), fumen);
+                UnityEngine.Object.DestroyImmediate(_counter.gameObject);
+            }
+        });
+
         /// <summary>Checks that Awake registers the counter, reads the rate text and that OnDestroy releases it.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]
@@ -152,7 +187,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             };
             foreach (var (option, judge, timing) in expected)
             {
-                _settings.Settings.Game.TopInfo = option;
+                _settings.UserSettings.Display.TopInfo = option;
                 var rig = CreateCounter();
                 Assert.That(rig.TopJudge.activeSelf, Is.EqualTo(judge), option.ToString());
                 Assert.That(rig.TopTiming.activeSelf, Is.EqualTo(timing), option.ToString());
@@ -182,7 +217,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             };
             foreach (var (option, header, text, color) in expected)
             {
-                _settings.Settings.Game.BGInfo = option;
+                _settings.UserSettings.Display.BGInfo = option;
                 var rig = CreateCounter();
                 Assert.That(rig.CenterHeader.text, Is.EqualTo(header), option.ToString());
                 Assert.That(rig.CenterHeader.color, Is.EqualTo(s_palette[color]), option.ToString());
@@ -200,9 +235,9 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator Awake_HidesUnusedDisplayers()
         {
-            _settings.Settings.Game.BGInfo = BGInfoOption.None;
-            _settings.Settings.Game.SecondaryBGInfo = BGInfoOption.Combo;
-            _settings.Settings.Game.EnableJudgeTimingGauge = true;
+            _settings.UserSettings.Display.BGInfo = BGInfoOption.None;
+            _settings.UserSettings.Display.SecondaryBGInfo = BGInfoOption.Combo;
+            _settings.UserSettings.Judge.EnableJudgeTimingGauge = true;
 
             var rig = CreateCounter();
             yield return null;
@@ -219,8 +254,8 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator Awake_HidesTheGaugeWhenDisabled()
         {
-            _settings.Settings.Game.EnableJudgeTimingGauge = false;
-            _settings.Settings.Game.SecondaryBGInfo = BGInfoOption.Combo;
+            _settings.UserSettings.Judge.EnableJudgeTimingGauge = false;
+            _settings.UserSettings.Display.SecondaryBGInfo = BGInfoOption.Combo;
 
             var rig = CreateCounter();
             yield return null;
@@ -234,7 +269,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator Start_ShowsAutoplayOrLife()
         {
-            PrivateMember.SetProperty(_manager, nameof(GamePlayManager.ModInfo), new GameModInfo(new ModOptions { AutoPlay = AutoplayModeOption.Enable }));
+            PrivateMember.SetProperty(_manager, nameof(GamePlayManager.ModInfo), new GameModInfo(new ModOptions { AutoPlay = AutoplayModeOption.Enable }, new GameOptions()));
             var autoplay = CreateCounter();
             yield return null;
             Assert.That(autoplay.CenterHeader.text, Is.EqualTo("AUTOPLAY"));
@@ -263,9 +298,9 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_ShowsCombos() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.BGInfo = BGInfoOption.Combo;
-            _settings.Settings.Game.SecondaryBGInfo = BGInfoOption.CPCombo;
-            _settings.Settings.Game.SubScreenBGInfo = BGInfoOption.PCombo;
+            _settings.UserSettings.Display.BGInfo = BGInfoOption.Combo;
+            _settings.UserSettings.Display.SecondaryBGInfo = BGInfoOption.CPCombo;
+            _settings.UserSettings.Display.SubScreenBGInfo = BGInfoOption.PCombo;
             var rig = await CreateCountedCounterAsync();
 
             _counter.OnLateUpdate();
@@ -296,7 +331,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             };
             foreach (var (option, text, color) in expected)
             {
-                _settings.Settings.Game.BGInfo = option;
+                _settings.UserSettings.Display.BGInfo = option;
                 var rig = await CreateCountedCounterAsync();
                 Report(_tap, JudgeGrade.Perfect, 0f);
 
@@ -313,8 +348,8 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_ShowsDxScores() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.BGInfo = BGInfoOption.DXScore;
-            _settings.Settings.Game.SecondaryBGInfo = BGInfoOption.DXScoreRank;
+            _settings.UserSettings.Display.BGInfo = BGInfoOption.DXScore;
+            _settings.UserSettings.Display.SecondaryBGInfo = BGInfoOption.DXScoreRank;
             var rig = await CreateCountedCounterAsync();
 
             Report(_tap, JudgeGrade.LateGreat, 50f);
@@ -349,7 +384,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
             };
             foreach (var (option, text) in expected)
             {
-                _settings.Settings.Game.BGInfo = option;
+                _settings.UserSettings.Display.BGInfo = option;
                 var rig = await CreateCountedCounterAsync();
                 Report(_tap, JudgeGrade.Perfect, 0f);
 
@@ -359,7 +394,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
                 UnityEngine.Object.DestroyImmediate(_counter.gameObject);
             }
 
-            _settings.Settings.Game.BGInfo = BGInfoOption.SSS_Border;
+            _settings.UserSettings.Display.BGInfo = BGInfoOption.SSS_Border;
             var missed = await CreateCountedCounterAsync();
             Report(_tap, JudgeGrade.Miss, 0f);
             _counter.OnLateUpdate();
@@ -371,7 +406,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_ShowsTheLastDifference() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.BGInfo = BGInfoOption.Diff;
+            _settings.UserSettings.Display.BGInfo = BGInfoOption.Diff;
             var rig = await CreateCountedCounterAsync();
             _settings.SetDeltaTime(0.5f);
 
@@ -397,8 +432,8 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_ShowsJudgeCounts() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.TopInfo = TopInfoDisplayOption.Judge;
-            _settings.Settings.Display.FastLateType = JudgeDisplayOption.All;
+            _settings.UserSettings.Display.TopInfo = TopInfoDisplayOption.Judge;
+            _settings.UserSettings.Judge.FastLateType = JudgeDisplayOption.All;
             var rig = await CreateCountedCounterAsync();
 
             Report(_tap, JudgeGrade.Perfect, -1f);
@@ -426,8 +461,8 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_ShowsTimingTopInfo() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.TopInfo = TopInfoDisplayOption.Timing;
-            _settings.Settings.Display.FastLateType = JudgeDisplayOption.All;
+            _settings.UserSettings.Display.TopInfo = TopInfoDisplayOption.Timing;
+            _settings.UserSettings.Judge.FastLateType = JudgeDisplayOption.All;
             var rig = await CreateCountedCounterAsync();
 
             _counter.OnLateUpdate();
@@ -445,7 +480,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator OnLateUpdate_LeavesZeroTopCountsEmpty() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.TopInfo = TopInfoDisplayOption.Judge;
+            _settings.UserSettings.Display.TopInfo = TopInfoDisplayOption.Judge;
             var rig = await CreateCountedCounterAsync();
 
             _counter.OnLateUpdate();
@@ -482,7 +517,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator JudgeTimingGauge_TracksRecentDifferences() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.EnableJudgeTimingGauge = true;
+            _settings.UserSettings.Judge.EnableJudgeTimingGauge = true;
             var rig = await CreateCountedCounterAsync();
 
             Report(_tap, JudgeGrade.FastGreat, 30f);
@@ -513,7 +548,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator CaptureDebugInfo_ReportsTheGaugeAverageOfTheCursor() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.EnableJudgeTimingGauge = true;
+            _settings.UserSettings.Judge.EnableJudgeTimingGauge = true;
             var rig = await CreateCountedCounterAsync();
 
             Report(_tap, JudgeGrade.FastGreat, 30f);
@@ -534,7 +569,7 @@ namespace MajdataPlay.Tests.Game.GamePlay.PlayMode
         [UnityTest]
         public IEnumerator JudgeTimingGauge_CursorIsFiniteBeforeAnyJudgement() => UniTask.ToCoroutine(async () =>
         {
-            _settings.Settings.Game.EnableJudgeTimingGauge = true;
+            _settings.UserSettings.Judge.EnableJudgeTimingGauge = true;
             var rig = await CreateCountedCounterAsync();
 
             _counter.OnLateUpdate();

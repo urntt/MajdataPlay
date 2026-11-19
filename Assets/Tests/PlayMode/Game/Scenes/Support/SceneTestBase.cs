@@ -57,14 +57,17 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.Support
             _sfx.Clear();
             Audio = null;
 
-            var settings = MajEnv.Settings;
+            var userSettings = MajEnv.UserSettings;
+            var systemSettings = MajEnv.SystemSettings;
             var runtimeConfig = MajEnv.RuntimeConfig;
             var assetsDirectory = MajEnv.AssetsDirectory;
-            PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.Settings), new GameSetting());
+            PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.UserSettings), new UserSetting());
+            PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.SystemSettings), new SystemSetting());
             PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.RuntimeConfig), new RuntimeConfig());
             _restoreActions.Add(() =>
             {
-                PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.Settings), settings);
+                PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.UserSettings), userSettings);
+                PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.SystemSettings), systemSettings);
                 PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.RuntimeConfig), runtimeConfig);
                 PrivateMember.SetStaticProperty(typeof(MajEnv), nameof(MajEnv.AssetsDirectory), assetsDirectory);
             });
@@ -131,10 +134,10 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.Support
             var collections = SongStorage.Collections;
             _restoreActions.Add(() => PrivateMember.SetStaticProperty(typeof(SongStorage), nameof(SongStorage.Collections), collections));
 
-            SnapshotDictionaryKeys(typeof(ScoreManager), "_buckets");
+            SnapshotDictionaryKeys(typeof(ScoreManager), "s_buckets");
             SnapshotDictionaryKeys(typeof(ChartSettingStorage), "_storage");
-            var onlineBuckets = PrivateMember.GetStaticField<object?>(typeof(ScoreManager), "_onlineBuckets");
-            _restoreActions.Add(() => PrivateMember.SetStaticField(typeof(ScoreManager), "_onlineBuckets", onlineBuckets));
+            var onlineBuckets = PrivateMember.GetStaticField<object?>(typeof(ScoreManager), "s_onlineBuckets");
+            _restoreActions.Add(() => PrivateMember.SetStaticField(typeof(ScoreManager), "s_onlineBuckets", onlineBuckets));
 
             SnapshotSingleton<GameManager>();
             SnapshotSingleton<SkinManager>();

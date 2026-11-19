@@ -54,7 +54,7 @@ namespace MajdataPlay.Scenes.Game.Lane
         /// </summary>
         public static bool IsLaneHighlightEnabled { get; private set; } = false;
 
-        public static void Enable(GameSetting settings)
+        public static void Enable(SystemSetting settings)
         {
             var falling = settings.Falling;
             var mod = settings.Mod;

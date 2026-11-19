@@ -45,7 +45,7 @@ To turn it on: Settings → Falling → Play Style, choose "Falling".
 
 #### Falling settings (Settings → Falling)
 
-The falling-mode settings are in their own **Falling** category and are saved with your settings, so nothing resets when the game restarts. Their descriptions no longer start with "Falling only", but they still only apply in falling mode. Settings from older versions carry over automatically.
+The falling-mode settings are in their own **Falling** category and are saved with the system settings on this device (system-settings.json, not synced with your online account), so nothing resets when the game restarts. Their descriptions no longer start with "Falling only", but they still only apply in falling mode. Settings from older versions carry over automatically.
 
 | Setting | Description |
 |---|---|
@@ -80,16 +80,16 @@ Break to Flick, Slide Tail to Flick and Touch to Tap have moved to the **Mod** c
 
 ### Landscape mode
 
-Settings → Display Settings → Screen Orientation, choose "Landscape". Every page is shown in landscape: the main screen is centered, the sub screen is shrunk into the top left corner, and the rest is covered.
+Settings → Rendering Settings → Screen Orientation, choose "Landscape". Every page is shown in landscape: the main screen is centered, the sub screen is shrunk into the top left corner, and the rest is covered.
 
 ### Scores
 
-Scores are shared from the share button on the touch song list (see below). Settings → Backup holds the backups:
+Scores are shared from the share button on the touch song list (see below). Like the original game, scores are stored by the content hash of each difficulty; falling-mode scores of older versions move along when the song list is loaded. Settings → Backup holds the backups:
 
 | Setting | Description |
 |---|---|
 | Export Backup | Exports every standard and falling score to the `ScoreBackups` folder (Files app on iOS, `Documents/MajdataPlay/ScoreBackups` on Android). Export Backup and Import Backup show "Done" or "Failed" for a few seconds, then return to "Press +". |
-| Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept. Older score JSON files are accepted too. |
+| Backup File / Import Backup | Pick a file in `ScoreBackups` and import it. Scores are merged: for each chart the better achievement, DX score and FC/AP are kept, the newer play keeps its details, and the larger play count is kept. Backups store each score by the content hash of its difficulty. Backups from older versions and older score JSON files store the chart hash and difficulty instead; they are matched to the charts in your song list when imported, and scores of charts that are not there are skipped. |
 
 The share dialog has these options, saved with your settings (also when you cancel):
 
@@ -104,7 +104,7 @@ The share dialog has these options, saved with your settings (also when you canc
 
 ### Other
 
-- **Touch interface**: Settings → Display Settings → Interface Style, choose "Touch" (default is "Standard", the original song select with its cover carousel). A touch-friendly song list:
+- **Touch interface**: Settings → General Settings → Interface Style, choose "Touch" (default is "Standard", the original song select with its cover carousel). A touch-friendly song list:
   - Categories take the left quarter of the screen; on the right, one song card per row with the cover, title (scrolls when too long), artist and charter, length and BPM (plus plays, likes and comments for online charts; length and BPM show for online charts already downloaded, from playing or opening their details, because each download counts as a play on the server; a song without the global difficulty uses its highest one), difficulty tags with full names and each difficulty's achievement underneath, a heart to favorite, and the best score with a colored grade, FC/AP, DX score and "X PC · last played".
   - The top bar reads "Cover  −  difficulty  +  Settings" on the left, with your nickname and avatar on the right ("Guest" when not logged in). "−" / "+" switch the global difficulty without losing your scroll position; a draggable scrollbar on the right. Difficulty and pages wrap around at either end.
   - At the bottom, a floating pager sits between a magnifier and a share button. Tap the magnifier to expand a search bar (the keyboard opens); search with the keyboard's return key or by tapping the magnifier again, which also folds the bar back; "×" clears the search. While a search filters the list, the folded magnifier turns blue. While the on-screen keyboard is up, the whole floating row moves above it (or to the top of the list when there is no room), and the system input bar is hidden.
@@ -122,8 +122,9 @@ The share dialog has these options, saved with your settings (also when you canc
   - **Settings**: categories on the left (chart settings first, with the current song's title), one card per option on the right with its name, the full description and the value between "−" and "+" (hold to repeat). "Calibrate" and "Done" at the top right. Cabinet buttons still work: A2/A7 switch categories, A3/A6 select options, the touch sensors change values, A4/A5 leave and A1 opens calibration. Tap the "Render Quality" card 10 times (or press A8 10 times on it) to unlock custom rendering.
   - **Result**: your nickname and avatar at the top right; rounded cover with a favorite heart, difficulty, title, artist and charter; an upload button for online charts; the achievement rolls up next to its grade and FC/AP, compared with your previous best; DX score with stars; a judgement table per note type (TAP, HOLD, SLIDE, TOUCH, BREAK and total); FAST/LATE, average offset and the timing distribution. Icon buttons (120 units, at most 12% of the screen height, as far from the bottom of the screen as from the right edge) at the bottom right, from left to right: Feedback (speech bubble, only for charts you can rate; opens the original feedback panel to like, dislike or comment), Share (shares this play as image, text, CSV or JSON), Play Again (↻) and Continue (→). Continue, Play Again and Feedback stay faded until the score is saved. On the first play of a chart you can rate, Continue opens the feedback panel first, like the original screen. Play Again plays the same chart again with the loading screen of the song list; after that play, Continue still brings you back to the detail page you started from. The difficulty tag is as wide as the cover. "Classic view" switches back to the original result screen for this result. Dan and practice keep the original screen.
   - "Cover" switches back to the carousel for this visit.
-- **Instant Song Preview**: Settings → Display Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
-- **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with your settings and don't reset when the game restarts.
+- **Instant Song Preview**: Settings → General Settings, off by default. When on, switching songs on the song list plays the new preview right away instead of returning to the background music in between.
+- **Save Mod Settings**: Settings → Debug. When on, Mod settings are saved with the system settings and don't reset when the game restarts.
+- **Where the fork's settings are stored**: the Falling, Backup and saved Mod settings, Interface Style, Songs per List Page, Instant Song Preview and Screen Orientation are stored in system-settings.json on this device only. They are not synced with your online account, so playing the official version with the same account cannot reset them. Settings from older versions of this fork move there automatically.
 - **App icon**: now wears a pink U-shaped hairclip.
 - **Packaging**
   - `Tools/iOS/build_unsigned_ipa.sh` builds an unsigned ipa on a Mac with one command.
@@ -136,7 +137,7 @@ The share dialog has these options, saved with your settings (also when you canc
 ## Supported platforms
 
 - Windows
-- [Linux](https://github.com/LingFeng-bbben/MajdataPlay/wiki/%E5%B9%B3%E5%8F%B0%E7%9B%B8%E5%85%B3#linux) (Partially Supported)
+- [Linux](https://docs.majdata.net/en/majdataplay/install#linux) (Partially Supported)
 - macOS
 - Android
 - iOS
@@ -144,126 +145,17 @@ The share dialog has these options, saved with your settings (also when you canc
 > [!Note]
 > On macOS, only the DAO device is tested and fully supported. Other devices are untested.
 
-## Install
+## Installation
 
-# !DOWNLOAD NOW
+See the [installation guide](https://docs.majdata.net/en/majdataplay/install) for stable and nightly builds, supported platforms and setup instructions.
 
-## !DOWNLOAD NOW
+## Documentation
 
-### !DOWNLOAD NOW
+The [Majdata documentation](https://docs.majdata.net) covers installation, configuration, charts, skins, recording, online services, judgment details and development guides.
 
-#### !DOWNLOAD NOW
+## Development
 
-##### !DOWNLOAD NOW
-
-[<img src="Doc/googleplay.svg" height="60">](https://play.google.com/store/apps/details?id=net.majdata.majdataplay) [<img src="Doc/appstore.svg" height="60">](https://testflight.apple.com/join/PwxCNk5n)
-
-## Getting Started
-
-> [!WARNING]
-> This repository contains a Unity project, not a standard C#/.NET project.
->
-> Do not open or build it using dotnet, Visual Studio solution files, or other .NET build tools.
->
-> The project must be opened using the Unity Editor.
-
-### Requirements
-
-- Unity Editor (version specified in ProjectSettings/ProjectVersion.txt), with Android Build Support (SDK API 36 and OpenJDK) for Java-wrapper generation, including desktop Editor imports
-
-- .NET 9 SDK for the independent Android Java wrapper CLI (not for building the Unity project)
-
-- git
-
-- Unity Hub
-
-### Clone the Repository
-
-Clone the project using Git:
-
-```bash
-git clone https://github.com/LingFeng-bbben/MajdataPlay.git MajdataPlay
-cd MajdataPlay
-```
-
-### Initialize Submodules
-
-This project uses Git submodules. After cloning, run:
-
-```bash
-git submodule update --init --recursive
-```
-
-If you already cloned the repository without submodules, you can also run:
-
-```bash
-git submodule sync
-git submodule update --init --recursive
-```
-
-### Install the Required Unity Version
-
-This project must be opened with the Unity version specified in:
-
-```text
-ProjectSettings/ProjectVersion.txt
-```
-
-Example:
-
-```text
-m_EditorVersion: 6000.3.17f1
-```
-
-Install this version using Unity Hub.
-
-### Generate the Android Java Bindings
-
-The storage backend uses a locally compiled Android Java wrapper DLL.
-Generate them with the independent CLI before the first Unity import:
-
-```powershell
-Push-Location Tools/CSharp/AndroidJavaWrapperGenerator
-dotnet run --project AndroidJavaWrapperGenerator.csproj -- --project ../../.. --unity-data "C:/Program Files/Unity Editors/6000.3.17f1/Editor/Data" --no-docs
-Pop-Location
-```
-
-This builds the independent generator and `Tools/AndroidJavaWrapper` library;
-Unity-generated projects are built only by Unity.
-Pass another `--unity-data` directory for a different installation and `--sdk`
-for a separately configured Android SDK. Fresh checkouts and CI need the same
-binding generation step. Sources are generated into `Tools/AndroidJavaWrapper/src`,
-alongside tracked `.e.cs` partial extensions. The standalone project compiles
-`MajdataPlay.Platform.Android.Runtime.dll` and installs it into
-`Assets/Plugins/MajdataPlay/Platform/Android` only after successful compilation.
-The project no longer requires the legacy Roslyn analyzer.
-
-The Editor command **Tools > MajdataPlay > Android > Regenerate Java wrappers**
-uses the independent `Tools/CSharp/AndroidJavaWrapperGenerator` CLI to generate
-the complete SDK/BCL plus Java inputs from `Assets/Plugins/Android` and the current
-Unity Android player. It runs in the background with official documentation and
-compiles and installs the wrapper DLL. Helpers use
-`MajdataPlay.Platform.Android.Runtime`; bindings use its `Bindings` namespace.
-Automatic Java asset refreshes reuse cached pages and fetch missing documentation. See
-`Assets/Plugins/MajdataPlay/Platform/Android/README.md` for output ownership,
-cancellation and setup. See `Tools/AndroidJavaWrapper/README.md` for partial
-extensions and rebuilding the DLL without regenerating Java bindings.
-
-### Open the Project in Unity Hub
-
-1. Open Unity Hub
-
-2. Click Add Project
-
-3. Select the cloned project folder
-
-4. Ensure the correct Unity version is selected
-
-5. Open the project
-
-## Guidance
-
-[Docs](https://docs.majdata.net) | [WIKI](https://github.com/LingFeng-bbben/MajdataPlay/wiki)
+MajdataPlay is a Unity project. Do not open or build it with dotnet, Visual Studio solution files, or other .NET build tools. See the [build guide](https://docs.majdata.net/en/majdataplay/development/build) for the required Unity version, Git submodules and platform build steps.
 
 ## Releases
 

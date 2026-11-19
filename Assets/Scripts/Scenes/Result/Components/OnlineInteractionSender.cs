@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using MajdataPlay.IO;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Scenes.Result.Components.Indicators;
 using Nito.AsyncEx;
 using System.Net;
@@ -18,7 +19,7 @@ namespace MajdataPlay.Scenes.Result.Components
         ScoreUploadIndicator _scoreUploadIndicator;
 
         OnlineSongDetail? _onlineDetail;
-        MaiScore? _score;
+        OnlineMaiScore? _score;
 
         bool _isLocalOrGuest = false;
         bool _isInited = false;
@@ -37,14 +38,17 @@ namespace MajdataPlay.Scenes.Result.Components
         /// </summary>
         internal void RequestUpload()
         {
-            if (!CanInteract || _isScorePosted || MajInstances.GameManager.Settings.IsAnyModActive())
+            if (!CanInteract || _isScorePosted || MajInstances.GameManager.SystemSettings.IsAnyModActive())
             {
                 return;
             }
             _ = SendScoreAsync();
         }
 
-        public void Init(ISongDetail song, MaiScore score)
+        /// <summary>Prepares one online score for manual submission within this component's lifetime.</summary>
+        /// <param name="song">The chart that was played.</param>
+        /// <param name="score">The online submission, or null for a local chart.</param>
+        public void Init(ISongDetail song, OnlineMaiScore? score)
         {
             if (song is not OnlineSongDetail onlineDetail)
             {
@@ -68,7 +72,7 @@ namespace MajdataPlay.Scenes.Result.Components
             {
                 return;
             }
-            if (!_isScorePosted && !MajInstances.GameManager.Settings.IsAnyModActive() && 
+            if (!_isScorePosted && !MajInstances.GameManager.SystemSettings.IsAnyModActive() && 
                 (InputManager.IsSensorPressedInThisFrame(SensorArea.D4) ||
                 InputManager.IsSensorPressedInThisFrame(SensorArea.A3))
                 )
@@ -87,7 +91,7 @@ namespace MajdataPlay.Scenes.Result.Components
             {
                 return;
             }
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(token, _cts.Token);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, _cts.Token);
             token = cts.Token;
             await using (UniTask.ReturnToCurrentSynchronizationContext())
             {
@@ -101,7 +105,7 @@ namespace MajdataPlay.Scenes.Result.Components
                     _scoreUploadIndicator.SetUploading();
                     _scoreUploadIndicator.SetText("MAJTEXT_SCORE_SENDING".i18n());
                     await UniTask.SwitchToThreadPool();
-                    var rsp = await Online.PostScoreAsync(_onlineDetail, _score, token);
+                    var rsp = await Online.MaiChart.PostScoreAsync(_onlineDetail, _score, token);
                     await UniTask.SwitchToMainThread();
 
                     if (rsp.IsSuccessfully)

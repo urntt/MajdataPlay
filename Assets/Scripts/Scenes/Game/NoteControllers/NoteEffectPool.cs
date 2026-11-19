@@ -163,7 +163,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     obj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 1f);
                 }
                 var displayer = obj.GetComponent<TapEffectDisplayer>();
-                displayer.DistanceRatio = MajEnv.Settings.Display.OuterJudgeDistance;
+                displayer.DistanceRatio = MajEnv.UserSettings.Judge.OuterJudgeDistance;
                 if (_isLaneMode)
                 {
                     PlaceInLane(obj.transform, displayer, LaneLayout.GetJudgePosition(i + 1));
@@ -180,7 +180,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                     if (_gpManager != null && _gpManager.IsClassicMode)
                         ringObj.transform.GetChild(0).localScale = new Vector3(1.4f, 1.4f, 1f);
                     var ringDisplayer = ringObj.GetComponent<TapEffectDisplayer>();
-                    ringDisplayer.DistanceRatio = MajEnv.Settings.Display.OuterJudgeDistance;
+                    ringDisplayer.DistanceRatio = MajEnv.UserSettings.Judge.OuterJudgeDistance;
                     ringDisplayer.ResetAll();
                     _ringTapJudgeEffects[i] = ringDisplayer;
                     generatedTapEffectDisplayers.Add(ringDisplayer);
@@ -195,7 +195,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 var sensorPos = (SensorArea)i;
                 var obj = Instantiate(_touchEffectPrefab, touchParent);
                 var displayer = obj.GetComponent<TouchEffectDisplayer>();
-                displayer.DistanceRatio = MajEnv.Settings.Display.InnerJudgeDistance;
+                displayer.DistanceRatio = MajEnv.UserSettings.Judge.InnerJudgeDistance;
                 obj.name = $"TouchEffect_{sensorPos}";
                 displayer.SensorPos = sensorPos;
                 displayer.ResetAll();
@@ -240,7 +240,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
                 var rotation = NoteHelper.GetTouchRoation(NoteHelper.GetTouchAreaPosition(sensorPos), sensorPos);
                 var displayer4Hold = obj4Hold.GetComponent<TouchHoldEffectDisplayer>();
                 obj4Hold.transform.rotation = rotation;
-                displayer4Hold.DistanceRatio = MajEnv.Settings.Display.InnerJudgeDistance;
+                displayer4Hold.DistanceRatio = MajEnv.UserSettings.Judge.InnerJudgeDistance;
                 displayer4Hold.LocalPosition = position2;
                 if (_isLaneMode)
                 {

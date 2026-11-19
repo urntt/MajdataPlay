@@ -7,6 +7,7 @@ using MajdataPlay.Net;
 using MajdataPlay.Scenes.Game;
 using MajdataPlay.Settings;
 using MajdataPlay.Settings.Runtime;
+using MajdataPlay.Settings.Sync;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -97,7 +98,7 @@ namespace MajdataPlay.Scenes.List
             {
                 MajDebug.LogError("[ListManager] [Awake] " + ex.Message);
             }
-            _isOnlineEnabled = MajEnv.Settings.Online.Enable;
+            _isOnlineEnabled = MajEnv.SystemSettings.Network.Online.Enable;
 
 
             _favoriteAdder.PressToAddTime = 0.5f;
@@ -112,7 +113,7 @@ namespace MajdataPlay.Scenes.List
             _coverListManager = Majdata<CoverListManager>.Instance!;
             _collectionListManager = Majdata<CollectionListManager>.Instance!;
             // 列表式选歌：先标记为打开，封面轮播初始化时不播放预览，初始化完成后再创建界面
-            SongListBrowser.IsOpen = MajEnv.Settings.Display.ListStyle == ListStyleOption.List;
+            SongListBrowser.IsOpen = MajEnv.SystemSettings.Common.ListStyle == ListStyleOption.List;
             InitializeCoverListAsync().Forget();
             var selectsfx = MajInstances.AudioManager.GetSFX("bgm_select.mp3");
             if (!selectsfx.IsPlaying)
@@ -691,11 +692,13 @@ namespace MajdataPlay.Scenes.List
             }
             await UniTask.Delay(100);
             sceneSwitcher.SetLoadingText("MAJTEXT_LOGGING_OUT".i18n() + "...");
-            var task = Online.LogoutAllAsync();
+            var task = Online.Account.LogoutAllAsync();
             while (!task.IsCompleted)
             {
                 await UniTask.Yield();
             }
+            // Leaving the account brings back the local settings the account copy replaced.
+            await UserSettingSync.DetachAsync();
             sceneSwitcher.SetLoadingText(string.Empty);
             await UniTask.Delay(1000);
             sceneSwitcher.SwitchScene("Login");

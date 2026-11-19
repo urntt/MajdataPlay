@@ -313,7 +313,7 @@ namespace MajdataPlay.Scenes.Game.Lane
 
             // 右上：分数（副屏信息；跟随显示设置时内容由“副屏信息显示”决定，否则为从 0% 往上涨的达成率）
             // 与左上的暂停键对称：同样的边距，竖直方向与暂停键居中对齐
-            var fallingOptions = MajEnv.Settings.Falling;
+            var fallingOptions = MajEnv.SystemSettings.Falling;
             var score = objectCounter.SubScreenInfoDisplayerText;
             var scoreRect = score.rectTransform;
             scoreRect.SetParent(_hudArea, false);

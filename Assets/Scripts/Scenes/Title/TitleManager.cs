@@ -169,6 +169,9 @@ namespace MajdataPlay.Scenes.Title
             await ScanObjectStoreAsync(cancellationToken);
             await SongStorage.InitAsync(cancellationToken);
             await SongStorage.RefreshLocal(progress, cancellationToken);
+            await ScoreManager.MigrateLegacyScoresAsync(
+                SongStorage.Collections.SelectMany(collection => collection.GetOriginSnapshot()).Where(song => !song.IsOnline),
+                cancellationToken);
         }
 
         /// <summary>Indexes the stored online objects, so cached charts can be listed offline, and deletes the objects nothing references any more.</summary>
@@ -354,7 +357,7 @@ namespace MajdataPlay.Scenes.Title
             _flag = false;
             MajInstances.AudioManager.StopSFX("bgm_title.mp3");
             MajInstances.AudioManager.StopSFX("MajdataPlay.wav");
-            if (MajEnv.Settings.Online.Enable)
+            if (MajEnv.SystemSettings.Network.Online.Enable)
             {
                 MajInstances.SceneSwitcher.SwitchScene("Login", false);
             }

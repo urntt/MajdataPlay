@@ -9,9 +9,11 @@ using MajdataPlay.Settings.Runtime;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Serialization;
+#nullable enable
 
 namespace MajdataPlay.Scenes.Setting
 {
@@ -19,31 +21,57 @@ namespace MajdataPlay.Scenes.Setting
     {
         private const float MenuTitleVisibleDistance = 3.5f;
 
-        // Metadata survives scene changes, but never retains a GameSetting/ChartSetting instance.
+        // Metadata survives scene changes, but never retains a setting or ChartSetting instance.
         private static readonly Dictionary<Type, MenuMetadata[]> s_menuMetadataCache = new();
 
         public int Index { get; private set; } = 0;
-        public GameSetting Setting => MajEnv.Settings;
+        /// <summary>
+        /// Gets the user and system settings edited by the menus, which menu conditions are evaluated against.
+        /// </summary>
+        /// <remarks>
+        /// The roots are read from <see cref="MajEnv"/> on every access, so replaced settings instances are followed;
+        /// the holder is only recreated when one of them changed.
+        /// </remarks>
+        public SettingRoot Setting
+        {
+            get
+            {
+                var user = MajEnv.UserSettings;
+                var system = MajEnv.SystemSettings;
+                if (_setting is null || !ReferenceEquals(_setting.User, user) || !ReferenceEquals(_setting.System, system))
+                {
+                    _setting = new SettingRoot(user, system);
+                }
+                return _setting;
+            }
+        }
+
+        private SettingRoot? _setting;
 
         [SerializeField]
         [FormerlySerializedAs("menuPrefab")]
-        private GameObject _menuPrefab;
+        private GameObject _menuPrefab = null!;
 
         [SerializeField]
         [FormerlySerializedAs("menuTitleDisplayerPrefab")]
-        private MenuTitleDisplayer _menuTitleDisplayerPrefab;
+        private MenuTitleDisplayer _menuTitleDisplayerPrefab = null!;
 
         [SerializeField]
         [FormerlySerializedAs("menuListRoot")]
-        private GameObject _menuListRoot;
+        private GameObject _menuListRoot = null!;
 
         [SerializeField]
         [FormerlySerializedAs("menuTitleDisplayerListRoot")]
-        private GameObject _menuTitleDisplayerListRoot;
+        private GameObject _menuTitleDisplayerListRoot = null!;
+
+        /// <summary>Fades only the independent category navigation arrows while the title strip moves.</summary>
+        [SerializeField]
+        [FormerlySerializedAs("NavigationArrows")]
+        private CanvasGroup? _navigationArrows;
 
         [SerializeField]
         [FormerlySerializedAs("descriptionText")]
-        private TextMeshProUGUI _descriptionTextDisplayer;
+        private TextMeshProUGUI _descriptionTextDisplayer = null!;
 
         private Menu[] _menus = Array.Empty<Menu>();
         // Whether each menu is listed; its title cursor counts listed menus only.
@@ -60,8 +88,9 @@ namespace MajdataPlay.Scenes.Setting
 
         private bool _isExited = false;
         private bool _isInited = false;
+        /// <summary>Cancels pending menu initialization when the component is disabled or destroyed.</summary>
+        private CancellationTokenSource? _initializationCancellationSource;
         private OffsetUnitOption _lastOffsetUnit;
-        private InputRepeatState _categoryInput;
         private InputRepeatState _optionInput;
         private bool _advancedInputHeld;
 
@@ -78,13 +107,11 @@ namespace MajdataPlay.Scenes.Setting
         private void Awake()
         {
             InputManager.TouchButtonRingEdge = 4.8f;
-            _lastOffsetUnit = Setting.Debug.OffsetUnit;
-            EnsureNestedCanvas(_menuTitleDisplayerListRoot);
-            EnsureNestedCanvas(_descriptionTextDisplayer.gameObject);
+            _lastOffsetUnit = Setting.User.Judge.OffsetUnit;
         }
         private void Start()
         {
-            var categories = GetMenuMetadata(Setting.GetType());
+            var categories = GetMenuMetadata(typeof(SettingRoot));
             var offset = 0;
             var listRoot = _menuListRoot.transform;
             var selectedSong = _settingConfig.IgnoreChartSettingPage ? null : SongStorage.FindSelectedSong();
@@ -146,12 +173,12 @@ namespace MajdataPlay.Scenes.Setting
             UpdateMenuTitleDisplayerPosition();
             InitializeCurrentMenu().Forget();
             // 列表式选歌时使用新的设置界面（盖在原界面上，原界面停止渲染和响应输入）
-            if (MajEnv.Settings.Display.ListStyle == ListStyleOption.List)
+            if (MajEnv.SystemSettings.Common.ListStyle == ListStyleOption.List)
             {
                 SettingBrowser.Create(this, Index);
             }
         }
-        private void OnLanguageChanged(object sender, Language language)
+        private void OnLanguageChanged(object? sender, Language language)
         {
             // Complete glyph/feature discovery before TMP reaches Canvas PreRender.
             WarmupTextFonts();
@@ -184,47 +211,44 @@ namespace MajdataPlay.Scenes.Setting
                 return cached;
             }
 
-            var properties = SettingReflectionCache.GetVisibleProperties(settingType);
-            var categories = new MenuMetadata[properties.Length];
-            for (var i = 0; i < properties.Length; i++)
+            // The menus are the categories of every setting root, user settings first.
+            var categories = new List<MenuMetadata>();
+            foreach (var rootProperty in SettingReflectionCache.GetVisibleProperties(settingType))
             {
-                var property = properties[i];
-                var valueProperty = property.Name == nameof(GameSetting.Audio)
-                    ? SettingReflectionCache.GetProperty(property.PropertyType, "Volume")
-                    : property;
-                categories[i] = new MenuMetadata(property, valueProperty);
-                SettingReflectionCache.GetVisibleProperties(valueProperty.PropertyType);
+                foreach (var categoryProperty in SettingReflectionCache.GetVisibleProperties(rootProperty.PropertyType))
+                {
+                    categories.Add(new MenuMetadata(rootProperty, categoryProperty));
+                    SettingReflectionCache.GetVisibleProperties(categoryProperty.PropertyType);
+                }
             }
             // Include chart options even if the first visit has no selected chart.
             SettingReflectionCache.GetVisibleProperties(typeof(ChartSetting));
-            s_menuMetadataCache.Add(settingType, categories);
-            return categories;
+            var result = categories.ToArray();
+            s_menuMetadataCache.Add(settingType, result);
+            return result;
         }
 
         private sealed class MenuMetadata
         {
+            private readonly PropertyInfo _rootProperty;
             private readonly PropertyInfo _categoryProperty;
-            private readonly PropertyInfo _valueProperty;
-            internal string Name => _valueProperty.Name;
-            // The translation attributes live on the root category property; {0} is the displayed menu name.
+            internal string Name => _categoryProperty.Name;
+            // The translation attributes live on the category property; {0} is the displayed menu name.
             internal SettingTranslation TitleTranslation { get; }
-            // Like the translation attributes, the visibility conditions live on the root category property.
+            // Like the translation attributes, the visibility conditions live on the category property.
             internal SettingVisibility Visibility { get; }
 
-            internal MenuMetadata(PropertyInfo categoryProperty, PropertyInfo valueProperty)
+            internal MenuMetadata(PropertyInfo rootProperty, PropertyInfo categoryProperty)
             {
+                _rootProperty = rootProperty;
                 _categoryProperty = categoryProperty;
-                _valueProperty = valueProperty;
-                TitleTranslation = SettingReflectionCache.GetMenuTranslation(categoryProperty, valueProperty.Name);
+                TitleTranslation = SettingReflectionCache.GetMenuTranslation(categoryProperty, categoryProperty.Name);
                 Visibility = SettingReflectionCache.GetVisibility(categoryProperty);
             }
 
-            internal object GetInstance(GameSetting setting)
+            internal object GetInstance(SettingRoot setting)
             {
-                var root = _categoryProperty == _valueProperty
-                    ? (object)setting
-                    : _categoryProperty.GetValue(setting);
-                return _valueProperty.GetValue(root);
+                return _categoryProperty.GetValue(_rootProperty.GetValue(setting))!;
             }
         }
         private void Update()
@@ -234,6 +258,10 @@ namespace MajdataPlay.Scenes.Setting
                 return;
             }
             var currentMenu = _menus[Index];
+            var previousCategoryTouched = InputManager.IsSensorPressedInThisFrame(SensorArea.B8);
+            var nextCategoryTouched = InputManager.IsSensorPressedInThisFrame(SensorArea.B1);
+            var categoryTouchHeld = InputManager.CheckSensorStatusInThisFrame(SensorArea.B8, SwitchStatus.On) ||
+                                    InputManager.CheckSensorStatusInThisFrame(SensorArea.B1, SwitchStatus.On);
             var isCalibratorRequested = InputManager.IsButtonClickCompletedInThisFrame(ButtonZone.A1) ||
                                         InputManager.IsSensorClickCompletedInThisFrame(SensorArea.A1);
             if (isCalibratorRequested)
@@ -261,8 +289,6 @@ namespace MajdataPlay.Scenes.Setting
                 InputManager.CheckSensorStatusInThisFrame(SensorArea.A1, SwitchStatus.On) ||
                 InputManager.CheckButtonStatusInThisFrame(ButtonZone.A4, SwitchStatus.On) ||
                 InputManager.CheckButtonStatusInThisFrame(ButtonZone.A5, SwitchStatus.On);
-            var nextCategoryPressed = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A2, SwitchStatus.On);
-            var previousCategoryPressed = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A7, SwitchStatus.On);
             var nextOptionPressed = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A3, SwitchStatus.On);
             var previousOptionPressed = InputManager.CheckButtonStatusInThisFrame(ButtonZone.A6, SwitchStatus.On);
             var optionValuePressed =
@@ -272,7 +298,8 @@ namespace MajdataPlay.Scenes.Setting
                 InputManager.CheckSensorStatusInThisFrame(SensorArea.E6, SwitchStatus.On) ||
                 InputManager.CheckSensorStatusInThisFrame(SensorArea.B5, SwitchStatus.On) ||
                 InputManager.CheckSensorStatusInThisFrame(SensorArea.B6, SwitchStatus.On);
-            var interruptsAdvancedInput = isExitRequested || sceneNavigationHeld || nextCategoryPressed || previousCategoryPressed ||
+            var interruptsAdvancedInput = isExitRequested || sceneNavigationHeld ||
+                previousCategoryTouched || nextCategoryTouched || categoryTouchHeld ||
                 nextOptionPressed || previousOptionPressed || optionValuePressed;
             if (interruptsAdvancedInput)
             {
@@ -287,6 +314,24 @@ namespace MajdataPlay.Scenes.Setting
                 RequestExit();
                 return;
             }
+            if (previousCategoryTouched || nextCategoryTouched)
+            {
+                if (UpdateMenuVisibility())
+                {
+                    _menuTitleDisplayerAnim.TryCancel();
+                    NormalizeMenuTitleCursor();
+                }
+                if (previousCategoryTouched)
+                {
+                    PreviousMenu();
+                }
+                else
+                {
+                    NextMenu();
+                }
+                _optionInput.SuppressUntilRelease();
+                return;
+            }
             currentMenu.HandleInput();
             if (UpdateOffsetUnitIfNeeded())
             {
@@ -298,23 +343,6 @@ namespace MajdataPlay.Scenes.Setting
                 _menuTitleDisplayerAnim.TryCancel();
                 NormalizeMenuTitleCursor();
             }
-            if (nextCategoryPressed || previousCategoryPressed)
-            {
-                if (_categoryInput.Update(
-                    nextCategoryPressed,
-                    previousCategoryPressed,
-                    MajTimeline.DeltaTime,
-                    0.7f,
-                    0.2f,
-                    out var direction))
-                {
-                    SwitchCategory(direction);
-                }
-                _optionInput.SuppressUntilRelease();
-                return;
-            }
-            _categoryInput.Reset();
-
             if (nextOptionPressed || previousOptionPressed)
             {
                 if (_optionInput.Update(
@@ -370,26 +398,28 @@ namespace MajdataPlay.Scenes.Setting
             _menus[Index].SwitchOption(direction);
         }
 
-        private void SwitchCategory(int direction)
+        /// <summary>Opens the prepared menu after three active frames, without affecting a disabled or destroyed scene.</summary>
+        /// <returns>The scene-bound menu initialization operation.</returns>
+        private async UniTask InitializeCurrentMenu()
         {
-            if (direction > 0)
+            var initializationCancellation = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
+            _initializationCancellationSource = initializationCancellation;
+            try
             {
-                NextMenu();
+                await UniTask.DelayFrame(3, cancellationToken: initializationCancellation.Token);
+                MajInstances.SceneSwitcher.FadeOut();
+                SetSettingLights();
+                _optionInput.SuppressUntilRelease();
+                _isInited = true;
             }
-            else
+            finally
             {
-                PreviousMenu();
+                if (ReferenceEquals(_initializationCancellationSource, initializationCancellation))
+                {
+                    _initializationCancellationSource = null;
+                }
+                initializationCancellation.Dispose();
             }
-        }
-
-        private async UniTaskVoid InitializeCurrentMenu()
-        {
-            await UniTask.DelayFrame(3);
-            MajInstances.SceneSwitcher.FadeOut();
-            SetSettingLights();
-            _categoryInput.SuppressUntilRelease();
-            _optionInput.SuppressUntilRelease();
-            _isInited = true;
         }
 
         private void SetSettingLights()
@@ -408,7 +438,7 @@ namespace MajdataPlay.Scenes.Setting
             var index = Array.FindIndex(_menus, x => x.Name == _settingConfig.SelectedMenu);
             if (index == -1 || !_menus[index].Visibility.IsVisible(Setting))
             {
-                index = Array.FindIndex(_menus, x => x.Name == nameof(GameSetting.Game));
+                index = Array.FindIndex(_menus, x => x.Name == nameof(UserSetting.Game));
                 _settingConfig.SelectedOption = string.Empty;
             }
 
@@ -530,20 +560,43 @@ namespace MajdataPlay.Scenes.Setting
                 currentMenu.ToTail();
             }
             currentMenu.gameObject.SetActive(true);
+            var startPos = _listCursorPos;
+            var initialArrowAlpha = _navigationArrows != null ? _navigationArrows.alpha : 1f;
             _menuTitleDisplayerAnim.TryCancel();
             if (!animateTitle)
             {
                 NormalizeMenuTitleCursor();
                 return;
             }
-            _menuTitleDisplayerAnim = LMotion.Create(_listCursorPos, _listCursorTarget, 0.25f)
-                                             .WithEase(Ease.OutQuad)
+            var targetPos = _listCursorTarget;
+            _menuTitleDisplayerAnim = LMotion.Create(0f, 1f, 0.25f)
+                                             .WithScheduler(MotionScheduler.PostLateUpdate)
+                                             .WithEase(Ease.Linear)
                                              .WithOnComplete(NormalizeMenuTitleCursor)
-                                             .Bind(x =>
-                                             {
-                                                 _listCursorPos = x;
-                                                 UpdateMenuTitleDisplayerPosition();
-                                             });
+                                             .Bind(progress => UpdateMenuTitlePresentation(progress, startPos, targetPos, initialArrowAlpha));
+        }
+
+        /// <summary>Shares the List arrow fade clock while retaining the original OutQuad category motion.</summary>
+        /// <param name="progress">The linear zero-to-one transition progress.</param>
+        /// <param name="startPos">The cursor position retained when an earlier transition was interrupted.</param>
+        /// <param name="targetPos">The desired displayed menu position.</param>
+        /// <param name="initialArrowAlpha">The arrow opacity at the start of this transition.</param>
+        private void UpdateMenuTitlePresentation(float progress, float startPos, float targetPos, float initialArrowAlpha)
+        {
+            progress = Mathf.Clamp01(progress);
+            _listCursorPos = Mathf.Lerp(startPos, targetPos, progress * (2f - progress));
+            UpdateMenuTitleDisplayerPosition();
+            SetNavigationAlpha(MenuTitleDisplayer.GetNavigationAlpha(progress, initialArrowAlpha));
+        }
+
+        /// <summary>Changes only arrow visibility without altering category opacity or touch input.</summary>
+        /// <param name="alpha">The navigation arrow opacity to apply.</param>
+        private void SetNavigationAlpha(float alpha)
+        {
+            if (_navigationArrows != null)
+            {
+                _navigationArrows.alpha = alpha;
+            }
         }
         private void UpdateMenuTitleDisplayerPosition()
         {
@@ -568,6 +621,7 @@ namespace MajdataPlay.Scenes.Setting
         }
         private void NormalizeMenuTitleCursor()
         {
+            SetNavigationAlpha(1f);
             var position = GetDisplayedMenuPosition(Index);
             _listCursorPos = position;
             _listCursorTarget = position;
@@ -614,19 +668,19 @@ namespace MajdataPlay.Scenes.Setting
         }
         internal bool UpdateOffsetUnitIfNeeded()
         {
-            var currentOffsetUnit = Setting.Debug.OffsetUnit;
+            var currentOffsetUnit = Setting.User.Judge.OffsetUnit;
             if (currentOffsetUnit == _lastOffsetUnit)
             {
                 return false;
             }
 
             var convertToSecond = currentOffsetUnit == OffsetUnitOption.Second;
-            Setting.Game.SlideFadeInOffset = ConvertOffsetUnit(Setting.Game.SlideFadeInOffset, convertToSecond);
-            Setting.Judge.AudioOffset = ConvertOffsetUnit(Setting.Judge.AudioOffset, convertToSecond);
-            Setting.Judge.JudgeOffset = ConvertOffsetUnit(Setting.Judge.JudgeOffset, convertToSecond);
-            Setting.Judge.AnswerOffset = ConvertOffsetUnit(Setting.Judge.AnswerOffset, convertToSecond);
-            Setting.Judge.TouchPanelOffset = ConvertOffsetUnit(Setting.Judge.TouchPanelOffset, convertToSecond);
-            Setting.Debug.DisplayOffset = ConvertOffsetUnit(Setting.Debug.DisplayOffset, convertToSecond);
+            Setting.User.Game.SlideFadeInOffset = ConvertOffsetUnit(Setting.User.Game.SlideFadeInOffset, convertToSecond);
+            Setting.User.Judge.AudioOffset = ConvertOffsetUnit(Setting.User.Judge.AudioOffset, convertToSecond);
+            Setting.User.Judge.JudgeOffset = ConvertOffsetUnit(Setting.User.Judge.JudgeOffset, convertToSecond);
+            Setting.User.Judge.AnswerOffset = ConvertOffsetUnit(Setting.User.Judge.AnswerOffset, convertToSecond);
+            Setting.User.Judge.TouchPanelOffset = ConvertOffsetUnit(Setting.User.Judge.TouchPanelOffset, convertToSecond);
+            Setting.System.Debug.DisplayOffset = ConvertOffsetUnit(Setting.System.Debug.DisplayOffset, convertToSecond);
 
             if (convertToSecond)
             {
@@ -647,13 +701,28 @@ namespace MajdataPlay.Scenes.Setting
                 : Math.Round(decimalValue / (decimal)MajEnv.FRAME_LENGTH_SEC, 1);
             return Convert.ToSingle(convertedValue);
         }
-        private static void EnsureNestedCanvas(GameObject target)
+        private void OnEnable()
         {
-            if (!target.TryGetComponent<Canvas>(out _))
+            SetNavigationAlpha(1f);
+            if (_menuTitleDisplayers.Length > 0)
             {
-                target.AddComponent<Canvas>();
+                NormalizeMenuTitleCursor();
+                if (!_isInited && !_isExited)
+                {
+                    InitializeCurrentMenu().Forget();
+                }
             }
+            _optionInput.SuppressUntilRelease();
         }
+
+        private void OnDisable()
+        {
+            _initializationCancellationSource?.Cancel();
+            _menuTitleDisplayerAnim.TryCancel();
+            _listCursorPos = _listCursorTarget;
+            SetNavigationAlpha(1f);
+        }
+
         private void OnDestroy()
         {
             _isExited = true;

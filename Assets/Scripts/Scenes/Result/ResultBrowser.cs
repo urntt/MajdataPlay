@@ -70,7 +70,7 @@ namespace MajdataPlay.Scenes.Result
             // 平均偏移：单位跟随设置，负数为偏早
             var diffs = result.NoteJudgeDiffs;
             string averageOffset;
-            if (MajEnv.Settings.Debug.OffsetUnit == OffsetUnitOption.Second)
+            if (MajEnv.UserSettings.Judge.OffsetUnit == OffsetUnitOption.Second)
             {
                 averageOffset = diffs.IsEmpty ? "0.000s" : $"{(diffs.ToArray().Average() / 1000f).ToString("F3", CultureInfo.InvariantCulture)}s";
             }
@@ -457,7 +457,7 @@ namespace MajdataPlay.Scenes.Result
             // 网络谱面：上传成绩
             if (sender != null && sender.CanInteract)
             {
-                if (!MajEnv.Settings.IsAnyModActive())
+                if (!MajEnv.SystemSettings.IsAnyModActive())
                 {
                     _uploadButton = _ui.CreateButton(_content, "MAJTEXT_RESULT_UPLOAD".i18n(), LightUi.PAPER, LightUi.ACCENT, 19f, () => _manager.OnlineSender.RequestUpload());
                     LightUi.PlaceTopLeft((RectTransform)_uploadButton.transform, x, cursor, 150f, 50f);
@@ -775,7 +775,7 @@ namespace MajdataPlay.Scenes.Result
             var score = MaiScore.CreateFromResult(result, result.Level);
             score.PlayCount = Math.Max(1L, ScoreManager.GetScore(song, result.Level).PlayCount);
             _isWaitingShare = true;
-            ScoreExchange.StartShareResult(song, score, format);
+            ScoreExchange.StartShareResult(song, result.Level, score, format);
         }
         void BuildToast()
         {

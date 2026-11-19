@@ -8,9 +8,11 @@ using MajdataPlay.Collections;
 using MajdataPlay.IO.Storage;
 using MajdataPlay.Extensions;
 using MajdataPlay.Net;
+using MajdataPlay.Net.Models;
 using MajdataPlay.Numerics;
 using MajdataPlay.Settings;
 using MajdataPlay.Settings.Runtime;
+using MajdataPlay.Settings.Sync;
 using MajdataPlay.Utils;
 #if UNITY_ANDROID
 using MajdataPlay.Platform.Android;
@@ -46,9 +48,13 @@ namespace MajdataPlay
         public const int DEFAULT_LAYER = 0;
         public const int HIDDEN_LAYER = 3;
         public const int UI_LAYER = 5;
-        public const int HTTP_BUFFER_SIZE = 8192;
-        public const int HTTP_REQUEST_MAX_RETRY = 4;
-        public const int HTTP_TIMEOUT_MS = 10000;
+        public const int HttpBufferSize = 8192;
+        public const int HttpRequestMaxRetry = 4;
+        public static readonly TimeSpan HttpTimeout = TimeSpan.FromMilliseconds(90_000);
+        public static readonly TimeSpan HttpConnectTimeout = TimeSpan.FromMilliseconds(4000);
+        public static readonly TimeSpan HttpLowSpeedTimeout = TimeSpan.FromMilliseconds(18_000);
+        public const int HttpLowSpeedLimit = 16_0000; // 16KB/s
+        public const int HttpMaxCachedConnections = 8;
         public const float FRAME_LENGTH_SEC = 1f / 60;
         public const float FRAME_LENGTH_MSEC = FRAME_LENGTH_SEC * 1000;
 
@@ -117,8 +123,10 @@ namespace MajdataPlay
         public static StorageDirectory TempDirectory { get; private set; } = null!;
         /// <summary>Gets the chart collection root.</summary>
         public static StorageDirectory ChartDirectory { get; private set; } = null!;
-        /// <summary>Gets the user settings file, which is created with default settings on first startup.</summary>
-        public static StorageFile SettingsPath { get; private set; } = null!;
+        /// <summary>Gets the user settings file, settings.json, which is created with default settings on first startup.</summary>
+        public static StorageFile UserSettingsPath { get; private set; } = null!;
+        /// <summary>Gets the system settings file, system-settings.json, which is created on first startup from defaults or from the system settings of an older settings.json.</summary>
+        public static StorageFile SystemSettingsPath { get; private set; } = null!;
         /// <summary>Gets the custom skin directory.</summary>
         public static StorageDirectory SkinDirectory { get; private set; } = null!;
         /// <summary>Gets the runtime log directory.</summary>
@@ -138,11 +146,6 @@ namespace MajdataPlay
         /// <summary>Gets the directory receiving recorded audio and video files.</summary>
         public static StorageDirectory RecordOutputsDirectory { get; private set; } = null!;
         public static bool IsLowMemoryDevice { get; private set; }
-        public static MachineInfo MachineInfo { get; private set; } = new()
-        {
-            Name = "MajdataPlay Client",
-            Description = "MajdataPlay Client QR Code Authentication",
-        };
         public static Random Randomizer
         {
             get
@@ -163,11 +166,16 @@ namespace MajdataPlay
             Proxy = WebRequest.GetSystemWebProxy(),
             UseProxy = true,
             CookieContainer = new CookieContainer(),
+            ConnectTimeout = HttpConnectTimeout,
+            LowSpeedTimeout = HttpLowSpeedTimeout,
+            LowSpeedLimit = HttpLowSpeedLimit,
             MaxConnectionsPerServer = 64,
+            MaxCachedConnections = HttpMaxCachedConnections,
+            PreferredHttpVersion = CurlHttpVersions.Http3
         };
         public static HttpClient SharedHttpClient { get; } = new HttpClient(s_httpClientHandler)
         {
-            Timeout = TimeSpan.FromMilliseconds(HTTP_TIMEOUT_MS),
+            Timeout = HttpTimeout,
             DefaultRequestHeaders =
             {
                 UserAgent = { new ProductInfoHeaderValue("MajdataPlay", MajInstances.GameVersion.ToString()) },
@@ -180,16 +188,24 @@ namespace MajdataPlay
         /// </summary>
         public static HttpClient BackgroundHttpClient { get; } = new HttpClient(s_httpClientHandler, disposeHandler: false)
         {
-            Timeout = TimeSpan.FromMilliseconds(HTTP_TIMEOUT_MS),
+            Timeout = HttpTimeout,
             DefaultRequestHeaders =
             {
                 UserAgent = { new ProductInfoHeaderValue("MajdataPlay", MajInstances.GameVersion.ToString()) },
             }
         };
 
-        public static GameSetting Settings { get; private set; } = new();
+        /// <summary>Gets the user settings stored in settings.json, which are meant to follow the player.</summary>
+        public static UserSetting UserSettings { get; private set; } = new();
+        /// <summary>Gets the system settings stored in system-settings.json, which describe this device and stay local.</summary>
+        public static SystemSetting SystemSettings { get; private set; } = new();
         public static RuntimeConfig RuntimeConfig { get; private set; } = new();
-        public static ApiEndpoint[]? ApiEndpoints { get; private set; }
+        public static ApiEndpoint[] ApiEndpoints { get; private set; } = Array.Empty<ApiEndpoint>();
+
+        /// <summary>Gets where <see cref="UserSettings"/> came from and where the next save writes them.</summary>
+        internal static UserSettingSource ActiveUserSettingSource { get; private set; } = UserSettingSource.Local;
+        /// <summary>Gets the account that owns <see cref="UserSettings"/>, or null while the local copy is in use.</summary>
+        internal static ApiEndpoint? UserSettingOwner { get; private set; }
 
         public static CancellationToken GlobalCT
         {
@@ -200,26 +216,33 @@ namespace MajdataPlay
         {
             Formatting = Formatting.Indented,
             ObjectCreationHandling = ObjectCreationHandling.Replace,
+            ContractResolver = new SettingContractResolver(),
             Converters =
             {
                 new StringEnumConverter()
             }
         };
 
-        /// <summary>The reader options of the settings.json document, which keep date-like strings such as passwords as they were written.</summary>
-        private static readonly JsonSerializerSettings s_userSettingsDocumentOption = new()
+        /// <summary>The reader options of the settings documents, which keep date-like strings such as passwords as they were written.</summary>
+        private static readonly JsonSerializerSettings s_settingsDocumentOption = new()
         {
             DateParseHandling = DateParseHandling.None
         };
 
         /// <summary>The user settings file name inside <see cref="RootDirectory"/>.</summary>
-        private const string SettingsFileName = "settings.json";
+        private const string UserSettingsFileName = "settings.json";
+        /// <summary>The system settings file name inside <see cref="RootDirectory"/>.</summary>
+        private const string SystemSettingsFileName = "system-settings.json";
+        /// <summary>The suffix of the temporary sibling a settings file is written to before it replaces the live file.</summary>
+        private const string SettingsTempSuffix = ".tmp";
         /// <summary>The name of <see cref="RuntimeDirectory"/> inside <see cref="PersistentDirectory"/>, and of the legacy runtime directory inside <see cref="CacheDirectory"/>.</summary>
         private const string RuntimeDirectoryName = "Runtime";
         /// <summary>The legacy runtime configuration file name inside <see cref="RuntimeDirectory"/>, imported into the runtime database.</summary>
         private const string RuntimeConfigFileName = "config.json";
-        /// <summary>The machine description file name inside <see cref="RootDirectory"/>.</summary>
+        /// <summary>The legacy machine description file name inside <see cref="RootDirectory"/>, imported into <see cref="OnlineOptions.Machine"/>.</summary>
         private const string MachineDescriptionFileName = "machine_description.json";
+        /// <summary>The JSON path of <see cref="OnlineOptions.Machine"/> inside system-settings.json.</summary>
+        private const string MachineSettingPath = nameof(SystemSetting.Network) + "." + nameof(NetworkOptions.Online) + "." + nameof(OnlineOptions.Machine);
         /// <summary>The current runtime log file name inside <see cref="LogsDirectory"/>.</summary>
         private const string LogFileName = "MajPlayRuntime.log";
         /// <summary>The rotated previous runtime log file name inside <see cref="LogsDirectory"/>.</summary>
@@ -278,14 +301,14 @@ namespace MajdataPlay
             InitPath();
             InitDirectories();
             InitLogger();
+            MajDebugSimaiLogger.Install();
             MigrateLegacyRuntimeDirectory();
-            InitSystemSettings();
-            InitUserSettings();
+            InitRuntimeEnvironment();
+            InitSettings();
             ReadiOSNativeSettings();
             InitNetwork();
             InitRuntimeConfig();
             InitOnlineEndpoints();
-            InitOnlineMachineInfo();
             InitOthers();
         }
 
@@ -430,14 +453,15 @@ namespace MajdataPlay
                 }
             }
         }
-        private static void InitSystemSettings()
+        /// <summary>Configures the shared HTTP and thread defaults, registers the save and quit handlers and logs the startup check.</summary>
+        private static void InitRuntimeEnvironment()
         {
-            SharedHttpClient.Timeout = TimeSpan.FromMilliseconds(HTTP_TIMEOUT_MS);
+            SharedHttpClient.Timeout = HttpTimeout;
             MainThread.Priority = THREAD_PRIORITY_MAIN;
 
             IsLowMemoryDevice = SystemInfo.systemMemorySize < 4096;
 
-            UnityWebRequestFactory.Timeout = TimeSpan.FromMilliseconds(HTTP_TIMEOUT_MS);
+            UnityWebRequestFactory.Timeout = HttpTimeout;
             UnityWebRequestFactory.UserAgent = HTTP_USER_AGENT;
 
             GameManager.OnAppQuit += OnApplicationQuit;
@@ -496,95 +520,230 @@ namespace MajdataPlay
             }
 #endif
         }
-        /// <summary>Loads the user settings from <see cref="RootDirectory"/>, backing up an unreadable file or writing defaults on first startup.</summary>
-        /// <exception cref="UnauthorizedAccessException">Reading or creating the settings file was denied.</exception>
-        /// <exception cref="IOException">The settings file could not be read, created, or written.</exception>
-        private static void InitUserSettings()
+        /// <summary>
+        /// Loads the user and system settings from <see cref="RootDirectory"/>, upgrading files written by older versions,
+        /// backing up unreadable files and writing a missing file with the loaded settings.
+        /// </summary>
+        /// <remarks>
+        /// An unreadable file falls back to the defaults of its settings. The system settings of an older settings.json
+        /// are moved to system-settings.json, which is written at once; settings.json itself keeps its legacy layout until
+        /// the next save. A legacy machine_description.json is imported into the system settings by
+        /// <see cref="ImportLegacyMachineDescription"/>.
+        /// </remarks>
+        /// <exception cref="UnauthorizedAccessException">Reading or creating a settings file was denied.</exception>
+        /// <exception cref="IOException">A settings file could not be read, created, or written.</exception>
+        private static void InitSettings()
         {
-            var settingsFile = RootDirectory.FindFile(SettingsFileName);
-            if (settingsFile is not null)
+            var serializer = JsonSerializer.CreateDefault(UserJsonReaderOption);
+            var userFile = RootDirectory.FindFile(UserSettingsFileName);
+            var systemFile = RootDirectory.FindFile(SystemSettingsFileName);
+            var userDocument = ReadSettingsDocument(userFile, UserSettingsFileName);
+            var systemDocument = ReadSettingsDocument(systemFile, SystemSettingsFileName);
+            try
             {
-                var js = settingsFile.ReadAllText();
-                GameSetting? setting = null;
-                Exception? e = null;
-                try
-                {
-                    setting = DeserializeUserSettings(js);
-                }
-                catch (Exception ex)
-                {
-                    e = ex;
-                }
-
-                if (setting is null)
-                {
-                    Settings = new();
-                    MajDebug.LogError($"Failed to read setting from file\nException: {e}");
-                    var bakFileName = $"{SettingsFileName}.bak";
-                    while (RootDirectory.FindFile(bakFileName) is not null)
-                    {
-                        bakFileName = $"{bakFileName}.bak";
-                    }
-
-                    try
-                    {
-                        settingsFile.CopyTo(RootDirectory, bakFileName, overwrite: true);
-                    }
-                    catch
-                    {
-                    }
-                }
-                else
-                {
-                    Settings = setting;
-                }
+                SettingMigration.Migrate(userDocument, systemDocument, serializer);
             }
-            else
+            catch (JsonException e)
             {
-                Settings = new GameSetting();
-
-                var json = Serializer.Json.Serialize(Settings, UserJsonReaderOption);
-                settingsFile = RootDirectory.CreateFile(SettingsFileName, JsonMimeType);
-                WriteText(settingsFile, json);
+                // Only legacy values of settings.json are converted, so system-settings.json is read again without them.
+                MajDebug.LogError(nameof(MajEnv), $"Failed to upgrade {UserSettingsFileName}\nException: {e}");
+                BackUpSettingsFile(userFile, UserSettingsFileName);
+                userDocument = new JObject();
+                systemDocument = ReadSettingsDocument(systemFile, SystemSettingsFileName);
+                SettingMigration.Migrate(userDocument, systemDocument, serializer);
             }
-            SettingsPath = settingsFile;
+
+            UserSettings = ReadSettings<UserSetting>(userDocument, serializer, userFile, UserSettingsFileName);
+            // Before system-settings.json exists, its settings can only come from an older settings.json.
+            SystemSettings = systemFile is not null
+                ? ReadSettings<SystemSetting>(systemDocument, serializer, systemFile, SystemSettingsFileName)
+                : ReadSettings<SystemSetting>(systemDocument, serializer, userFile, UserSettingsFileName);
+            UserSettingsPath = userFile ?? CreateSettingsFile(UserSettingsFileName, UserSettings);
+            SystemSettingsPath = systemFile ?? CreateSettingsFile(SystemSettingsFileName, SystemSettings);
 
 #if UNITY_STANDALONE
-            Settings.IO.InputDevice.ButtonRing.PollingRateMs =
-                Math.Max(0, Settings.IO.InputDevice.ButtonRing.PollingRateMs);
-            Settings.IO.InputDevice.TouchPanel.PollingRateMs =
-                Math.Max(0, Settings.IO.InputDevice.TouchPanel.PollingRateMs);
-            Settings.IO.InputDevice.ButtonRing.DebounceThresholdMs =
-                Math.Max(0, Settings.IO.InputDevice.ButtonRing.DebounceThresholdMs);
-            Settings.IO.InputDevice.TouchPanel.DebounceThresholdMs =
-                Math.Max(0, Settings.IO.InputDevice.TouchPanel.DebounceThresholdMs);
+            var inputDevice = SystemSettings.IO.InputDevice;
+            inputDevice.ButtonRing.PollingRateMs = Math.Max(0, inputDevice.ButtonRing.PollingRateMs);
+            inputDevice.TouchPanel.PollingRateMs = Math.Max(0, inputDevice.TouchPanel.PollingRateMs);
+            inputDevice.ButtonRing.DebounceThresholdMs = Math.Max(0, inputDevice.ButtonRing.DebounceThresholdMs);
+            inputDevice.TouchPanel.DebounceThresholdMs = Math.Max(0, inputDevice.TouchPanel.DebounceThresholdMs);
 #endif
-            Settings.Display.InnerJudgeDistance = Settings.Display.InnerJudgeDistance.Clamp(0, 1);
-            Settings.Display.OuterJudgeDistance = Settings.Display.OuterJudgeDistance.Clamp(0, 1);
+            SanitizeUserSettings(UserSettings);
+            ImportLegacyMachineDescription(systemDocument);
 
-            MajDebug.MinLogLevel = Settings.Debug.DebugLevel;
-            MajDebug.LogInfo(nameof(MajEnv), $"[Settings]Play style {Settings.Falling.PlayStyle}, falling slide style {Settings.Falling.FallingSlideStyle}");
+            MajDebug.MinLogLevel = SystemSettings.Debug.DebugLevel;
+            MajDebug.LogInfo(nameof(MajEnv), $"[Settings]Play style {SystemSettings.Falling.PlayStyle}, falling slide style {SystemSettings.Falling.FallingSlideStyle}");
         }
-        /// <summary>Deserializes the text of settings.json, upgrading a document written by an older version to the current layout first.</summary>
-        /// <remarks>The legacy keys are migrated by <see cref="GameSettingMigration"/>; the file itself is rewritten by the next save.</remarks>
-        /// <param name="json">The text of settings.json.</param>
-        /// <returns>The settings, or null when the text is empty or the JSON literal null.</returns>
-        /// <exception cref="JsonException">The text is not a JSON object, or holds a value that cannot be read.</exception>
-        public static GameSetting? DeserializeUserSettings(string json)
+
+        /// <summary>Imports a legacy machine_description.json into <see cref="OnlineOptions.Machine"/> of <see cref="SystemSettings"/>.</summary>
+        /// <remarks>
+        /// The file is only imported while system-settings.json holds no machine description, which the current layout
+        /// always writes. The imported settings are written to system-settings.json at once and the file is renamed to
+        /// machine_description.json.bak, so system-settings.json stays the only source afterwards. An unreadable file is
+        /// logged and left in place, and the default machine description is kept.
+        /// </remarks>
+        /// <param name="systemDocument">The upgraded document of system-settings.json that <see cref="SystemSettings"/> was read from.</param>
+        /// <exception cref="UnauthorizedAccessException">Reading the file or writing system-settings.json was denied.</exception>
+        /// <exception cref="IOException">The file could not be read, or system-settings.json could not be written.</exception>
+        private static void ImportLegacyMachineDescription(JObject systemDocument)
         {
-            var document = Serializer.Json.Deserialize<JToken>(json, s_userSettingsDocumentOption);
+            var legacyFile = RootDirectory.FindFile(MachineDescriptionFileName);
+            if (legacyFile is null || systemDocument.SelectToken(MachineSettingPath) is not null)
+            {
+                return;
+            }
+            var json = legacyFile.ReadAllText();
+            if (!Serializer.Json.TryDeserialize(json, out MachineInfo? machine, out var e, UserJsonReaderOption) || machine is null)
+            {
+                MajDebug.LogError(nameof(MajEnv), $"Failed to read the machine description from {MachineDescriptionFileName}\nException: {e}");
+                return;
+            }
+            SystemSettings.Network.Online.Machine = machine;
+            SystemSettingsPath = WriteSettingsFile(SystemSettingsFileName, Serializer.Json.Serialize(SystemSettings, UserJsonReaderOption));
+            BackupLegacyMachineDescription(legacyFile);
+        }
+
+        /// <summary>Renames an imported legacy machine_description.json to machine_description.json.bak, replacing an older backup.</summary>
+        /// <param name="legacyFile">The imported legacy machine description file.</param>
+        /// <remarks>A failure is logged only; system-settings.json already holds the machine description, so the file is no longer read.</remarks>
+        private static void BackupLegacyMachineDescription(StorageFile legacyFile)
+        {
+            try
+            {
+                var backupName = MachineDescriptionFileName + ".bak";
+                RootDirectory.FindFile(backupName)?.Delete();
+                legacyFile.Rename(backupName);
+                MajDebug.LogInfo(nameof(MajEnv), $"Migrated the machine description from {MachineDescriptionFileName} to {SystemSettingsFileName}, old file backed up.");
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(nameof(MajEnv), $"Failed to back up the legacy machine description file: {e.Message}");
+            }
+        }
+
+        /// <summary>Reads the JSON document of a settings file, backing up a file that does not hold a JSON object.</summary>
+        /// <param name="file">The settings file, or null when it does not exist.</param>
+        /// <param name="fileName">The name of the settings file.</param>
+        /// <returns>The root object of the file; empty when the file does not exist or is unreadable.</returns>
+        /// <exception cref="UnauthorizedAccessException">Reading the file was denied.</exception>
+        /// <exception cref="IOException">The file could not be read.</exception>
+        private static JObject ReadSettingsDocument(StorageFile? file, string fileName)
+        {
+            if (file is null)
+            {
+                return new JObject();
+            }
+            Exception? error = null;
+            try
+            {
+                var document = ParseSettingsDocument(file.ReadAllText(), fileName);
+                if (document is not null)
+                {
+                    return document;
+                }
+            }
+            catch (JsonException e)
+            {
+                error = e;
+            }
+            MajDebug.LogError(nameof(MajEnv), $"Failed to read settings from {fileName}\nException: {error}");
+            BackUpSettingsFile(file, fileName);
+            return new JObject();
+        }
+
+        /// <summary>Deserializes the document of a settings file, backing up the file it came from when it cannot be read.</summary>
+        /// <typeparam name="T">The settings type of the document.</typeparam>
+        /// <param name="document">The upgraded root object of the document.</param>
+        /// <param name="serializer">The serializer configured like <see cref="UserJsonReaderOption"/>.</param>
+        /// <param name="source">The file the document was read from, or null when it was not read from a file.</param>
+        /// <param name="sourceName">The name of <paramref name="source"/>.</param>
+        /// <returns>The settings, or defaults when the document holds a value that cannot be read.</returns>
+        private static T ReadSettings<T>(JObject document, JsonSerializer serializer, StorageFile? source, string sourceName) where T : class, new()
+        {
+            try
+            {
+                return document.ToObject<T>(serializer) ?? new T();
+            }
+            catch (JsonException e)
+            {
+                MajDebug.LogError(nameof(MajEnv), $"Failed to read {typeof(T).Name} from {sourceName}\nException: {e}");
+                BackUpSettingsFile(source, sourceName);
+                return new T();
+            }
+        }
+
+        /// <summary>Copies a settings file next to itself under the first free <c>.bak</c> name, keeping older backups.</summary>
+        /// <param name="file">The settings file, or null when there is nothing to back up.</param>
+        /// <param name="fileName">The name of the settings file.</param>
+        private static void BackUpSettingsFile(StorageFile? file, string fileName)
+        {
+            if (file is null)
+            {
+                return;
+            }
+            var bakFileName = $"{fileName}.bak";
+            while (RootDirectory.FindFile(bakFileName) is not null)
+            {
+                bakFileName = $"{bakFileName}.bak";
+            }
+
+            try
+            {
+                file.CopyTo(RootDirectory, bakFileName, overwrite: true);
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogWarning(nameof(MajEnv), $"Failed to back up {fileName}: {e.Message}");
+            }
+        }
+
+        /// <summary>Creates a settings file in <see cref="RootDirectory"/> holding the given settings.</summary>
+        /// <param name="name">The settings file name.</param>
+        /// <param name="settings">The settings to write.</param>
+        /// <returns>The created file.</returns>
+        /// <exception cref="UnauthorizedAccessException">Creating or writing the file was denied.</exception>
+        /// <exception cref="IOException">The file could not be created or written.</exception>
+        private static StorageFile CreateSettingsFile(string name, object settings)
+        {
+            return WriteSettingsFile(name, Serializer.Json.Serialize(settings, UserJsonReaderOption));
+        }
+
+        /// <summary>Parses the text of a settings file into its JSON document.</summary>
+        /// <param name="json">The text of the settings file.</param>
+        /// <param name="fileName">The settings file name, used in error messages.</param>
+        /// <returns>The root object, or null when the text is empty or the JSON literal null.</returns>
+        /// <exception cref="JsonException">The text is not a JSON object.</exception>
+        private static JObject? ParseSettingsDocument(string json, string fileName)
+        {
+            var document = Serializer.Json.Deserialize<JToken>(json, s_settingsDocumentOption);
             if (document is null || document.Type == JTokenType.Null)
             {
                 return null;
             }
             if (document is not JObject root)
             {
-                throw new JsonSerializationException($"{SettingsFileName} holds a {document.Type} instead of an object");
+                throw new JsonSerializationException($"{fileName} holds a {document.Type} instead of an object");
             }
-            // CreateDefault matches the serializer JsonConvert uses, so the document reads like the settings.json text.
+            return root;
+        }
+
+        /// <summary>Deserializes the texts of settings.json and system-settings.json, upgrading documents written by older versions to the current layouts first.</summary>
+        /// <remarks>The legacy keys are migrated by <see cref="SettingMigration"/>; the files themselves are rewritten by the next save.</remarks>
+        /// <param name="userJson">The text of settings.json, or null when the file does not exist.</param>
+        /// <param name="systemJson">The text of system-settings.json, or null when the file does not exist.</param>
+        /// <returns>
+        /// The user and system settings; defaults for a file that does not exist, and null for a text that is empty or
+        /// the JSON literal null.
+        /// </returns>
+        /// <exception cref="JsonException">A text is not a JSON object, or holds a value that cannot be read.</exception>
+        public static (UserSetting? User, SystemSetting? System) DeserializeSettings(string? userJson, string? systemJson)
+        {
+            var userDocument = userJson is null ? new JObject() : ParseSettingsDocument(userJson, UserSettingsFileName);
+            var systemDocument = systemJson is null ? new JObject() : ParseSettingsDocument(systemJson, SystemSettingsFileName);
+            // CreateDefault matches the serializer JsonConvert uses, so the documents read like the file texts.
             var serializer = JsonSerializer.CreateDefault(UserJsonReaderOption);
-            GameSettingMigration.Migrate(root, serializer);
-            return root.ToObject<GameSetting>(serializer);
+            SettingMigration.Migrate(userDocument ?? new JObject(), systemDocument ?? new JObject(), serializer);
+            return (userDocument?.ToObject<UserSetting>(serializer), systemDocument?.ToObject<SystemSetting>(serializer));
         }
         private static void ReadiOSNativeSettings()
         {
@@ -602,25 +761,24 @@ namespace MajdataPlay
             }
             if (Enum.TryParse<LogLevel>(IOSNativeSettings.DebugLogLevel, false, out var logLevel))
             {
-                Settings.Debug.DebugLevel = logLevel;
+                SystemSettings.Debug.DebugLevel = logLevel;
             }
 
-            Settings.Debug.NoteFolding = IOSNativeSettings.DebugNoteFolding;
-            Settings.Online.Enable = IOSNativeSettings.Online;
+            SystemSettings.Common.NoteFolding = IOSNativeSettings.DebugNoteFolding;
+            SystemSettings.Network.Online.Enable = IOSNativeSettings.Online;
 
-            MajDebug.MinLogLevel = Settings.Debug.DebugLevel;
+            MajDebug.MinLogLevel = SystemSettings.Debug.DebugLevel;
 #endif
         }
         private static void InitNetwork()
         {
-#if UNITY_STANDALONE
-            if(Settings.Online.UseProxy)
+            if(SystemSettings.Network.Proxy.Enable)
             {
-                if(!string.IsNullOrEmpty(Settings.Online.Proxy))
+                if(!string.IsNullOrEmpty(SystemSettings.Network.Proxy.Url))
                 {
-                    if(!Uri.TryCreate(Settings.Online.Proxy, UriKind.Absolute, out var proxyUri))
+                    if(!Uri.TryCreate(SystemSettings.Network.Proxy.Url, UriKind.Absolute, out var proxyUri))
                     {
-                        MajDebug.LogError($"Invalid proxy URL: {Settings.Online.Proxy}");
+                        MajDebug.LogError($"Invalid proxy URL: {SystemSettings.Network.Proxy.Url}");
                         return;
                     }
                     switch (proxyUri.Scheme)
@@ -656,7 +814,6 @@ namespace MajdataPlay
                 s_httpClientHandler.UseProxy = false;
                 //_httpClientHandler.Proxy = null;
             }
-#endif
         }
         private static void InitOnlineEndpoints()
         {
@@ -664,7 +821,7 @@ namespace MajdataPlay
             using (var buffer = new PooledList<ApiEndpoint>())
             {
                 using var apiEndpoints = new PooledList<ApiEndpoint>();
-                apiEndpoints.AddRange(Settings.Online.ApiEndpoints.AsSpan());
+                apiEndpoints.AddRange(SystemSettings.Network.Online.ApiEndpoints.AsSpan());
 
 #if UNITY_IOS && !UNITY_EDITOR
                 if (IOSNativeSettings.MajnetEnabled)
@@ -744,30 +901,6 @@ namespace MajdataPlay
                                      .Select(x => x.FirstOrDefault())
                                      .Where(x => x is not null)
                                      .ToArray();
-            }
-        }
-        private static void InitOnlineMachineInfo()
-        {
-            var machineDescriptionFile = RootDirectory.FindFile(MachineDescriptionFileName);
-
-            if (machineDescriptionFile is not null)
-            {
-                var js = machineDescriptionFile.ReadAllText();
-                MachineInfo? machineInfo;
-
-                if (!Serializer.Json.TryDeserialize(js, out machineInfo, out var e, UserJsonReaderOption) || machineInfo is null)
-                {
-                    MajDebug.LogError($"Failed to read machine description from file\nException: {e}");
-                }
-                else
-                {
-                    MachineInfo = machineInfo;
-                }
-            }
-            else
-            {
-                var json = Serializer.Json.Serialize(MachineInfo, UserJsonReaderOption);
-                WriteText(RootDirectory.CreateFile(MachineDescriptionFileName, JsonMimeType), json);
             }
         }
         /// <summary>Loads <see cref="RuntimeConfig"/> from the runtime database, importing a legacy config.json the first time.</summary>
@@ -888,6 +1021,8 @@ namespace MajdataPlay
         {
             GameManager.OnAppQuit -= OnApplicationQuit;
             GameManager.OnSave -= OnSave;
+            // The final save only queued its upload, so give it a bounded chance to reach the account before the process ends.
+            UserSettingSync.FlushOnQuit();
             SharedHttpClient.CancelPendingRequests();
             SharedHttpClient.Dispose();
 
@@ -904,16 +1039,79 @@ namespace MajdataPlay
             //listConfig.SelectedSongIndex = SongStorage.WorkingCollection.Index;
             //listConfig.SelectedDir = SongStorage.CollectionIndex;
 
-            var json = Serializer.Json.Serialize(Settings, UserJsonReaderOption);
+            var systemJson = Serializer.Json.Serialize(SystemSettings, UserJsonReaderOption);
 
-            // Re-resolve the files so a configuration deleted while running is recreated on every backend.
-            SettingsPath = FindOrCreateFile(RootDirectory, SettingsFileName);
-            WriteText(SettingsPath, json);
+            // system-settings.json describes this device, so it stays local whatever copy the user settings come from.
+            // It is written first: settings.json may still hold the legacy system settings until it is rewritten.
+            SystemSettingsPath = WriteSettingsFile(SystemSettingsFileName, systemJson);
+
+            switch (ActiveUserSettingSource)
+            {
+                case UserSettingSource.Remote:
+                    // The account owns the settings, so the local file keeps the content of the last local session.
+                    UserSettingSync.QueuePush(SerializeUserSettings());
+                    break;
+                case UserSettingSource.Local:
+                    UserSettingsPath = WriteSettingsFile(UserSettingsFileName, Serializer.Json.Serialize(UserSettings, UserJsonReaderOption));
+                    break;
+                case UserSettingSource.Switching:
+                    // A switch owns both copies until it completes, so a save during it must not pick a destination.
+                    break;
+            }
+
             WriteRuntimeConfig(MajDatabase.Runtime, RuntimeConfig);
 
             MajDebug.FlushLog();
         }
 
+        /// <summary>Writes a settings file through a temporary sibling so an interrupted save never leaves a truncated file.</summary>
+        /// <param name="name">The settings file name inside <see cref="RootDirectory"/>.</param>
+        /// <param name="text">The UTF-8 text to write without a byte order mark.</param>
+        /// <returns>The live settings file holding <paramref name="text"/>.</returns>
+        /// <remarks>
+        /// The text is written to <c>name.tmp</c>, flushed to the disk, and only then made the live file in one backend
+        /// operation. A local backend replaces an existing file atomically, so a reader always sees either the previous
+        /// document or the new one, never a partially written file. A provider backend without atomic replacement streams
+        /// the text into the live file instead, which can still leave partial content there. A failed write leaves the live
+        /// file untouched and removes the temporary file.
+        /// </remarks>
+        /// <exception cref="UnauthorizedAccessException">Creating, writing, or replacing the file was denied.</exception>
+        /// <exception cref="NotSupportedException">The backend cannot create, move, or replace the file.</exception>
+        /// <exception cref="IOException">The file could not be created, written, or replaced.</exception>
+        private static StorageFile WriteSettingsFile(string name, string text)
+        {
+            var tempName = name + SettingsTempSuffix;
+            // A temporary file left behind by an interrupted save never holds the live settings.
+            RootDirectory.FindFile(tempName)?.Delete();
+            var temp = RootDirectory.CreateFile(tempName, JsonMimeType);
+            try
+            {
+                WriteText(temp, text);
+                var live = RootDirectory.FindFile(name);
+                return live is null
+                    ? FileSystem.File.Move(temp.Location, RootDirectory.Location, name)
+                    : FileSystem.File.Replace(temp.Location, live.Location);
+            }
+            catch
+            {
+                TryDeleteFile(temp);
+                throw;
+            }
+        }
+
+        /// <summary>Deletes a temporary file whose content was abandoned, logging instead of rethrowing a failure.</summary>
+        /// <param name="file">The temporary file to delete; an already missing file is ignored.</param>
+        private static void TryDeleteFile(StorageFile file)
+        {
+            try
+            {
+                file.Delete();
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogWarning(nameof(MajEnv), $"Failed to delete the temporary file {file.Location}: {e.Message}");
+            }
+        }
 
         /// <summary>Replaces an existing configuration file's content through one storage output stream.</summary>
         /// <param name="file">The existing configuration file on any backend.</param>
@@ -926,19 +1124,138 @@ namespace MajdataPlay
             using var stream = FileSystem.File.OpenWrite(file.Location, overwrite: true);
             using var writer = new StreamWriter(stream, new UTF8Encoding(false));
             writer.Write(text);
+            writer.Flush();
+            // The text must reach the disk before the replacement publishes it, so a power loss cannot publish an empty file.
+            if (stream is FileStream fileStream)
+            {
+                fileStream.Flush(flushToDisk: true);
+            }
         }
 
-        /// <summary>Finds a JSON configuration file in a directory, or creates it empty so it can be written on any backend.</summary>
-        /// <param name="directory">The existing directory owning the configuration file.</param>
-        /// <param name="name">The configuration file name.</param>
-        /// <returns>The existing or newly created file handle.</returns>
-        /// <exception cref="DirectoryNotFoundException">The directory does not exist.</exception>
-        /// <exception cref="UnauthorizedAccessException">Querying or creating the file was denied.</exception>
-        /// <exception cref="NotSupportedException">The directory's backend cannot create files.</exception>
-        /// <exception cref="IOException">Querying or creating the file failed.</exception>
-        private static StorageFile FindOrCreateFile(StorageDirectory directory, string name)
+        /// <summary>Gets the endpoint that stores the user settings of an account.</summary>
+        /// <returns>
+        /// The first configured endpoint, or null when none is configured. Only that endpoint exchanges user settings, so
+        /// the mirrors of a server never receive them.
+        /// </returns>
+        internal static ApiEndpoint? GetUserSettingEndpoint()
         {
-            return directory.FindFile(name) ?? directory.CreateFile(name, JsonMimeType);
+            return ApiEndpoints is { Length: > 0 } endpoints ? endpoints[0] : null;
+        }
+
+        /// <summary>Changes where saves write the user settings without replacing the settings in memory.</summary>
+        /// <param name="source">The copy the settings came from.</param>
+        /// <param name="owner">The account owning the settings while <paramref name="source"/> is remote.</param>
+        internal static void SetUserSettingSource(UserSettingSource source, ApiEndpoint? owner)
+        {
+            ActiveUserSettingSource = source;
+            UserSettingOwner = owner;
+        }
+
+        /// <summary>Replaces the user settings in memory and points saves at the copy they came from.</summary>
+        /// <param name="settings">The user settings to use.</param>
+        /// <param name="source">The copy the settings came from.</param>
+        /// <param name="owner">The account owning the settings while <paramref name="source"/> is remote.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
+        internal static void ApplyUserSettings(UserSetting settings, UserSettingSource source, ApiEndpoint? owner)
+        {
+            if (settings is null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+            SanitizeUserSettings(settings);
+            UserSettings = settings;
+            SetUserSettingSource(source, owner);
+        }
+
+        /// <summary>Returns to the local user settings after an account is left, so the account copy never reaches settings.json.</summary>
+        internal static void RestoreLocalUserSettings()
+        {
+            ApplyUserSettings(ReadLocalUserSettings(), UserSettingSource.Local, null);
+        }
+
+        /// <summary>Serializes the user settings in the layout the game stores.</summary>
+        /// <returns>
+        /// The settings document, which holds the user categories only. The categories describing the device live in
+        /// system-settings.json and therefore never appear in it.
+        /// </returns>
+        internal static string SerializeUserSettings()
+        {
+            return Serializer.Json.Serialize(UserSettings, UserJsonReaderOption);
+        }
+
+        /// <summary>Reads a user settings document of an account, upgrading the layout of older versions first.</summary>
+        /// <param name="json">The document text received from the account.</param>
+        /// <param name="settings">The settings the document holds, or null when it holds none.</param>
+        /// <returns>Whether the document holds settings, holds none, or cannot be read.</returns>
+        internal static UserSettingReadResult ReadUserSettings(string json, out UserSetting? settings)
+        {
+            settings = null;
+            if (string.IsNullOrWhiteSpace(json) || IsEmptySettingsDocument(json))
+            {
+                return UserSettingReadResult.Empty;
+            }
+            try
+            {
+                // The document of an account holds user settings only, so the system document stays empty.
+                var (user, _) = DeserializeSettings(json, null);
+                if (user is null)
+                {
+                    return UserSettingReadResult.Empty;
+                }
+                settings = user;
+                return UserSettingReadResult.Ok;
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(nameof(MajEnv), $"Failed to read the user settings of the account\nException: {e}");
+                return UserSettingReadResult.Invalid;
+            }
+        }
+
+        /// <summary>Checks whether a document holds no settings, which distinguishes an unused account from default settings.</summary>
+        /// <param name="json">The document text.</param>
+        /// <returns>True when the text is empty, the JSON literal null, or an object without members.</returns>
+        private static bool IsEmptySettingsDocument(string json)
+        {
+            try
+            {
+                var document = Serializer.Json.Deserialize<JToken>(json, s_settingsDocumentOption);
+                if (document is null || document.Type == JTokenType.Null)
+                {
+                    return true;
+                }
+                return document is JObject root && !root.HasValues;
+            }
+            catch (JsonException)
+            {
+                // Unreadable text is reported by the caller as an invalid document.
+                return false;
+            }
+        }
+
+        /// <summary>Reads the user settings from settings.json without creating or writing the file.</summary>
+        /// <returns>The stored settings, defaults when the file holds none, and defaults when it cannot be read.</returns>
+        private static UserSetting ReadLocalUserSettings()
+        {
+            var file = RootDirectory.FindFile(UserSettingsFileName);
+            if (file is null)
+            {
+                return new UserSetting();
+            }
+            if (ReadUserSettings(file.ReadAllText(), out var settings) is UserSettingReadResult.Ok && settings is not null)
+            {
+                return settings;
+            }
+            MajDebug.LogWarning(nameof(MajEnv), $"Failed to read {UserSettingsFileName} after leaving the account; the local defaults are used.");
+            return new UserSetting();
+        }
+
+        /// <summary>Keeps the values of the user settings that the game can only use within a range.</summary>
+        /// <param name="settings">The user settings to correct in place.</param>
+        private static void SanitizeUserSettings(UserSetting settings)
+        {
+            settings.Judge.InnerJudgeDistance = settings.Judge.InnerJudgeDistance.Clamp(0, 1);
+            settings.Judge.OuterJudgeDistance = settings.Judge.OuterJudgeDistance.Clamp(0, 1);
         }
 
         /// <summary>Represents the single row holding the persisted <see cref="ListConfig"/> fields in the runtime database.</summary>

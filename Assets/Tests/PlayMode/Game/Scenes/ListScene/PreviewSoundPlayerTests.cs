@@ -67,7 +67,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.ListScene
         [UnityTest]
         public IEnumerator Play_AppliesDemoRange()
         {
-            MajEnv.Settings.Audio.Volume.BGM = 0.6f;
+            MajEnv.UserSettings.Volume.BGM = 0.6f;
             var sample = new FakeAudioSample("preview", TimeSpan.FromSeconds(60));
             var song = Song("majtest-preview-range", sample, ("demo_seek", "5"), ("demo_len", "10"));
 
@@ -145,7 +145,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.ListScene
             yield return PlayAndWait(song, sample);
 
             _source.Cancel();
-            yield return WaitUntil(() => !_player.IsPreviewPending(song), 5f);
+            yield return WaitUntil(() => !_player.IsPreviewPending(song) && sample.PauseCount > 0 && !sample.IsLoop, 5f);
 
             Assert.That(_player.IsPreviewPlaying(song), Is.False);
             Assert.That(sample.PauseCount, Is.GreaterThanOrEqualTo(1));
@@ -189,7 +189,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.ListScene
         [Test]
         public void Destroy_RestoresListMusicVolume()
         {
-            MajEnv.Settings.Audio.Volume.BGM = 0.3f;
+            MajEnv.UserSettings.Volume.BGM = 0.3f;
 
             UnityEngine.Object.DestroyImmediate(_player.gameObject);
 

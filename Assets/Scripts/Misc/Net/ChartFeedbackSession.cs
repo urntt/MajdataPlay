@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using MajdataPlay.Diagnostics;
+using MajdataPlay.Net.Models;
 
 namespace MajdataPlay.Net
 {
@@ -174,7 +175,7 @@ namespace MajdataPlay.Net
             if (vote != _submittedVote)
             {
                 _isVoteUncertain = true;
-                var voteResult = await SendAsync(GetVoteRequest(vote), token);
+                var voteResult = await SendAsync(Online.MaiChart.VoteAsync(Song, vote, token), token);
                 if (voteResult != ChartFeedbackResult.Succeeded)
                 {
                     return voteResult;
@@ -184,23 +185,13 @@ namespace MajdataPlay.Net
             }
             if (trimmedComment.Length != 0)
             {
-                var commentResult = await SendAsync(Online.PostCommentAsync(Song, trimmedComment, token), token);
+                var commentResult = await SendAsync(Online.MaiChart.PostCommentAsync(Song, trimmedComment, token), token);
                 if (commentResult != ChartFeedbackResult.Succeeded)
                 {
                     return commentResult;
                 }
             }
             return ChartFeedbackResult.Succeeded;
-
-            ValueTask<EndpointResponse> GetVoteRequest(int target)
-            {
-                return target switch
-                {
-                    LIKE => Online.PostLikeAsync(Song, token),
-                    DISLIKE => Online.PostDislikeAsync(Song, token),
-                    _ => _submittedVote == LIKE ? Online.DeleteLikeAsync(Song, token) : Online.DeleteDislikeAsync(Song, token),
-                };
-            }
         }
 
         /// <summary>
@@ -213,12 +204,12 @@ namespace MajdataPlay.Net
         {
             try
             {
-                var interaction = await Online.GetChartInteractAsync(Song, token, forceRefresh: true);
-                if (interaction is not MajNetSongInteract current)
+                var summary = await Online.MaiChart.GetInteractSummaryAsync(Song, token, forceRefresh: true);
+                if (summary is not MajNetChartInteractSummary current)
                 {
                     return null;
                 }
-                return current.IsLiked ? LIKE : current.IsDisLiked ? DISLIKE : 0;
+                return Math.Sign(current.MyVote);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -234,11 +225,12 @@ namespace MajdataPlay.Net
         /// <summary>
         /// Waits for a feedback request and turns its response into a result.
         /// </summary>
+        /// <typeparam name="T">The type of the response body.</typeparam>
         /// <param name="request">The request that was started.</param>
         /// <param name="token">The token the request was started with.</param>
         /// <returns>The result of the request.</returns>
         /// <exception cref="OperationCanceledException"><paramref name="token"/> was canceled.</exception>
-        private async UniTask<ChartFeedbackResult> SendAsync(ValueTask<EndpointResponse> request, CancellationToken token)
+        private async UniTask<ChartFeedbackResult> SendAsync<T>(ValueTask<EndpointResponse<T>> request, CancellationToken token)
         {
             try
             {

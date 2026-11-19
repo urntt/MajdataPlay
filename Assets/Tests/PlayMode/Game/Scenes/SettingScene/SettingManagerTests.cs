@@ -17,8 +17,8 @@ using UnityEngine.TestTools;
 namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
 {
     /// <summary>
-    /// Runs the setting scene manager with stub audio, skin and scene services over the real <see cref="GameSetting"/>
-    /// categories, and drives it through simulated cabinet input.
+    /// Runs the setting scene manager with stub audio, skin and scene services over the real <see cref="UserSetting"/> and
+    /// <see cref="SystemSetting"/> categories, and drives it through simulated cabinet input.
     /// </summary>
     public class SettingManagerTests : SettingSceneTestBase
     {
@@ -58,6 +58,10 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         /// <summary>Gets the category titles created by the manager, in menu order.</summary>
         private MenuTitleDisplayer[] Titles => PrivateMember.GetField<MenuTitleDisplayer[]>(_manager, "_menuTitleDisplayers");
 
+        /// <summary>Gets the number of menus built from the user and system setting categories.</summary>
+        private static int CategoryMenuCount => SettingReflectionCache.GetVisibleProperties(typeof(UserSetting)).Length +
+            SettingReflectionCache.GetVisibleProperties(typeof(SystemSetting)).Length;
+
         /// <summary>Gets the position of the title cursor, which counts listed menus only.</summary>
         private float CursorPosition => PrivateMember.GetField<float>(_manager, "_listCursorPos");
 
@@ -75,8 +79,8 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         private int ListOnlyWithSensorDisplay(string name)
         {
             var index = MenuIndex(name);
-            var attributes = new Attribute[] { new ShowInSettingUIWhenAttribute("Debug.DisplaySensor", true) };
-            Menus[index].Visibility = SettingVisibility.Resolve(typeof(GameSetting), name, attributes);
+            var attributes = new Attribute[] { new ShowInSettingUIWhenAttribute("User.Display.DisplaySensor", true) };
+            Menus[index].Visibility = SettingVisibility.Resolve(typeof(SettingRoot), name, attributes);
             return index;
         }
 
@@ -111,6 +115,64 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             yield return null;
         }
 
+        /// <summary>Touches a sensor for one update frame, then releases it for another frame.</summary>
+        /// <param name="area">The sensor area.</param>
+        /// <returns>The press and release frames.</returns>
+        private static IEnumerator PressSensor(SensorArea area)
+        {
+            InputSimulator.SetSensor(area, true);
+            InputSimulator.Step();
+            yield return null;
+            InputSimulator.SetSensor(area, false);
+            InputSimulator.Step();
+            yield return null;
+        }
+
+        /// <summary>Binds only the navigation-arrow group, leaving the existing scene fixture and title templates intact.</summary>
+        /// <returns>The navigation-only CanvasGroup controlled by the manager.</returns>
+        private CanvasGroup BindNavigationArrows()
+        {
+            var arrows = CreateRect("CategoryNavigation", TitleListRoot.transform).AddComponent<CanvasGroup>();
+            PrivateMember.SetField(_manager, "_navigationArrows", arrows);
+            return arrows;
+        }
+
+        /// <summary>Checks disabling cancels the delayed initialization and re-enabling finishes the existing menus.</summary>
+        /// <returns>The initialization restart regression coroutine.</returns>
+        [UnityTest]
+        public IEnumerator Initialization_DisableCancelsAndEnableRestarts()
+        {
+            Activate(_manager);
+            yield return null;
+            var pending = PrivateMember.GetField<System.Threading.CancellationTokenSource>(_manager, "_initializationCancellationSource").Token;
+            _manager.enabled = false;
+            yield return null;
+            yield return null;
+            yield return null;
+            Assert.That(pending.IsCancellationRequested, Is.True);
+            Assert.That(PrivateMember.GetField<bool>(_manager, "_isInited"), Is.False);
+            _manager.enabled = true;
+            yield return StartManager();
+            Assert.That(Menus.Length, Is.EqualTo(CategoryMenuCount));
+        }
+
+        /// <summary>Checks destruction cancels the pending delay without restoring initialization afterward.</summary>
+        /// <returns>The destroyed-owner regression coroutine.</returns>
+        [UnityTest]
+        public IEnumerator Initialization_DestroyDoesNotCompleteThePendingDelay()
+        {
+            Activate(_manager);
+            yield return null;
+            var pending = PrivateMember.GetField<System.Threading.CancellationTokenSource>(_manager, "_initializationCancellationSource").Token;
+            UnityEngine.Object.Destroy(_manager.gameObject);
+            yield return null;
+            yield return null;
+            yield return null;
+            Assert.That(_manager == null, Is.True);
+            Assert.That(pending.IsCancellationRequested, Is.True);
+            Assert.That(PrivateMember.GetField<bool>(_manager, "_isInited"), Is.False);
+        }
+
         /// <summary>Checks that Start builds one menu and title per category, selects Game and plays the scene sound.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]
@@ -118,9 +180,9 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         {
             yield return StartManager();
 
-            var expected = SettingReflectionCache.GetVisibleProperties(typeof(GameSetting)).Length;
+            var expected = CategoryMenuCount;
             Assert.That(Menus.Length, Is.EqualTo(expected));
-            Assert.That(Current.Name, Is.EqualTo(nameof(GameSetting.Game)));
+            Assert.That(Current.Name, Is.EqualTo(nameof(UserSetting.Game)));
             Assert.That(Current.gameObject.activeSelf, Is.True);
             Assert.That(Menus.Count(menu => menu.gameObject.activeSelf), Is.EqualTo(1));
             Assert.That(Menus.Any(menu => menu.Name == "Volume"), Is.True);
@@ -137,12 +199,12 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator Start_RestoresRememberedMenuAndOption()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Judge);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Judge);
             MajEnv.RuntimeConfig.Setting.SelectedOption = "JudgeOffset";
 
             yield return StartManager();
 
-            Assert.That(Current.Name, Is.EqualTo(nameof(GameSetting.Judge)));
+            Assert.That(Current.Name, Is.EqualTo(nameof(UserSetting.Judge)));
             Assert.That(MajEnv.RuntimeConfig.Setting.SelectedOption, Is.EqualTo("JudgeOffset"));
         }
 
@@ -156,7 +218,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
 
             yield return StartManager();
 
-            Assert.That(Current.Name, Is.EqualTo(nameof(GameSetting.Game)));
+            Assert.That(Current.Name, Is.EqualTo(nameof(UserSetting.Game)));
             Assert.That(Current.SelectedIndex, Is.EqualTo(0));
         }
 
@@ -171,7 +233,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
 
             Assert.That(Menus[0].Name, Is.EqualTo(nameof(ChartSetting)));
             Assert.That(Menus[0].Instance, Is.SameAs(ChartSettingStorage.GetSetting(song.Hash)));
-            Assert.That(Menus.Length, Is.EqualTo(SettingReflectionCache.GetVisibleProperties(typeof(GameSetting)).Length + 1));
+            Assert.That(Menus.Length, Is.EqualTo(CategoryMenuCount + 1));
         }
 
         /// <summary>Checks that a saved song identity matching no published chart adds no chart setting menu.</summary>
@@ -200,15 +262,15 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             Assert.That(Menus.Any(menu => menu.Name == nameof(ChartSetting)), Is.False);
         }
 
-        /// <summary>Checks that the next category button selects the following menu and animates the titles.</summary>
+        /// <summary>Checks that the next category touch selects the following menu and animates the titles.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]
-        public IEnumerator NextCategoryButton_SelectsFollowingMenu()
+        public IEnumerator NextCategoryTouch_SelectsFollowingMenu()
         {
             yield return StartManager();
             var start = _manager.Index;
 
-            yield return PressButton(ButtonZone.A2);
+            yield return PressSensor(SensorArea.B1);
             PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim").TryComplete();
 
             Assert.That(_manager.Index, Is.EqualTo(start + 1));
@@ -218,20 +280,145 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             Assert.That(PrivateMember.GetField<float>(_manager, "_listCursorPos"), Is.EqualTo(_manager.Index));
         }
 
-        /// <summary>Checks that the previous category button wraps from the first menu to the last without animation.</summary>
+        /// <summary>Checks that the previous category touch wraps to the last menu while its title cursor skips unlisted menus.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]
-        public IEnumerator PreviousCategoryButton_WrapsToLastMenu()
+        public IEnumerator PreviousCategoryTouch_WrapsToLastMenu()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Game);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Game);
             yield return StartManager();
             Assert.That(_manager.Index, Is.EqualTo(0));
 
-            yield return PressButton(ButtonZone.A7);
+            yield return PressSensor(SensorArea.B8);
 
             Assert.That(_manager.Index, Is.EqualTo(Menus.Length - 1));
-            Assert.That(PrivateMember.GetField<float>(_manager, "_listCursorPos"), Is.EqualTo(Menus.Length - 1));
+            var listedMenuCount = Menus.Count(menu => menu.Visibility.IsVisible(_manager.Setting));
+            Assert.That(CursorPosition, Is.EqualTo(listedMenuCount - 1));
+            Assert.That(PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim").IsActive(), Is.False);
             Assert.That(Current.SelectedIndex, Is.EqualTo(PrivateMember.GetField<int>(Current, "_displayedOptionCount") - 1));
+        }
+
+        /// <summary>Checks B1/B8 navigate on press edges, without repeating while the touch remains held.</summary>
+        /// <returns>The initialized manager and deterministic touch-frame sequence.</returns>
+        [UnityTest]
+        public IEnumerator CategoryTouches_UsePressEdgesWithoutRepeating()
+        {
+            yield return StartManager();
+            var start = _manager.Index;
+            InputSimulator.SetSensor(SensorArea.B1, true);
+            InputSimulator.Step();
+            yield return null;
+            Assert.That(_manager.Index, Is.EqualTo(start + 1));
+
+            SetDeltaTime(0.8f);
+            for (var frame = 0; frame < 3; frame++)
+            {
+                InputSimulator.Step(0.8f);
+                yield return null;
+                Assert.That(_manager.Index, Is.EqualTo(start + 1), "A held category touch must not become cabinet repeat input.");
+            }
+            InputSimulator.SetSensor(SensorArea.B1, false);
+            InputSimulator.Step();
+            yield return null;
+            InputSimulator.SetSensor(SensorArea.B8, true);
+            InputSimulator.Step();
+            yield return null;
+            Assert.That(_manager.Index, Is.EqualTo(start));
+            InputSimulator.SetSensor(SensorArea.B8, false);
+            InputSimulator.Step();
+            yield return null;
+        }
+
+        /// <summary>Checks former physical category keys do nothing and cannot block the top category touch controls.</summary>
+        /// <returns>The press, hold and simultaneous touch sequences for both physical keys.</returns>
+        [UnityTest]
+        public IEnumerator PhysicalCategoryButtons_AreIgnoredAndDoNotBlockCategoryTouches()
+        {
+            yield return StartManager();
+            var start = _manager.Index;
+            SetDeltaTime(0.8f);
+            foreach (var zone in new[] { ButtonZone.A2, ButtonZone.A7 })
+            {
+                InputSimulator.SetButton(zone, true);
+                for (var frame = 0; frame < 3; frame++)
+                {
+                    InputSimulator.Step(0.8f);
+                    yield return null;
+                    Assert.That(_manager.Index, Is.EqualTo(start), "Physical category keys must remain inactive on press and hold.");
+                }
+                yield return PressSensor(SensorArea.B1);
+                Assert.That(_manager.Index, Is.EqualTo(start + 1), "A held physical key cannot block the next-category touch.");
+                yield return PressSensor(SensorArea.B8);
+                Assert.That(_manager.Index, Is.EqualTo(start), "A held physical key cannot block the previous-category touch.");
+                InputSimulator.SetButton(zone, false);
+                InputSimulator.Step();
+                yield return null;
+            }
+        }
+
+        /// <summary>Checks arrow opacity follows the same 250ms transition while the category cursor retains OutQuad easing.</summary>
+        /// <returns>The initialized manager and exact motion-time samples.</returns>
+        [UnityTest]
+        public IEnumerator CategoryNavigationArrows_FadeAcrossTheSharedTransitionAndCompleteVisible()
+        {
+            var arrows = BindNavigationArrows();
+            yield return StartManager();
+            var start = CursorPosition;
+            _manager.NextMenu();
+            var motion = PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim");
+            Assert.That(motion.Duration, Is.EqualTo(0.25f));
+            foreach (var sample in new (double Time, float Alpha, float Cursor)[]
+            {
+                (0, 1f, 0f),
+                (0.025, 0.5f, 0.19f),
+                (0.05, 0f, 0.36f),
+                (0.125, 0f, 0.75f),
+                (0.2, 0f, 0.96f),
+                (0.225, 0.5f, 0.99f),
+                (0.25, 1f, 1f)
+            })
+            {
+                motion.Time = sample.Time;
+                Assert.That(arrows.alpha, Is.EqualTo(sample.Alpha).Within(0.0001f));
+                Assert.That(CursorPosition, Is.EqualTo(start + sample.Cursor).Within(0.0001f));
+            }
+            motion.TryComplete();
+            Assert.That(arrows.alpha, Is.EqualTo(1f));
+            Assert.That(CursorPosition, Is.EqualTo(start + 1f));
+        }
+
+        /// <summary>Checks interruption keeps partial opacity and disable/enable or boundary wrapping restores visible arrows.</summary>
+        /// <returns>The category reversal, disable and wrapping sequence.</returns>
+        [UnityTest]
+        public IEnumerator CategoryNavigationArrows_ReverseWithoutFlashingAndRestoreAfterDisableOrWrap()
+        {
+            var arrows = BindNavigationArrows();
+            yield return StartManager();
+            _manager.NextMenu();
+            var first = PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim");
+            first.Time = 0.025;
+            Assert.That(arrows.alpha, Is.EqualTo(0.5f).Within(0.0001f));
+            var retainedCursor = CursorPosition;
+            _manager.PreviousMenu();
+            var reversed = PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim");
+            reversed.Time = 0;
+            Assert.That(first.IsActive(), Is.False);
+            Assert.That(arrows.alpha, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(CursorPosition, Is.EqualTo(retainedCursor).Within(0.0001f));
+            reversed.Time = 0.025;
+            Assert.That(arrows.alpha, Is.EqualTo(0.25f).Within(0.0001f));
+
+            _manager.enabled = false;
+            Assert.That(reversed.IsActive(), Is.False);
+            Assert.That(arrows.alpha, Is.EqualTo(1f));
+            Assert.That(CursorPosition, Is.EqualTo(0f));
+            _manager.enabled = true;
+            Assert.That(arrows.alpha, Is.EqualTo(1f));
+            Assert.That(CursorPosition, Is.EqualTo(0f));
+            _manager.PreviousMenu();
+            Assert.That(_manager.Index, Is.EqualTo(Menus.Length - 1));
+            Assert.That(PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim").IsActive(), Is.False);
+            Assert.That(arrows.alpha, Is.EqualTo(1f), "Instant wrapping must not leave the navigation group faded out.");
         }
 
         /// <summary>Checks that an unlisted menu is skipped with its title hidden, and listed again once its condition holds.</summary>
@@ -239,29 +426,29 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator ConditionalMenu_SkippedUntilConditionHolds()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Game);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Game);
             yield return StartManager();
-            var game = MenuIndex(nameof(GameSetting.Game));
-            var judge = ListOnlyWithSensorDisplay(nameof(GameSetting.Judge));
-            var display = MenuIndex(nameof(GameSetting.Display));
+            var game = MenuIndex(nameof(UserSetting.Game));
+            var judge = ListOnlyWithSensorDisplay(nameof(UserSetting.Judge));
+            var display = MenuIndex(nameof(UserSetting.Display));
             yield return null;
 
             Assert.That(Titles[judge].gameObject.activeSelf, Is.False);
 
-            yield return PressButton(ButtonZone.A2);
+            yield return PressSensor(SensorArea.B1);
             PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim").TryComplete();
 
             Assert.That((game, judge, display), Is.EqualTo((0, 1, 2)));
             Assert.That(_manager.Index, Is.EqualTo(display));
             Assert.That(CursorPosition, Is.EqualTo(1f));
 
-            MajEnv.Settings.Debug.DisplaySensor = true;
+            MajEnv.UserSettings.Display.DisplaySensor = true;
             yield return null;
 
             Assert.That(Titles[judge].gameObject.activeSelf, Is.True);
             Assert.That(CursorPosition, Is.EqualTo(2f));
 
-            yield return PressButton(ButtonZone.A7);
+            yield return PressSensor(SensorArea.B8);
             Assert.That(_manager.Index, Is.EqualTo(judge));
         }
 
@@ -270,18 +457,18 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator ConditionalMenu_SelectedMenuStaysListedUntilLeft()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Judge);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Judge);
             yield return StartManager();
-            var game = MenuIndex(nameof(GameSetting.Game));
-            var judge = ListOnlyWithSensorDisplay(nameof(GameSetting.Judge));
-            var display = MenuIndex(nameof(GameSetting.Display));
+            var game = MenuIndex(nameof(UserSetting.Game));
+            var judge = ListOnlyWithSensorDisplay(nameof(UserSetting.Judge));
+            var display = MenuIndex(nameof(UserSetting.Display));
             yield return null;
 
             Assert.That((game, judge, display), Is.EqualTo((0, 1, 2)));
             Assert.That(_manager.Index, Is.EqualTo(judge));
             Assert.That(Titles[judge].gameObject.activeSelf, Is.True);
 
-            yield return PressButton(ButtonZone.A2);
+            yield return PressSensor(SensorArea.B1);
 
             // Judge left the list, so Display moved into its position without a title animation.
             Assert.That(_manager.Index, Is.EqualTo(display));
@@ -289,7 +476,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             Assert.That(CursorPosition, Is.EqualTo(1f));
             Assert.That(PrivateMember.GetField<MotionHandle>(_manager, "_menuTitleDisplayerAnim").IsActive(), Is.False);
 
-            yield return PressButton(ButtonZone.A7);
+            yield return PressSensor(SensorArea.B8);
             Assert.That(_manager.Index, Is.EqualTo(game));
         }
 
@@ -299,13 +486,13 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         public IEnumerator ConditionalMenu_UnlistedRememberedMenuFallsBackToGame()
         {
             yield return StartManager();
-            ListOnlyWithSensorDisplay(nameof(GameSetting.Judge));
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Judge);
+            ListOnlyWithSensorDisplay(nameof(UserSetting.Judge));
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Judge);
             MajEnv.RuntimeConfig.Setting.SelectedOption = "JudgeOffset";
 
             PrivateMember.Invoke(_manager, "RestoreSelectedMenu");
 
-            Assert.That(Current.Name, Is.EqualTo(nameof(GameSetting.Game)));
+            Assert.That(Current.Name, Is.EqualTo(nameof(UserSetting.Game)));
             Assert.That(MajEnv.RuntimeConfig.Setting.SelectedOption, Is.Empty);
             Assert.That(CursorPosition, Is.EqualTo(0f));
         }
@@ -332,7 +519,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator CategorySwitch_ReleasesViewsOfInactiveMenu()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Game);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Game);
             yield return StartManager();
             var stuck = Menus[_manager.Index + 1];
 
@@ -344,7 +531,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             Assert.That(stuck.gameObject.activeSelf, Is.False);
             Assert.That(VisibleOption(stuck, 0), Is.Not.Null);
 
-            yield return PressButton(ButtonZone.A2);
+            yield return PressSensor(SensorArea.B1);
 
             Assert.That(VisibleOption(stuck, 0), Is.Null);
             Assert.That(PooledOptionCount + HeldOptionCount(Current), Is.EqualTo(Menu.OPTION_POOL_CAPACITY));
@@ -374,7 +561,7 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator PreviousOptionAtHead_SwitchesCategory()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Judge);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(UserSetting.Judge);
             yield return StartManager();
             var start = _manager.Index;
 
@@ -389,19 +576,19 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         public IEnumerator OffsetUnitChange_ConvertsOffsets()
         {
             yield return StartManager();
-            var settings = MajEnv.Settings;
+            var settings = MajEnv.UserSettings;
             settings.Judge.AudioOffset = 6f;
             settings.Judge.JudgeOffset = -3f;
-            settings.Debug.DisplayOffset = 60f;
+            MajEnv.SystemSettings.Debug.DisplayOffset = 60f;
 
-            settings.Debug.OffsetUnit = OffsetUnitOption.Second;
+            settings.Judge.OffsetUnit = OffsetUnitOption.Second;
             yield return null;
 
             Assert.That(settings.Judge.AudioOffset, Is.EqualTo(0.1f).Within(1e-6f));
             Assert.That(settings.Judge.JudgeOffset, Is.EqualTo(-0.05f).Within(1e-6f));
-            Assert.That(settings.Debug.DisplayOffset, Is.EqualTo(1f).Within(1e-6f));
+            Assert.That(MajEnv.SystemSettings.Debug.DisplayOffset, Is.EqualTo(1f).Within(1e-6f));
 
-            settings.Debug.OffsetUnit = OffsetUnitOption.Frame;
+            settings.Judge.OffsetUnit = OffsetUnitOption.Frame;
             yield return null;
 
             Assert.That(settings.Judge.AudioOffset, Is.EqualTo(6f).Within(1e-6f));
@@ -416,31 +603,36 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             Assert.That(PrivateMember.InvokeStatic<float>(typeof(SettingManager), "ConvertOffsetUnit", 0f, false), Is.EqualTo(0f));
         }
 
-        /// <summary>Checks that category metadata is cached and maps Audio to its Volume page.</summary>
+        /// <summary>
+        /// Checks that category metadata is cached, lists the user categories before the system categories and resolves
+        /// each menu to its category instance; hidden categories such as Audio get no menu.
+        /// </summary>
         [Test]
-        public void GetMenuMetadata_CachesAndMapsAudioToVolume()
+        public void GetMenuMetadata_CachesAndListsUserThenSystemCategories()
         {
-            var first = (Array)PrivateMember.InvokeStatic(typeof(SettingManager), "GetMenuMetadata", typeof(GameSetting))!;
-            var second = (Array)PrivateMember.InvokeStatic(typeof(SettingManager), "GetMenuMetadata", typeof(GameSetting))!;
-            var setting = new GameSetting();
+            var first = (Array)PrivateMember.InvokeStatic(typeof(SettingManager), "GetMenuMetadata", typeof(SettingRoot))!;
+            var second = (Array)PrivateMember.InvokeStatic(typeof(SettingManager), "GetMenuMetadata", typeof(SettingRoot))!;
+            var setting = new SettingRoot(new UserSetting(), new SystemSetting());
 
             Assert.That(second, Is.SameAs(first));
-            object? volume = null;
-            object? game = null;
+            var names = new List<string>();
+            var instances = new Dictionary<string, object?>();
             foreach (var metadata in first)
             {
                 var name = PrivateMember.GetProperty<string>(metadata!, "Name");
-                if (name == "Volume")
-                {
-                    volume = PrivateMember.Invoke(metadata!, "GetInstance", setting);
-                }
-                else if (name == nameof(GameSetting.Game))
-                {
-                    game = PrivateMember.Invoke(metadata!, "GetInstance", setting);
-                }
+                names.Add(name);
+                instances[name] = PrivateMember.Invoke(metadata!, "GetInstance", setting);
             }
-            Assert.That(volume, Is.SameAs(setting.Audio.Volume));
-            Assert.That(game, Is.SameAs(setting.Game));
+            Assert.That(names, Is.EqualTo(new[]
+            {
+                nameof(UserSetting.Game), nameof(UserSetting.Judge), nameof(UserSetting.Display), nameof(UserSetting.Volume),
+                nameof(UserSetting.Touch), nameof(SystemSetting.Common), nameof(SystemSetting.Mod),
+                nameof(SystemSetting.Falling), nameof(SystemSetting.Score), nameof(SystemSetting.Rendering), nameof(SystemSetting.Encoding), nameof(SystemSetting.Decoding), nameof(SystemSetting.Debug)
+            }));
+            Assert.That(instances[nameof(UserSetting.Game)], Is.SameAs(setting.User.Game));
+            Assert.That(instances[nameof(UserSetting.Volume)], Is.SameAs(setting.User.Volume));
+            Assert.That(instances[nameof(SystemSetting.Rendering)], Is.SameAs(setting.System.Rendering));
+            Assert.That(instances[nameof(SystemSetting.Debug)], Is.SameAs(setting.System.Debug));
         }
 
         /// <summary>Checks that the hidden A8 gesture is counted on the rendering quality row and interrupted by navigation.</summary>
@@ -448,10 +640,10 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
         [UnityTest]
         public IEnumerator AdvancedGesture_CountsPressesAndResetsOnNavigation()
         {
-            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(GameSetting.Rendering);
+            MajEnv.RuntimeConfig!.Setting.SelectedMenu = nameof(SystemSetting.Rendering);
             MajEnv.RuntimeConfig.Setting.SelectedOption = nameof(RenderingOptions.RenderQuality);
             yield return StartManager();
-            Assert.That(Current.Name, Is.EqualTo(nameof(GameSetting.Rendering)));
+            Assert.That(Current.Name, Is.EqualTo(nameof(SystemSetting.Rendering)));
 
             yield return PressButton(ButtonZone.A8);
             yield return PressButton(ButtonZone.A8);
@@ -510,10 +702,22 @@ namespace MajdataPlay.Tests.Game.Scenes.PlayMode.SettingScene
             InputSimulator.StepUntilButtonClickCompleted(ButtonZone.A1);
             yield return null;
             var index = _manager.Index;
-            yield return PressButton(ButtonZone.A2);
+            yield return PressSensor(SensorArea.B1);
 
             Assert.That(PrivateMember.GetField<bool>(_manager, "_isExited"), Is.True);
             Assert.That(_manager.Index, Is.EqualTo(index));
+        }
+
+        /// <summary>Checks the visible A1 sensor keeps the same completed-click calibration action as physical A1.</summary>
+        /// <returns>The initialized manager and calibration touch.</returns>
+        [UnityTest]
+        public IEnumerator CalibratorTouch_SwitchesSceneAndStopsInput()
+        {
+            yield return StartManager();
+            ExpectSceneSwitch();
+            InputSimulator.StepUntilSensorClickCompleted(SensorArea.A1);
+            yield return null;
+            Assert.That(PrivateMember.GetField<bool>(_manager, "_isExited"), Is.True);
         }
 
         /// <summary>Checks that a language change rewarms fonts without errors.</summary>

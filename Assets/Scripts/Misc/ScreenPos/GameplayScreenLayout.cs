@@ -65,7 +65,7 @@ namespace MajdataPlay
         /// </summary>
         public static void ApplyOrientationSetting()
         {
-            if (MajEnv.Settings?.Display.GameplayOrientation == GameplayOrientationOption.Landscape)
+            if (MajEnv.SystemSettings?.Rendering.GameplayOrientation == GameplayOrientationOption.Landscape)
             {
                 RequestLandscape();
             }

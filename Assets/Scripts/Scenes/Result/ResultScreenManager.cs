@@ -1,3 +1,4 @@
+using MajdataPlay.Net.Models;
 using MajdataPlay.IO;
 using TMPro;
 using UnityEngine;
@@ -144,7 +145,7 @@ namespace MajdataPlay.Scenes.Result
             if (string.IsNullOrEmpty(Localization.Current.Code))
             {
                 Localization.Init();
-                if (!Localization.SetLang(MajEnv.Settings.Display.Language)
+                if (!Localization.SetLang(MajEnv.UserSettings.Display.Language)
                  && !Localization.SetLangByCode(Application.systemLanguage.ToLocale()))
                     Localization.SetLangByCode("en-US");
             }
@@ -179,14 +180,14 @@ namespace MajdataPlay.Scenes.Result
             rank.text = "";
             var listConfig = MajEnv.RuntimeConfig.List;
             var result = _gameInfo.GetLastResult();
-            var isClassic = MajEnv.Settings.Judge.Mode == JudgeModeOption.Classic;
+            var isClassic = MajEnv.UserSettings.Judge.Mode == JudgeModeOption.Classic;
 
             CabinetLed.SetAllLight(Color.white);
 
             var totalJudgeRecord = JudgeDetail.UnpackJudgeRecord(result.JudgeRecord.TotalJudgeInfo);
             var song = result.SongDetail;
             var historyResult = ScoreManager.GetScore(song, listConfig.SelectedDiff);
-            var score = MaiScore.CreateFromResult(result, result.Level);
+            var score = song is OnlineSongDetail ? OnlineMaiScore.CreateFromResult(result, result.Level) : null;
             // 新结算界面：在保存成绩之前记下这个难度的历史最佳（保存会直接改掉缓存里的这条记录）
             var overlayHistory = ScoreManager.GetScore(song, result.Level);
             var overlayHistoryAchievement = isClassic ? overlayHistory.Acc.Classic : overlayHistory.Acc.DX;
@@ -196,7 +197,7 @@ namespace MajdataPlay.Scenes.Result
             _levelBGDisplayer.color = diffColor;
             _onlineInteractionSender.Init(song, score);
             favoriteAdder.SetSong(song);
-            _feedbackPanel.Init(song, !_gameInfo.IsDanMode);
+            _feedbackPanel.InitAsync(song, !_gameInfo.IsDanMode).Forget();
             userInfoDisplayer.DisplayFromSong(song);
 
 
@@ -236,7 +237,7 @@ namespace MajdataPlay.Scenes.Result
 
             var rect = _noteJudgeDiffGraph.GetComponent<RectTransform>().rect;
             _noteJudgeDiffGraph.texture = DrawNoteJudgeDiffGraph(result.NoteJudgeDiffs.Span, (int)rect.height, (int)rect.width);
-            if(MajEnv.Settings.Debug.OffsetUnit == OffsetUnitOption.Second)
+            if(MajEnv.UserSettings.Judge.OffsetUnit == OffsetUnitOption.Second)
             {
                 if (result.NoteJudgeDiffs.IsEmpty)
                 {
@@ -298,7 +299,7 @@ namespace MajdataPlay.Scenes.Result
                 totalJudgeRecord.IsAllPerfect, 
                 totalJudgeRecord.IsFullCombo, 
                 gameObject.GetCancellationTokenOnDestroy()).Forget();
-            var settings = MajInstances.GameManager.Settings;
+            var settings = MajInstances.GameManager.SystemSettings;
             if (!settings.IsAnyModActive())
             {
                 var localScoreSaveTask = ScoreManager.SaveScore(result, result.Level);
@@ -319,7 +320,7 @@ namespace MajdataPlay.Scenes.Result
             }
             WaitForTaskAsync().Forget();
             // 列表式选歌时使用新的结算界面（段位、练习不使用），本组件照常负责保存、上传、语音和 BGM
-            if (MajEnv.Settings.Display.ListStyle == ListStyleOption.List && !_gameInfo.IsDanMode && !_gameInfo.IsPracticeMode)
+            if (MajEnv.SystemSettings.Common.ListStyle == ListStyleOption.List && !_gameInfo.IsDanMode && !_gameInfo.IsPracticeMode)
             {
                 var viewData = ResultViewData.Create(result, isClassic, overlayHistoryAchievement, overlayHistoryPlayCount,
                                                      settings.IsAnyModActiveExceptPlayStyle());

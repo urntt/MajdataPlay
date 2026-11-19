@@ -144,7 +144,7 @@ namespace MajdataPlay.Scenes.Setting
         {
             _manager = manager;
             _ui = new LightUi(LightUi.FindFont());
-            _offsetUnit = MajEnv.Settings.Debug.OffsetUnit;
+            _offsetUnit = MajEnv.UserSettings.Judge.OffsetUnit;
             LightUi.EnsureEventSystem();
 
             _canvasRoot = LightUi.CreateOverlayCanvas(transform, "SettingBrowserCanvas", 30, out _group);
@@ -210,9 +210,9 @@ namespace MajdataPlay.Scenes.Setting
                 RenderRows(true);
             }
             // 偏移单位变化：换算所有偏移（与原设置页相同），再刷新偏移类选项与说明
-            if (_manager.UpdateOffsetUnitIfNeeded() || _offsetUnit != MajEnv.Settings.Debug.OffsetUnit)
+            if (_manager.UpdateOffsetUnitIfNeeded() || _offsetUnit != MajEnv.UserSettings.Judge.OffsetUnit)
             {
-                _offsetUnit = MajEnv.Settings.Debug.OffsetUnit;
+                _offsetUnit = MajEnv.UserSettings.Judge.OffsetUnit;
                 foreach (var menu in _manager.Menus)
                 {
                     foreach (var data in menu.Options)
@@ -399,7 +399,7 @@ namespace MajdataPlay.Scenes.Setting
         bool IsMenuVisible(int index)
         {
             var menus = _manager.Menus;
-            return index == _menuIndex || menus[index].Visibility.IsVisible(MajEnv.Settings);
+            return index == _menuIndex || menus[index].Visibility.IsVisible(_manager.Setting);
         }
         IEnumerable<bool> GetMenuVisibility()
         {
@@ -449,7 +449,7 @@ namespace MajdataPlay.Scenes.Setting
             for (var step = 0; step < count; step++)
             {
                 index = ((index + direction) % count + count) % count;
-                if (_manager.Menus[index].Visibility.IsVisible(MajEnv.Settings))
+                if (_manager.Menus[index].Visibility.IsVisible(_manager.Setting))
                 {
                     return index;
                 }
@@ -640,7 +640,7 @@ namespace MajdataPlay.Scenes.Setting
             var description = data.DescriptionKey.i18n();
             if (data.IsOffsetOption)
             {
-                description += $"\n{$"MAJTEXT_SETTING_OFFSETUNIT_{MajEnv.Settings.Debug.OffsetUnit}".i18n()}";
+                description += $"\n{$"MAJTEXT_SETTING_OFFSETUNIT_{MajEnv.UserSettings.Judge.OffsetUnit}".i18n()}";
             }
             return description;
         }
@@ -834,7 +834,7 @@ namespace MajdataPlay.Scenes.Setting
             var decrease = InputManager.CheckSensorStatusInThisFrame(SensorArea.E6, SwitchStatus.On) ||
                            InputManager.CheckSensorStatusInThisFrame(SensorArea.B5, SwitchStatus.On) ||
                            InputManager.CheckSensorStatusInThisFrame(SensorArea.B6, SwitchStatus.On);
-            var speed = MajEnv.Settings.Debug.MenuOptionIterationSpeed;
+            var speed = MajEnv.SystemSettings.Common.MenuOptionIterationSpeed;
             var interval = 1f / (speed is 0 ? 15 : speed);
             if (_valueInput.Update(increase, decrease, deltaTime, 0.4f, interval, out var valueDirection))
             {

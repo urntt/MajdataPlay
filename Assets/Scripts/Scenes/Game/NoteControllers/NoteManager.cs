@@ -115,7 +115,7 @@ namespace MajdataPlay.Scenes.Game.Notes.Controllers
         /// <summary>
         /// 本局是否自动播放：初始值取设置，开始后改用本局实际的 Mod 信息（段位等可能覆盖设置）
         /// </summary>
-        bool USERSETTING_IS_AUTOPLAY = (MajEnv.Settings?.Mod.AutoPlay ?? AutoplayModeOption.Disable) != AutoplayModeOption.Disable;
+        bool USERSETTING_IS_AUTOPLAY = (MajEnv.SystemSettings?.Mod.AutoPlay ?? AutoplayModeOption.Disable) != AutoplayModeOption.Disable;
 
         void Awake()
         {

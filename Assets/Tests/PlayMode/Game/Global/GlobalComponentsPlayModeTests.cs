@@ -80,10 +80,14 @@ namespace MajdataPlay.Tests.Game.Global.PlayMode
                 var renderers = renderer.GetComponentsInChildren<MeshRenderer>(true);
                 Assert.That(renderer.InstanceID2SensorIndexMappingTable, Has.Count.EqualTo(34));
                 Assert.That(renderers[0].enabled, Is.False, "sensors start hidden");
-                Assert.That(renderers[0].sortingOrder, Is.EqualTo(short.MaxValue));
+                foreach (var sensor in renderers)
+                {
+                    Assert.That(sensor.sortingLayerName, Is.EqualTo("Debug"));
+                    Assert.That(sensor.sortingOrder, Is.EqualTo(short.MaxValue));
+                }
 
-                _settings.Settings.Debug.DisplaySensor = true;
-                _settings.Settings.Debug.SensorOpacity = 30;
+                _settings.UserSettings.Display.DisplaySensor = true;
+                _settings.UserSettings.Display.SensorOpacity = 30;
                 raw.Span.Clear();
                 raw.Span[3] = true;
                 renderer.OnPreUpdate();
@@ -93,7 +97,7 @@ namespace MajdataPlay.Tests.Game.Global.PlayMode
                 Assert.That(ReadColor(renderers[3]), Is.EqualTo(new Color(0f, 1f, 0f, 0.3f)));
                 Assert.That(ReadColor(renderers[0]), Is.EqualTo(new Color(1f, 0f, 0f, 0.3f)));
 
-                _settings.Settings.Debug.DisplaySensor = false;
+                _settings.UserSettings.Display.DisplaySensor = false;
                 renderer.OnPreUpdate();
                 Assert.That(renderers[3].enabled, Is.False);
             }
@@ -103,28 +107,30 @@ namespace MajdataPlay.Tests.Game.Global.PlayMode
             }
         }
 
-        /// <summary>Checks that hiding and showing the background video moves its renderer between layers.</summary>
+        /// <summary>Checks that hiding and showing the background video disables and enables its renderer.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]
-        public IEnumerator BackgroundVideo_HideAndShowSwitchLayers()
+        public IEnumerator BackgroundVideo_HideAndShowToggleRenderer()
         {
             var root = InactiveObjects.Create(_objects, "BackgroundVideo");
             var player = root.AddComponent<FFmpegVideoPlayer>();
             var spriteObject = _objects.Create("BackgroundSprite", root.transform);
             var sprite = spriteObject.AddComponent<SpriteRenderer>();
             var controller = root.AddComponent<BackgroundVideoController>();
+            // Exercise the controls without starting the global game initialization and video preparation.
+            controller.enabled = false;
             PrivateMember.SetField(controller, "_videoPlayer", player);
             PrivateMember.SetField(controller, "_videoRenderer", sprite);
             root.SetActive(true);
             yield return null;
 
             controller.Hide();
-            Assert.That(spriteObject.layer, Is.EqualTo(MajEnv.HIDDEN_LAYER));
+            Assert.That(sprite.enabled, Is.False);
             controller.Pause();
             controller.Stop();
             var error = Assert.Throws<InvalidOperationException>(() => controller.Show(), "no video source is configured");
             Assert.That(error.Message, Does.Contain("Url"));
-            Assert.That(spriteObject.layer, Is.EqualTo(MajEnv.DEFAULT_LAYER));
+            Assert.That(sprite.enabled, Is.True);
             Assert.Throws<InvalidOperationException>(() => controller.Play());
             Assert.That(MajdataPlay.Majdata<BackgroundVideoController>.Instance, Is.SameAs(controller));
         }
