@@ -85,6 +85,11 @@ jobs:
           restore-keys: |
             Library-${{ runner.os }}-iOS-
 
+      # 新版 Unity Hub 不再支持 game-ci 安装编辑器用的 "--headless install"。
+      # 先自己装好编辑器和 iOS 模块，game-ci 发现编辑器已在 /Applications/Unity/Hub/Editor/<版本> 就会跳过安装。
+      - name: Install Unity Editor
+        run: bash Tools/iOS/install_unity_editor_mac.sh
+
       - name: Export Xcode project with Unity
         uses: game-ci/unity-builder@v4
         with:
