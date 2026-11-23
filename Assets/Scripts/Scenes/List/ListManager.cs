@@ -509,6 +509,17 @@ namespace MajdataPlay.Scenes.List
             MajInstances.SceneSwitcher.SwitchScene("Setting", false);
             _isExited = true;
         }
+        /// <summary>
+        /// Rescans the local and online charts and reloads the list scene; used by the Refresh Charts button of the touch list.
+        /// </summary>
+        internal void RefreshCharts()
+        {
+            if (_isExited)
+            {
+                return;
+            }
+            RefreshList();
+        }
         private void EnterGame()
         {
             _cts.Cancel();

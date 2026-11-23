@@ -15,7 +15,7 @@
     if (!url) return [super application:app openURL:url options:options];
 
     NSString* ext = url.pathExtension.lowercaseString ?: @"";
-    if (!([ext isEqualToString:@"zip"] || [ext isEqualToString:@"adx"])) {
+    if (!([ext isEqualToString:@"zip"] || [ext isEqualToString:@"adx"] || [ext isEqualToString:@"pez"])) {
         return [super application:app openURL:url options:options];
     }
 

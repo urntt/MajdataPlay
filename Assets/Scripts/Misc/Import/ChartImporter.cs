@@ -17,6 +17,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -25,6 +28,32 @@ namespace MajdataPlay.Import
 {
     internal static class ChartImporter
     {
+        /// <summary>The archive extensions that can be imported: chart packages (.zip, AstroDX .adx) and Phira .pez charts.</summary>
+        internal static readonly string[] SupportedArchiveExtensions = { ".zip", ".adx", ".pez" };
+
+        /// <summary>The name of the folder below <see cref="MajEnv.RootDirectory"/> whose archives can be imported from the list on desktops.</summary>
+        internal const string ImportFolderName = "ChartImports";
+
+        /// <summary>The extension of a Phira chart package, which is converted to simai while it is imported.</summary>
+        private const string PezExtension = ".pez";
+
+        /// <summary>Matches the info file at the root of a Phira package.</summary>
+        private static readonly Regex s_pezInfoFileName = new(@"^info\.(yml|txt)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>The cover extensions a converted chart keeps, mapped to the extension of its <c>bg</c> file.</summary>
+        private static readonly Dictionary<string, string> s_coverExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [".png"] = ".png",
+            [".jpg"] = ".jpg",
+            [".jpeg"] = ".jpg",
+        };
+
+#if UNITY_IOS && !UNITY_EDITOR
+        /// <summary>Shows the iOS document picker (Assets/Plugins/iOS/MajDocumentPicker.mm); picked files arrive through <c>GameManager.IOS_OnFileOpen</c>.</summary>
+        [DllImport("__Internal")]
+        private static extern void MajDocumentPicker_Show();
+#endif
+
         /// <summary>Retains the collection handle receiving charts without an explicit collection.</summary>
         private static StorageDirectory s_importRoot = null!;
         private static ValueTask s_importTask = UniTask.CompletedTask;
@@ -111,6 +140,77 @@ namespace MajdataPlay.Import
                 await s_importTask;
             }
         }
+        /// <summary>
+        /// Shows the system file picker so the player can choose chart archives to import.
+        /// </summary>
+        /// <remarks>
+        /// On iOS the picked files are copied by the native picker and queued through <c>GameManager.IOS_OnFileOpen</c>; on
+        /// Android the storage picker runs from <see cref="OnUpdate"/> like the launcher shortcut. Desktops have no picker
+        /// at run time and use <see cref="ListImportFolder"/> instead.
+        /// </remarks>
+        /// <returns>True when a picker is shown; false when this platform has none.</returns>
+        internal static bool TryShowPicker()
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            MajDocumentPicker_Show();
+            return true;
+#elif ANDROID_RUNTIME
+            // OnUpdate shows the storage picker on the next frame, exactly as for the launcher shortcut.
+            s_pendingShortcut = ShortcutImportKind.Archive;
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        /// <summary>Gets the folder whose archives can be imported from the list, creating it when it is missing.</summary>
+        /// <returns>The <see cref="ImportFolderName"/> folder below <see cref="MajEnv.RootDirectory"/>.</returns>
+        internal static StorageDirectory GetImportFolder()
+        {
+            return MajEnv.RootDirectory.CreateDirectory(ImportFolderName);
+        }
+
+        /// <summary>Lists the archives in the import folder that can be imported, newest first.</summary>
+        /// <returns>The archive entries; empty when the folder cannot be read.</returns>
+        internal static List<FileSystemEntry> ListImportFolder()
+        {
+            var archives = new List<FileSystemEntry>();
+            try
+            {
+                foreach (var entry in GetImportFolder().EnumerateEntries())
+                {
+                    if (!entry.IsDirectory && !IsExcluded(entry) && IsSupportedArchive(entry.Name))
+                    {
+                        archives.Add(entry);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogWarning(nameof(ChartImporter), $"Failed to list the import folder: {e.Message}");
+            }
+            archives.Sort((x, y) => Nullable.Compare(y.LastWriteTimeUtc, x.LastWriteTimeUtc));
+            return archives;
+        }
+
+        /// <summary>Queues an archive the player chose in the import folder; the file is kept after the import.</summary>
+        /// <param name="entry">The archive entry.</param>
+        internal static void QueueImport(FileSystemEntry entry)
+        {
+            s_pendingImportTasks.Enqueue(new PendingImport(entry, deleteSourceAfterImport: false));
+        }
+
+        /// <summary>Determines whether a file name has an extension that can be imported.</summary>
+        /// <param name="fileName">The file name.</param>
+        /// <returns>True for .zip, .adx and .pez files.</returns>
+        internal static bool IsSupportedArchive(string fileName)
+        {
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            return Array.IndexOf(SupportedArchiveExtensions, extension) >= 0;
+        }
+
+        /// <summary>Queues a file that a platform handed to the game, such as an iOS "Open in" or picked document.</summary>
+        /// <param name="tempFilePath">The local path of the file.</param>
         public static void AddImportTask(string tempFilePath)
         {
             var entry = FileSystem.GetEntry(tempFilePath);
@@ -212,7 +312,7 @@ namespace MajdataPlay.Import
         }
 
         /// <summary>Extracts one queued archive into a private temporary directory and imports the chart layout it contains.</summary>
-        /// <param name="entry">The queued <c>.zip</c> or <c>.adx</c> archive entry.</param>
+        /// <param name="entry">The queued <c>.zip</c>, <c>.adx</c> or <c>.pez</c> archive entry.</param>
         /// <param name="deleteSourceAfterImport">Whether the source is a consumed temporary file that is deleted afterwards.</param>
         /// <returns>An operation that completes after the archive contents have been imported.</returns>
         /// <remarks>
@@ -222,7 +322,7 @@ namespace MajdataPlay.Import
         private static async ValueTask ImportArchiveAsync(FileSystemEntry entry, bool deleteSourceAfterImport)
         {
             var extension = Path.GetExtension(entry.Name).ToLowerInvariant();
-            if (extension != ".zip" && extension != ".adx")
+            if (!IsSupportedArchive(entry.Name))
             {
                 MajDebug.LogError("[ChartImporter] Unsupported extension: " + extension);
                 return;
@@ -237,6 +337,12 @@ namespace MajdataPlay.Import
             try
             {
                 await ExtractArchiveAsync(entry, outputDirectory);
+                if (extension == PezExtension)
+                {
+                    // A Phira chart becomes a simai chart folder before it joins the Import collection.
+                    await ImportPezAsync(outputDirectory, Path.GetFileNameWithoutExtension(entry.Name));
+                    return;
+                }
                 // An archive may hold a single chart, or a collection directory that groups several charts.
                 await ImportContainerAsync(outputDirectory, Path.GetFileNameWithoutExtension(entry.Name));
             }
@@ -251,6 +357,140 @@ namespace MajdataPlay.Import
                 }
 #endif
             }
+        }
+
+        /// <summary>
+        /// Converts an extracted Phira .pez package to a simai chart folder and imports it into the Import collection.
+        /// </summary>
+        /// <remarks>
+        /// The chart file is the one info.yml names (else the only JSON file), converted by <see cref="UrcConverter"/>.
+        /// The music becomes <c>track.&lt;extension&gt;</c> and a PNG or JPEG illustration becomes <c>bg.png</c> or
+        /// <c>bg.jpg</c>. The folder is named after the chart's title.
+        /// </remarks>
+        /// <param name="package">The directory the package was extracted to.</param>
+        /// <param name="archiveName">The archive name without extension, used when the package has no title.</param>
+        /// <returns>An operation that completes after the converted chart has been copied.</returns>
+        /// <exception cref="IOException">The package has no chart or no supported music file.</exception>
+        /// <exception cref="UrcConversionException">The chart could not be converted.</exception>
+        private static async ValueTask ImportPezAsync(StorageDirectory package, string archiveName)
+        {
+            var info = FindPezInfo(package);
+            var infoText = info?.ReadAllText() ?? string.Empty;
+            var chartFile = FindPezChart(package, ReadYamlValue(infoText, "chart"))
+                ?? throw new IOException("The .pez package has no chart file.");
+            MajInstances.SceneSwitcher.SetLoadingText($"{"MAJTEXT_IMPORT_CONVERTING_PEZ".i18n()}\n{archiveName}");
+            var result = await UrcConverter.PezToSimaiAsync(chartFile.ReadAllText());
+            await UniTask.SwitchToMainThread();
+
+            var musicName = result.Music ?? ReadYamlValue(infoText, "music");
+            var music = musicName is null ? null : package.FindFile(musicName);
+            var musicExtension = musicName is null ? string.Empty : Path.GetExtension(musicName).ToLowerInvariant();
+            if (music is null || Array.IndexOf(MajEnv.SupportedAudioFormats, musicExtension) < 0)
+            {
+                throw new IOException($"The .pez package has no supported music file ({musicName ?? "none named"}).");
+            }
+            var chartDirectory = MajEnv.TempDirectory.CreateDirectory(Guid.NewGuid().ToString());
+            try
+            {
+                chartDirectory.CreateFile(SongStorage.ChartFileName).WriteAllText(result.Maidata, new UTF8Encoding(false));
+                music.CopyTo(chartDirectory, "track" + musicExtension, overwrite: true);
+                var illustrationName = result.Illustration ?? ReadYamlValue(infoText, "illustration");
+                var illustration = illustrationName is null ? null : package.FindFile(illustrationName);
+                if (illustration is not null && s_coverExtensions.TryGetValue(Path.GetExtension(illustrationName!), out var coverExtension))
+                {
+                    illustration.CopyTo(chartDirectory, "bg" + coverExtension, overwrite: true);
+                }
+                var title = ReadYamlValue(infoText, "name") ?? result.Title ?? archiveName;
+                await ImportChartAsync(chartDirectory, s_importRoot, ToDirectoryName(title, archiveName));
+            }
+            finally
+            {
+                TryDeleteDirectory(chartDirectory);
+            }
+        }
+
+        /// <summary>Finds the info file at the root of an extracted Phira package.</summary>
+        /// <param name="package">The extracted package.</param>
+        /// <returns>info.yml or info.txt, or null when the package has neither.</returns>
+        private static StorageFile? FindPezInfo(StorageDirectory package)
+        {
+            foreach (var entry in package.EnumerateEntries())
+            {
+                if (!entry.IsDirectory && s_pezInfoFileName.IsMatch(entry.Name))
+                {
+                    return package.FindFile(entry.Name);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Finds the chart file of an extracted Phira package.</summary>
+        /// <param name="package">The extracted package.</param>
+        /// <param name="namedChart">The chart file info.yml names, or null when it names none.</param>
+        /// <returns>The named chart file, else the first JSON file at the root, or null when there is none.</returns>
+        private static StorageFile? FindPezChart(StorageDirectory package, string? namedChart)
+        {
+            if (namedChart is not null && package.FindFile(namedChart) is StorageFile named)
+            {
+                return named;
+            }
+            foreach (var entry in package.EnumerateEntries())
+            {
+                if (!entry.IsDirectory && string.Equals(Path.GetExtension(entry.Name), ".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    return package.FindFile(entry.Name);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Reads a top-level value of info.yml the way URC's command line does.</summary>
+        /// <param name="text">The text of info.yml.</param>
+        /// <param name="key">The key to read.</param>
+        /// <returns>The unquoted value, or null when the key is missing or empty.</returns>
+        internal static string? ReadYamlValue(string text, string key)
+        {
+            var match = Regex.Match(text, $"^{Regex.Escape(key)}:[ \\t]*(.*)$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+            if (!match.Success)
+            {
+                return null;
+            }
+            var raw = match.Groups[1].Value.Trim();
+            if (raw.Length >= 2 && raw[0] == '"' && raw[raw.Length - 1] == '"')
+            {
+                try
+                {
+                    raw = Newtonsoft.Json.JsonConvert.DeserializeObject<string>(raw) ?? string.Empty;
+                }
+                catch (Newtonsoft.Json.JsonException)
+                {
+                    raw = raw.Substring(1, raw.Length - 2);
+                }
+            }
+            else if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
+            {
+                raw = raw.Substring(1, raw.Length - 2);
+            }
+            return raw.Length == 0 ? null : raw;
+        }
+
+        /// <summary>Turns a chart title into a directory name that every platform accepts.</summary>
+        /// <param name="title">The title.</param>
+        /// <param name="fallback">The name used when nothing of the title is left.</param>
+        /// <returns>The title without characters that are invalid in file names, at most 80 characters long.</returns>
+        internal static string ToDirectoryName(string title, string fallback)
+        {
+            var builder = new StringBuilder(title.Length);
+            foreach (var c in title)
+            {
+                builder.Append(c < 32 || "\\/:*?\"<>|".IndexOf(c) >= 0 ? '_' : c);
+            }
+            var name = builder.ToString().Trim().TrimEnd('.');
+            if (name.Length > 80)
+            {
+                name = name.Substring(0, 80).TrimEnd();
+            }
+            return name.Length == 0 || name.StartsWith(".") ? fallback : name;
         }
 
         /// <summary>Imports one queued directory using the same layout rules as an extracted archive.</summary>

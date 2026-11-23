@@ -136,13 +136,21 @@ namespace MajdataPlay.Scenes.Result
         Image? _coverImage;
         Image? _heart;
         /// <summary>
-        /// The feedback icon button, or <see langword="null"/> when the chart does not accept feedback.
+        /// The feedback icon button, hidden until the chart is known to accept feedback.
         /// </summary>
-        Button? _feedbackButton;
+        Button _feedbackButton = null!;
         /// <summary>
         /// The icon of <see cref="_feedbackButton"/>.
         /// </summary>
-        Image? _feedbackIcon;
+        Image _feedbackIcon = null!;
+        /// <summary>
+        /// The holder of <see cref="_feedbackButton"/> and its shadow, hidden while the chart does not accept feedback.
+        /// </summary>
+        RectTransform _feedbackHolder = null!;
+        /// <summary>
+        /// Whether the modal shows the feedback dialog, so taps on the dimming do not close it while a request may be running.
+        /// </summary>
+        bool _isFeedbackDialogShown;
         Button? _uploadButton;
         TextMeshProUGUI? _uploadStatus;
         Button _continueButton = null!;
@@ -229,8 +237,9 @@ namespace MajdataPlay.Scenes.Result
             LoadCoverAsync().Forget();
         }
         /// <summary>
-        /// Builds the icon buttons at the bottom right, from right to left: Continue, Play Again, Share and, when the chart accepts
-        /// feedback, Feedback. Continue, Play Again and Feedback stay faded until the score is saved and uploaded.
+        /// Builds the icon buttons at the bottom right, from right to left: Continue, Play Again, Share and Feedback. Feedback is
+        /// last so that hiding it leaves no gap; it is shown once the chart is known to accept feedback, which needs a reply from the
+        /// server. Continue, Play Again and Feedback stay faded until the score is saved and uploaded.
         /// </summary>
         void BuildActionButtons()
         {
@@ -238,14 +247,9 @@ namespace MajdataPlay.Scenes.Result
             _continueButton = CreateActionButton(UiSprites.ArrowRight, LightUi.ACCENT, Color.white, 0.2f, Continue, out _continueIcon);
             _retryButton = CreateActionButton(UiSprites.Retry, LightUi.PAPER, LightUi.TEXT, 0.16f, Retry, out _retryIcon);
             CreateActionButton(UiSprites.Share, LightUi.PAPER, LightUi.TEXT, 0.16f, ShowShareModal, out _);
-            _feedbackButton = null;
-            _feedbackIcon = null;
-            // 评价面板在结算界面创建之前就已初始化，这里就能确定这首能否评价
-            if (_manager.IsFeedbackAvailable)
-            {
-                _feedbackButton = CreateActionButton(UiSprites.Comment, LightUi.PAPER, LightUi.FAVORITE, 0.16f, _manager.RequestFeedback, out var feedbackIcon);
-                _feedbackIcon = feedbackIcon;
-            }
+            _feedbackButton = CreateActionButton(UiSprites.Comment, LightUi.PAPER, LightUi.FAVORITE, 0.16f, () => ShowFeedbackDialog(false), out _feedbackIcon);
+            _feedbackHolder = _actionButtons[_actionButtons.Count - 1].Holder;
+            _feedbackHolder.gameObject.SetActive(_manager.IsFeedbackAvailable);
             PlaceActionButtons(_root.rect.height);
         }
         /// <summary>
@@ -321,7 +325,7 @@ namespace MajdataPlay.Scenes.Result
             {
                 return;
             }
-            // 评价面板属于原版界面：打开时切回原版，否则会被新界面挡住
+            // 原版评价面板只由机台实体按键（A4、B4/E4）打开，属于原版界面：打开时切回原版，否则会被新界面挡住；触摸用自己的评价窗口
             if (_manager.IsFeedbackShowing)
             {
                 SwitchToClassic();
@@ -669,10 +673,13 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         void UpdateDynamicParts()
         {
-            if (_feedbackButton != null && _feedbackIcon != null)
+            // 能否评价要等服务器回复（评价面板的初始化）后才知道，确定之后再显示评价键
+            var isFeedbackAvailable = _manager.IsFeedbackAvailable;
+            if (_feedbackHolder.gameObject.activeSelf != isFeedbackAvailable)
             {
-                LightUi.SetIconButtonInteractable(_feedbackButton, _feedbackIcon, _manager.IsAllTaskFinished);
+                _feedbackHolder.gameObject.SetActive(isFeedbackAvailable);
             }
+            LightUi.SetIconButtonInteractable(_feedbackButton, _feedbackIcon, _manager.IsAllTaskFinished);
             // 保存与上传完成之前，继续和再玩一次是淡的、不能点
             var canContinue = _manager.IsAllTaskFinished && _manager.IsInited && !_manager.IsExited && !_isLeaving;
             LightUi.SetIconButtonInteractable(_continueButton, _continueIcon, canContinue);
@@ -726,7 +733,7 @@ namespace MajdataPlay.Scenes.Result
             dim.color = new Color(0.09f, 0.125f, 0.2f, 0.4f);
             var dimButton = _modal.gameObject.AddComponent<Button>();
             dimButton.transition = Selectable.Transition.None;
-            dimButton.onClick.AddListener(HideModal);
+            dimButton.onClick.AddListener(OnModalDimTapped);
             _modal.gameObject.SetActive(false);
         }
         /// <summary>
@@ -734,18 +741,11 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         void ShowShareModal()
         {
-            LightUi.ClearChildren(_modal);
             var formats = new[] { ScoreShareFormatOption.Image, ScoreShareFormatOption.Text, ScoreShareFormatOption.Csv, ScoreShareFormatOption.Json };
             var height = 100f + formats.Length * 64f + 74f;
-            var panel = LightUi.CreateImage(_modal, LightUi.PAPER, 18f);
-            var panelRect = panel.rectTransform;
-            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(480f, height);
-            // 拦截面板上的点击，免得冒泡到背后的遮罩把弹窗关掉
-            panel.raycastTarget = true;
-            panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
+            // 白色小窗在安全区域内居中，放不下时整体缩小；面板拦截点击，免得冒泡到背后的遮罩把弹窗关掉
+            _isFeedbackDialogShown = false;
+            var panelRect = LightUi.CreateModalPanel(_modal, _canvasRoot, _root, 480f, height);
             var title = _ui.CreateText(panelRect, "MAJTEXT_LIST_CHOOSE_SHARE".i18n(), 22f, LightUi.TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             LightUi.PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
             for (var i = 0; i < formats.Length; i++)
@@ -760,12 +760,65 @@ namespace MajdataPlay.Scenes.Result
             }
             var cancel = _ui.CreateButton(panelRect, "MAJTEXT_LIST_CANCEL".i18n(), LightUi.PAPER, LightUi.MUTED, 18f, HideModal);
             LightUi.PlaceRow((RectTransform)cancel.transform, 28f, height - 74f, 28f, 50f);
-            _modal.gameObject.SetActive(true);
-            _modal.SetAsLastSibling();
         }
+        /// <summary>
+        /// Opens the touch feedback dialog for the chart of this result.
+        /// </summary>
+        /// <param name="isPrompt">
+        /// Whether the dialog is the first-play prompt of Continue: its left button is Skip, and the results are left once the
+        /// feedback is sent or skipped. Otherwise it is opened by the Feedback button and only closes.
+        /// </param>
+        void ShowFeedbackDialog(bool isPrompt)
+        {
+            var song = _manager.FeedbackSong;
+            if (_isLeaving || song is null)
+            {
+                return;
+            }
+            _manager.MarkFeedbackPrompted();
+            _isFeedbackDialogShown = true;
+            var panel = LightUi.CreateModalPanel(_modal, _canvasRoot, _root, ChartFeedbackDialog.WIDTH, ChartFeedbackDialog.HEIGHT);
+            var cancelLabel = (isPrompt ? "MAJTEXT_FEEDBACK_SKIP" : "MAJTEXT_LIST_CANCEL").i18n();
+            ChartFeedbackDialog.Show(_ui, panel, song, cancelLabel, isSubmitted => OnFeedbackDialogClosed(isPrompt, isSubmitted));
+        }
+        /// <summary>
+        /// Closes the feedback dialog; the first-play prompt then leaves the results, and a sent feedback is confirmed by a toast
+        /// otherwise.
+        /// </summary>
+        /// <param name="isPrompt">Whether the dialog was the first-play prompt of Continue.</param>
+        /// <param name="isSubmitted">Whether the feedback was sent.</param>
+        void OnFeedbackDialogClosed(bool isPrompt, bool isSubmitted)
+        {
+            _isFeedbackDialogShown = false;
+            HideModal();
+            if (isPrompt)
+            {
+                Continue();
+                return;
+            }
+            if (isSubmitted)
+            {
+                ShowToast("MAJTEXT_LIST_FEEDBACK_DONE".i18n());
+            }
+        }
+        /// <summary>
+        /// Closes the modal.
+        /// </summary>
         void HideModal()
         {
+            _isFeedbackDialogShown = false;
             _modal.gameObject.SetActive(false);
+        }
+        /// <summary>
+        /// Closes the modal when its dimming is tapped, except while the feedback dialog is shown: it closes with its own buttons.
+        /// </summary>
+        void OnModalDimTapped()
+        {
+            if (_isFeedbackDialogShown)
+            {
+                return;
+            }
+            HideModal();
         }
         void ShareResult(ScoreShareFormatOption format)
         {
@@ -795,10 +848,7 @@ namespace MajdataPlay.Scenes.Result
             if (_isWaitingShare && ScoreExchange.ShareState != ScoreActionState.Running)
             {
                 _isWaitingShare = false;
-                _toastText.text = (ScoreExchange.ShareState == ScoreActionState.Done ? "MAJTEXT_LIST_SHARE_DONE" : "MAJTEXT_LIST_SHARE_FAILED").i18n();
-                _toast.gameObject.SetActive(true);
-                _toast.SetAsLastSibling();
-                _toastRemaining = TOAST_DURATION_SEC;
+                ShowToast((ScoreExchange.ShareState == ScoreActionState.Done ? "MAJTEXT_LIST_SHARE_DONE" : "MAJTEXT_LIST_SHARE_FAILED").i18n());
             }
             if (_toastRemaining > 0f)
             {
@@ -808,6 +858,17 @@ namespace MajdataPlay.Scenes.Result
                     _toast.gameObject.SetActive(false);
                 }
             }
+        }
+        /// <summary>
+        /// Shows a toast at the top of the safe area for <see cref="TOAST_DURATION_SEC"/>, replacing the one shown.
+        /// </summary>
+        /// <param name="text">The text of the toast.</param>
+        void ShowToast(string text)
+        {
+            _toastText.text = text;
+            _toast.gameObject.SetActive(true);
+            _toast.SetAsLastSibling();
+            _toastRemaining = TOAST_DURATION_SEC;
         }
         /// <summary>
         /// 临时切回原版结算界面：隐藏新界面、恢复原画布，屏幕触摸重新模拟机台按键（A4 继续、A5 收藏等）
@@ -821,10 +882,18 @@ namespace MajdataPlay.Scenes.Result
             InputManager.SuppressTouchPanelSimulation = false;
         }
         #endregion
+        /// <summary>
+        /// Leaves the results; on the first play of a chart that accepts feedback, the feedback dialog is offered first.
+        /// </summary>
         void Continue()
         {
             if (_isLeaving)
             {
+                return;
+            }
+            if (_manager.ShouldPromptFeedback && _manager.FeedbackSong is not null)
+            {
+                ShowFeedbackDialog(true);
                 return;
             }
             if (_manager.TryExit())

@@ -30,7 +30,7 @@ namespace MajdataPlay.Scenes.List
         /// <summary>
         /// The narrowest selection bar that still fits right of the pager; a narrower space stacks it above the pager.
         /// </summary>
-        const float SELECTION_BAR_MIN_WIDTH = 300f;
+        const float SELECTION_BAR_MIN_WIDTH = 400f;
 
         /// <summary>
         /// The narrowest search bar left of the pager; a narrower space makes the search bar cover the whole floating row.

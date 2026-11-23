@@ -1,0 +1,12 @@
+{
+	"name": "majdataplay-urc-bundle",
+	"private": true,
+	"description": "Bundles Universal Rhythm Chart for the Jint interpreter in MajdataPlay.",
+	"type": "module",
+	"scripts": {
+		"build": "node build.mjs"
+	},
+	"devDependencies": {
+		"esbuild": "0.25.12"
+	}
+}

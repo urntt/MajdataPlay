@@ -53,15 +53,19 @@ namespace MajdataPlay
             OpenFolder(Path.GetDirectoryName(fallbackPath) ?? string.Empty);
 #endif
         }
-#if !((UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR)
-        static void OpenFolder(string directory)
+        /// <summary>
+        /// Opens a folder in the system file manager on desktops; does nothing on phones, which have no such view.
+        /// </summary>
+        /// <param name="directory">The local path of the folder.</param>
+        internal static void OpenFolder(string directory)
         {
+#if !((UNITY_IOS || UNITY_ANDROID) && !UNITY_EDITOR)
             if (string.IsNullOrEmpty(directory))
             {
                 return;
             }
             Application.OpenURL("file:///" + directory.Replace('\\', '/').TrimStart('/'));
-        }
 #endif
+        }
     }
 }

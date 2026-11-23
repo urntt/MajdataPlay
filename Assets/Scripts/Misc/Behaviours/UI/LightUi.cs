@@ -153,6 +153,69 @@ namespace MajdataPlay
             return button;
         }
         /// <summary>
+        /// Creates a borderless single-line text field; the panel around it draws the background.
+        /// </summary>
+        /// <param name="parent">The parent the field is created in; place the field afterwards.</param>
+        /// <param name="placeholder">The hint shown while the field is empty.</param>
+        /// <param name="fontSize">The size of the text and the hint.</param>
+        /// <returns>The text field.</returns>
+        public TMP_InputField CreateInputField(Transform parent, string placeholder, float fontSize = 18f)
+        {
+            var border = CreateImage(parent, new Color(0f, 0f, 0f, 0f), 0f);
+            border.gameObject.name = "InputField";
+            border.raycastTarget = true;
+            var textArea = CreateRect("TextArea", border.transform);
+            Stretch(textArea);
+            textArea.offsetMin = new Vector2(12f, 6f);
+            textArea.offsetMax = new Vector2(-8f, -6f);
+            textArea.gameObject.AddComponent<RectMask2D>();
+            var placeholderText = CreateText(textArea, placeholder, fontSize, MUTED, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            Stretch(placeholderText.rectTransform);
+            var text = CreateText(textArea, string.Empty, fontSize, TEXT, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
+            Stretch(text.rectTransform);
+            var input = border.gameObject.AddComponent<TMP_InputField>();
+            input.textViewport = textArea;
+            input.textComponent = text;
+            input.placeholder = placeholderText;
+            input.targetGraphic = border;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            input.richText = false;
+            return input;
+        }
+        /// <summary>
+        /// Clears a modal layer and creates a white panel centered in the safe area that keeps taps from reaching the dimming
+        /// behind it; a panel larger than the safe area is scaled down to fit.
+        /// </summary>
+        /// <param name="modal">The full-screen modal layer, stretched over <paramref name="canvasRoot"/>; it is shown on top.</param>
+        /// <param name="canvasRoot">The full-screen root of the canvas.</param>
+        /// <param name="safeRoot">The safe-area child of the canvas, see <see cref="CreateSafeRoot"/>.</param>
+        /// <param name="width">The width of the panel.</param>
+        /// <param name="height">The height of the panel.</param>
+        /// <param name="margin">The smallest distance between the panel and the edges of the safe area.</param>
+        /// <returns>The panel rectangle; place the content inside it.</returns>
+        public static RectTransform CreateModalPanel(RectTransform modal, RectTransform canvasRoot, RectTransform safeRoot,
+                                                     float width, float height, float margin = 16f)
+        {
+            ClearChildren(modal);
+            var panel = CreateImage(modal, PAPER, 18f);
+            var panelRect = panel.rectTransform;
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.sizeDelta = new Vector2(width, height);
+            var safeCenter = (Vector2)canvasRoot.InverseTransformPoint(safeRoot.TransformPoint(safeRoot.rect.center));
+            panelRect.anchoredPosition = safeCenter - canvasRoot.rect.center;
+            var safeSize = safeRoot.rect.size;
+            var scale = Mathf.Min(1f, (safeSize.x - margin * 2f) / width, (safeSize.y - margin * 2f) / height);
+            scale = Mathf.Max(0.3f, scale);
+            panelRect.localScale = new Vector3(scale, scale, 1f);
+            panel.raycastTarget = true;
+            panel.gameObject.AddComponent<Button>().transition = Selectable.Transition.None;
+            modal.gameObject.SetActive(true);
+            modal.SetAsLastSibling();
+            return panelRect;
+        }
+        /// <summary>
         /// The opacity of an icon button and its icon while the button cannot be pressed.
         /// </summary>
         const float DISABLED_ICON_ALPHA = 0.4f;

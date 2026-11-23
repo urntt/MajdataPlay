@@ -21,6 +21,9 @@ namespace MajdataPlay.Editor
         private const string SettingsBundleSourcePath = "Assets/Plugins/iOS/Settings.bundle";
         private const string SettingsBundleName = "Settings.bundle";
         private const string ZlibLibrary = "libz.tbd";
+
+        /// <summary>The framework MajDocumentPicker.mm uses for the document types of the chart import picker.</summary>
+        private const string UniformTypeIdentifiersFramework = "UniformTypeIdentifiers.framework";
         private const string ThermalSourceRelativePath = "Classes/UnityAppController+Thermal.mm";
         private const string ThermalFrameRateMethodSignature =
             "- (int)adjustFrameRateForThermalState:(int)targetFPS";
@@ -141,6 +144,7 @@ namespace MajdataPlay.Editor
             {
                 AddRunpathSearchPaths(proj, frameworkTarget);
                 proj.AddFrameworkToProject(frameworkTarget, ZlibLibrary, false);
+                proj.AddFrameworkToProject(frameworkTarget, UniformTypeIdentifiersFramework, false);
             }
 
             File.WriteAllText(projPath, proj.WriteToString());
@@ -216,6 +220,22 @@ namespace MajdataPlay.Editor
                 description: "ADX Level Package",
                 conformsTo: new[] { "public.zip-archive" },
                 filenameExtensions: new[] { "adx" }
+            );
+
+            // Phira chart packages, converted to simai while they are imported (ChartImporter).
+            string pezUti = $"{bundleId}.pez";
+            EnsureDocumentType(root,
+                typeName: "PEZ Chart Package",
+                role: "Viewer",
+                handlerRank: "Alternate",
+                contentTypes: new[] { pezUti }
+            );
+
+            EnsureExportedTypeDeclaration(root,
+                identifier: pezUti,
+                description: "Phira Chart Package",
+                conformsTo: new[] { "public.zip-archive" },
+                filenameExtensions: new[] { "pez" }
             );
 
             File.WriteAllText(plistPath, plist.WriteToString());

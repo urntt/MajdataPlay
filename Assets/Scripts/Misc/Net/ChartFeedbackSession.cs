@@ -34,7 +34,7 @@ namespace MajdataPlay.Net
     /// Loads the player's vote on an online chart and submits a new vote and a comment, without any UI.
     /// </summary>
     /// <remarks>
-    /// Used by the feedback dialog of the song list detail page. It follows the rules of the result screen's
+    /// Used by <see cref="ChartFeedbackDialog"/> on the song list detail page and the touch result screen. It follows the rules of the result screen's
     /// <c>SongFeedbackPanel</c>: a vote is changed with the like, dislike and delete requests of <see cref="Online"/>; when the
     /// outcome of a vote request is unknown, the server's vote is loaded again before the next one; a comment is never sent again
     /// automatically. The methods may continue on a worker thread, so callers switch back to the main thread before touching
@@ -42,11 +42,6 @@ namespace MajdataPlay.Net
     /// </remarks>
     internal sealed class ChartFeedbackSession
     {
-        /// <summary>
-        /// The only server that accepts chart feedback.
-        /// </summary>
-        private const string FEEDBACK_HOST = "majdata.net";
-
         /// <summary>
         /// The vote that means "like".
         /// </summary>
@@ -93,9 +88,13 @@ namespace MajdataPlay.Net
         public int Vote { get; private set; }
 
         /// <summary>
-        /// Determines whether the player can give feedback on a chart: an online chart from majdata.net, on a server that requires
-        /// logging in, with a logged-in account.
+        /// Determines whether the player can give feedback on a chart: an online chart, on a server that requires logging in, with a
+        /// logged-in account.
         /// </summary>
+        /// <remarks>
+        /// The same rule as the result screen's <c>SongFeedbackPanel</c>; a server without the chart interaction API fails when the
+        /// vote is loaded.
+        /// </remarks>
         /// <param name="song">The chart.</param>
         /// <returns><see langword="true"/> when feedback can be given; otherwise <see langword="false"/>.</returns>
         public static bool IsAvailable(ISongDetail? song)
@@ -104,10 +103,8 @@ namespace MajdataPlay.Net
             {
                 return false;
             }
-            var server = onlineSong.ServerInfo;
-            return string.Equals(server.Url.Host, FEEDBACK_HOST, StringComparison.OrdinalIgnoreCase)
-                && server.RuntimeConfig.IsLoggedIn
-                && server.RuntimeConfig.AuthMethod != NetAuthMethodOption.None;
+            var config = onlineSong.ServerInfo.RuntimeConfig;
+            return config.IsLoggedIn && config.AuthMethod != NetAuthMethodOption.None;
         }
 
         /// <summary>

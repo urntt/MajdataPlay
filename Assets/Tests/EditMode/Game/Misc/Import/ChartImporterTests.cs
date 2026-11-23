@@ -218,6 +218,35 @@ namespace MajdataPlay.Tests.Game.Misc.Import
             });
         }
 
+        /// <summary>
+        /// Checks that a .pez exported by <see cref="ChartExporter"/> imports back as a simai chart of the Import collection, named
+        /// after its title, with the track and the cover renamed.
+        /// </summary>
+        /// <returns>The test coroutine.</returns>
+        [UnityTest]
+        public IEnumerator ImportArchive_PezRoundTrip()
+        {
+            return UniTask.ToCoroutine(async () =>
+            {
+                var source = ChartFixture.CreateChart(_temporary.Directory, "Source", "Pez Song", coverName: "bg.png");
+                string path;
+                using (var song = await SongDetail.ParseAsync(source))
+                {
+                    path = await ChartExporter.ExportAsync(song, ChartExportFormat.Pez, ChartLevel.Master);
+                }
+                await UniTask.SwitchToMainThread();
+
+                await InvokeStepAsync("ImportArchiveAsync", FileSystem.GetEntry(path)!, false);
+
+                var chart = _importRoot.FindDirectory("Pez Song");
+                Assert.That(chart, Is.Not.Null);
+                Assert.That(chart!.FindFile("maidata.txt")!.ReadAllText(), Does.Contain("&inote_5=").And.Contain("1,2,3,4,"));
+                Assert.That(chart.FindFile("track.mp3")!.ReadAllBytes(), Is.EqualTo(new byte[] { 1, 2, 3 }));
+                Assert.That(chart.FindFile("bg.png")!.ReadAllBytes(), Is.EqualTo(new byte[] { 4, 5, 6 }));
+                Assert.That(FileSystem.GetEntry(path), Is.Not.Null);
+            });
+        }
+
         /// <summary>Checks that unsupported or vanished archives are skipped.</summary>
         /// <returns>The test coroutine.</returns>
         [UnityTest]

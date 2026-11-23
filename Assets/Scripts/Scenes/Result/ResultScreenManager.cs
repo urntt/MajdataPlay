@@ -100,6 +100,10 @@ namespace MajdataPlay.Scenes.Result
         SongFeedbackPanel _feedbackPanel;
 
         bool _isAdvancePending;
+        /// <summary>
+        /// Whether the touch result screen has already offered the feedback dialog, so Continue leaves without asking again.
+        /// </summary>
+        bool _isFeedbackPrompted;
         int _lastNavigationFrame = -1;
 
         GameInfo _gameInfo = Majdata<GameInfo>.Instance!;
@@ -328,13 +332,34 @@ namespace MajdataPlay.Scenes.Result
             }
         }
         /// <summary>
-        /// 新结算界面的“继续”：与 A4 相同（<see cref="Advance"/>）。首次游玩可评价时会先打开评价面板，此时返回 false
+        /// Leaves the results from the touch result screen without the classic feedback panel; the touch screen offers its own
+        /// feedback dialog first, see <see cref="ShouldPromptFeedback"/>.
         /// </summary>
-        /// <returns>是否已开始离开结算</returns>
+        /// <returns><see langword="true"/> when the results are being left; <see langword="false"/> when they cannot be left now.</returns>
         internal bool TryExit()
         {
-            Advance();
-            return _isExited;
+            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending)
+            {
+                return false;
+            }
+            if (_feedbackPanel != null && _feedbackPanel.IsOpen)
+            {
+                return false;
+            }
+            ExitResults();
+            return true;
+        }
+        /// <summary>
+        /// Gets whether Continue on the touch result screen should first offer the feedback dialog: the chart accepts feedback,
+        /// this is its first play, and the dialog has not been offered yet.
+        /// </summary>
+        internal bool ShouldPromptFeedback => IsFeedbackAvailable && _feedbackPanel.IsFirstPlay && !_isFeedbackPrompted;
+        /// <summary>
+        /// Records that the touch result screen has offered the feedback dialog, so Continue then leaves without asking again.
+        /// </summary>
+        internal void MarkFeedbackPrompted()
+        {
+            _isFeedbackPrompted = true;
         }
         /// <summary>
         /// Plays the chart of this result again from the new result screen, skipping the first-play feedback prompt.
@@ -376,13 +401,19 @@ namespace MajdataPlay.Scenes.Result
         /// </summary>
         internal bool IsFeedbackShowing => _feedbackPanel != null && (_feedbackPanel.IsOpen || _isAdvancePending);
         /// <summary>
-        /// 新结算界面的“评价”：打开上游的评价面板（与 B4/E4 相同，首次游玩也可以提前打开）
+        /// Gets the chart of this result when the player can rate it now from the touch result screen: the score is saved and
+        /// uploaded, the chart accepts feedback and the classic feedback panel is closed.
         /// </summary>
-        internal void RequestFeedback()
+        internal OnlineSongDetail? FeedbackSong
         {
-            if (!_isInited || !_isAllTaskFinished || _isExited || _isAdvancePending
-             || !_feedbackPanel.IsAvailable || _feedbackPanel.IsOpen) return;
-            OpenFeedbackAsync().Forget();
+            get
+            {
+                if (!_isInited || !_isAllTaskFinished || !IsFeedbackAvailable || _isAdvancePending || _feedbackPanel.IsOpen)
+                {
+                    return null;
+                }
+                return _gameInfo.GetLastResult().SongDetail as OnlineSongDetail;
+            }
         }
         void PlayResultAnimation(double targetAchievement, bool isClassic)
         {

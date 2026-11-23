@@ -86,7 +86,7 @@ namespace MajdataPlay.Scenes.List
         /// <summary>
         /// The width of the selection bar, limited by the space right of the pager.
         /// </summary>
-        const float SELECTION_BAR_MAX_WIDTH = 380f;
+        const float SELECTION_BAR_MAX_WIDTH = 480f;
         const float SCROLLBAR_WIDTH = 16f;
         const float TOAST_DURATION_SEC = 2.4f;
 
@@ -175,6 +175,11 @@ namespace MajdataPlay.Scenes.List
         /// </summary>
         float _floatingRowY = PAGER_BOTTOM;
         TextMeshProUGUI _selectionCountText = null!;
+        /// <summary>
+        /// The button of the selection bar that picks the played difficulties of the listed songs, or unpicks them when all are
+        /// picked.
+        /// </summary>
+        Button _selectAllButton = null!;
         /// <summary>
         /// 选择模式：点难度标签勾选或取消自选谱面（不切换全局难度）
         /// </summary>
@@ -424,7 +429,8 @@ namespace MajdataPlay.Scenes.List
             var headerHeight = new LightUi(_font).CreateSidebarHeader(sidebar, "MajdataPlay", "urntt edition");
             var heading = CreateText(sidebar, "MAJTEXT_LIST_CATEGORY".i18n(), 18f, MUTED_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             PlaceRow(heading.rectTransform, 30f, headerHeight + 14f, 20f, 30f);
-            _sidebarContent = CreateScroll(sidebar, 0f, headerHeight + 52f, 0f, 0f, out _);
+            // 底部一行“导入谱面”“刷新谱面”，分类列表在它上面滚动
+            _sidebarContent = CreateScroll(sidebar, 0f, headerHeight + 52f, 0f, SIDEBAR_FOOTER_HEIGHT, out _);
             var sidebarLayout = _sidebarContent.gameObject.AddComponent<VerticalLayoutGroup>();
             sidebarLayout.padding = new RectOffset(16, 16, 0, 24);
             sidebarLayout.spacing = 4f;
@@ -433,6 +439,7 @@ namespace MajdataPlay.Scenes.List
             sidebarLayout.childForceExpandWidth = true;
             sidebarLayout.childForceExpandHeight = false;
             _sidebarContent.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            BuildSidebarFooter(sidebar);
 
             // 主区域：分类栏右边的剩余部分（左边距由 SidebarDrawer 设置）
             var main = CreateRect("Main", _listView);
@@ -761,12 +768,13 @@ namespace MajdataPlay.Scenes.List
         static float SideButtonsRightX => PagerCenterX + PAGER_WIDTH * 0.5f + FLOAT_GAP;
         /// <summary>
         /// Builds the selection bar shown in selection mode in place of the share button:
-        /// the number of selected charts, then Clear and Done.
+        /// the number of selected charts, then Select All, Clear and Done.
         /// </summary>
         /// <param name="main">The main area of the list.</param>
         void BuildSelectionBar(RectTransform main)
         {
             const float BUTTON_WIDTH = 84f;
+            const float SELECT_ALL_WIDTH = 104f;
             const float BUTTON_GAP = 8f;
             const float EDGE = 10f;
             _selectionBar = CreateFloatingHolder(main, new Vector2(0f, 0f), SideButtonsRightX);
@@ -779,10 +787,17 @@ namespace MajdataPlay.Scenes.List
             PlaceMiddleRight((RectTransform)done.transform, EDGE, BUTTON_WIDTH, 46f);
             var clearSelected = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_CLEAR".i18n(), PAGE_COLOR, TEXT_COLOR, 18f, ClearSelection);
             PlaceMiddleRight((RectTransform)clearSelected.transform, EDGE + BUTTON_WIDTH + BUTTON_GAP, BUTTON_WIDTH, 46f);
+            // 全选：当前分类（有搜索时为搜索结果）里玩过的难度；都选上后变成“取消全选”
+            _selectAllButton = CreateButton(selectionInner.rectTransform, "MAJTEXT_LIST_SELECT_ALL".i18n(), ACCENT_SOFT_COLOR, ACCENT_COLOR, 18f, ToggleSelectAll);
+            PlaceMiddleRight((RectTransform)_selectAllButton.transform, EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f, SELECT_ALL_WIDTH, 46f);
+            var selectAllLabel = _selectAllButton.GetComponentInChildren<TextMeshProUGUI>();
+            selectAllLabel.enableAutoSizing = true;
+            selectAllLabel.fontSizeMin = 12f;
+            selectAllLabel.fontSizeMax = 18f;
             _selectionCountText = CreateText(selectionInner.rectTransform, string.Empty, 19f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
             Stretch(_selectionCountText.rectTransform);
             _selectionCountText.rectTransform.offsetMin = new Vector2(20f, 0f);
-            _selectionCountText.rectTransform.offsetMax = new Vector2(-(EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f), 0f);
+            _selectionCountText.rectTransform.offsetMax = new Vector2(-(EDGE + (BUTTON_WIDTH + BUTTON_GAP) * 2f + SELECT_ALL_WIDTH + BUTTON_GAP), 0f);
             _selectionCountText.enableAutoSizing = true;
             _selectionCountText.fontSizeMin = 13f;
             _selectionCountText.fontSizeMax = 19f;
@@ -896,6 +911,11 @@ namespace MajdataPlay.Scenes.List
             if (scrollToIndex > 0)
             {
                 RequestListScroll(scrollToIndex * (CARD_HEIGHT + CARD_SPACING));
+            }
+            if (_isSelecting)
+            {
+                // 全选键针对当前列表：换分类或搜索后重新判断
+                UpdateSelectionUi();
             }
         }
         static bool IsMatch(ISongDetail song, string query)
@@ -1218,6 +1238,34 @@ namespace MajdataPlay.Scenes.List
             }
             UpdateSelectionUi();
         }
+        /// <summary>
+        /// Picks the played difficulties of the listed songs (the category, or the search results while searching), or unpicks
+        /// them when all of them are picked already.
+        /// </summary>
+        void ToggleSelectAll()
+        {
+            if (!_isSelecting)
+            {
+                return;
+            }
+            var (played, picked) = ScoreExchange.GetPlayedSelectionState(_filteredSongs);
+            if (played == 0)
+            {
+                return;
+            }
+            var changed = picked == played ? ScoreExchange.DeselectPlayed(_filteredSongs) : ScoreExchange.SelectPlayed(_filteredSongs);
+            if (changed == 0)
+            {
+                return;
+            }
+            _isSelectionDirty = true;
+            var level = GlobalLevel;
+            foreach (var card in _cards)
+            {
+                UpdateCardLevel(card, level);
+            }
+            UpdateSelectionUi();
+        }
         void UpdateSelectionUi()
         {
             // 选择模式下分享键让位给选择浮窗：已选 N 张　清空　分享　完成；搜索条盖住整排浮窗时都先隐藏
@@ -1229,6 +1277,20 @@ namespace MajdataPlay.Scenes.List
             }
             _selectionBar.gameObject.SetActive(isBarVisible);
             _selectionCountText.text = "MAJTEXT_LIST_SELECTED".i18n(ScoreExchange.SelectionCount);
+            if (isBarVisible)
+            {
+                UpdateSelectAllButton();
+            }
+        }
+        /// <summary>
+        /// Shows Select All or Deselect All for the listed songs, and disables the button when none of them has been played.
+        /// </summary>
+        void UpdateSelectAllButton()
+        {
+            var (played, picked) = ScoreExchange.GetPlayedSelectionState(_filteredSongs);
+            var isAllPicked = played > 0 && picked == played;
+            _selectAllButton.GetComponentInChildren<TextMeshProUGUI>().text = (isAllPicked ? "MAJTEXT_LIST_DESELECT_ALL" : "MAJTEXT_LIST_SELECT_ALL").i18n();
+            _selectAllButton.interactable = played > 0;
         }
         /// <summary>
         /// 自选列表保存在设置文件里：退出选择模式、分享前或离开选歌时写入
@@ -1462,7 +1524,6 @@ namespace MajdataPlay.Scenes.List
         {
             ClearChildren(_modal);
             _isShareDialogShown = false;
-            _feedbackSession = null;
             var panel = CreatePanel(_modal, PAPER_COLOR, 18f);
             var panelRect = panel.rectTransform;
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -1662,7 +1723,6 @@ namespace MajdataPlay.Scenes.List
         void HideModal()
         {
             _modal.gameObject.SetActive(false);
-            _feedbackSession = null;
             if (_isShareDialogShown)
             {
                 _isShareDialogShown = false;
@@ -1684,14 +1744,22 @@ namespace MajdataPlay.Scenes.List
             toast.raycastTarget = false;
             _toastText = CreateText(_toast, string.Empty, 18f, Color.white, TextAlignmentOptions.Center, FontStyles.Normal);
             Stretch(_toastText.rectTransform, 10f);
+            _toastText.enableAutoSizing = true;
+            _toastText.fontSizeMin = 12f;
+            _toastText.fontSizeMax = 18f;
             _toast.gameObject.SetActive(false);
         }
-        void ShowToast(string text)
+        /// <summary>
+        /// Shows a toast at the top of the safe area, replacing the one shown.
+        /// </summary>
+        /// <param name="text">The text of the toast.</param>
+        /// <param name="duration">How long the toast stays, in seconds.</param>
+        void ShowToast(string text, float duration = TOAST_DURATION_SEC)
         {
             _toastText.text = text;
             _toast.gameObject.SetActive(true);
             _toast.parent.SetAsLastSibling();
-            _toastRemaining = TOAST_DURATION_SEC;
+            _toastRemaining = duration;
         }
         #endregion
     }

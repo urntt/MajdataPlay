@@ -135,12 +135,13 @@ namespace MajdataPlay.Scenes.List
             _detailProfile = new LightUi(_font).CreatePlayerProfile(_detailView, TOPBAR_HEIGHT, PAGE_COLOR);
             PlaceTopRight(_detailProfile, MAIN_RIGHT_PADDING, DETAIL_BAR_TOP, PROFILE_WIDTH, TOPBAR_HEIGHT);
 
-            // 右下角：评价、游玩两个图标键；柔和投影与按钮同一圆角、中心对齐，大小由 PlaceDetailActionButtons 按页面高度决定
+            // 右下角：导出、评价、游玩三个图标键；柔和投影与按钮同一圆角、中心对齐，大小由 PlaceDetailActionButtons 按页面高度决定
             _detailPlayHolder = LightUi.CreateActionButton(_detailView, UiSprites.Play, ACCENT_COLOR, Color.white, 0.2f, PlaySelected,
                                                            out _detailPlayButton, out _detailPlayIcon);
             _detailFeedbackHolder = LightUi.CreateActionButton(_detailView, UiSprites.Comment, PAPER_COLOR, FAVORITE_COLOR, 0.16f, ShowFeedbackDialog,
                                                                out _, out _detailFeedbackIcon);
             _detailFeedbackHolder.gameObject.SetActive(false);
+            BuildDetailExportButton();
             _detailView.gameObject.SetActive(false);
         }
         /// <summary>
@@ -165,8 +166,8 @@ namespace MajdataPlay.Scenes.List
             return DETAIL_TOP;
         }
         /// <summary>
-        /// Places the play button at the bottom right and the feedback button left of it, sized for the height of the page and as far
-        /// from the bottom of the screen as from the right edge.
+        /// Places the play button at the bottom right, the feedback button left of it and the export button left of the buttons shown,
+        /// sized for the height of the page and as far from the bottom of the screen as from the right edge.
         /// </summary>
         /// <param name="bottom">The distance of the buttons from the bottom of the safe area.</param>
         /// <returns>The size of the buttons, see <see cref="LightUi.GetActionButtonSize"/>.</returns>
@@ -177,6 +178,8 @@ namespace MajdataPlay.Scenes.List
             var gap = LightUi.GetActionButtonGap(size);
             LightUi.PlaceActionButton(_detailPlayHolder, _detailPlayIcon, DETAIL_MARGIN, bottom, size);
             LightUi.PlaceActionButton(_detailFeedbackHolder, _detailFeedbackIcon, DETAIL_MARGIN + size + gap, bottom, size);
+            var exportSlot = _detailFeedbackHolder.gameObject.activeSelf ? 2 : 1;
+            LightUi.PlaceActionButton(_detailExportHolder, _detailExportIcon, DETAIL_MARGIN + (size + gap) * exportSlot, bottom, size);
             return size;
         }
         /// <param name="level">为空时用全局难度；这首歌没有这个难度时用最高难度</param>
@@ -593,11 +596,13 @@ namespace MajdataPlay.Scenes.List
             densityRect.offsetMax = new Vector2(-22f, -64f);
             var rightBottom = densityY + CHART_PANEL_HEIGHT;
 
-            // 底部给右下角悬浮的图标键留出空间
+            // 底部给右下角悬浮的图标键留出空间；先定显示哪些键，导出键排在显示的键左边
+            _detailFeedbackHolder.gameObject.SetActive(ChartFeedbackSession.IsAvailable(song));
+            // 只导出本地谱面：在线谱面的文件在缓存里，可能不完整
+            _detailExportHolder.gameObject.SetActive(song is SongDetail);
             var actionButtonSize = PlaceDetailActionButtons(out var actionButtonBottom);
             _detailContent.sizeDelta = new Vector2(0f, Mathf.Max(leftBottom, rightBottom) + LightUi.GetActionButtonClearance(actionButtonSize, actionButtonBottom));
             LightUi.SetIconButtonInteractable(_detailPlayButton, _detailPlayIcon, hasLevel);
-            _detailFeedbackHolder.gameObject.SetActive(ChartFeedbackSession.IsAvailable(song));
             LayoutRebuilder.ForceRebuildLayoutImmediate(_detailContent);
             var maxY = Mathf.Max(0f, _detailContent.rect.height - _detailViewport.rect.height);
             _detailScroll.StopMovement();

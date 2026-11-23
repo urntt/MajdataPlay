@@ -91,4 +91,9 @@ Tools/iOS/build_unsigned_ipa.sh
 4. 免费 Apple ID 签名的 App **7 天后失效**，到期前用 Sideloadly 再装一次即可，数据保留。Sideloadly 支持自动续签：Mac 和 iPad 在同一个 Wi‑Fi 下，开启 Sideloadly 的自动续签即可。
 5. 更新时直接用新的 ipa 覆盖安装（包名保持不变），数据保留。
 
-谱面放在“文件”App → 我的 iPad → MajdataPlay → MaiCharts。也可以对 .zip / .adx 选“共享 → 用 MajdataPlay 打开”导入。
+谱面放在“文件”App → 我的 iPad → MajdataPlay → MaiCharts。导入谱面有两种方式：
+
+- 触摸式选歌侧栏底部的“导入谱面”：打开系统的文件选择器，可以选 `.zip`、`.adx`（AstroDX）和 `.pez`（Phira），可以多选。选择器由 `Assets/Plugins/iOS/MajDocumentPicker.mm` 实现。
+- 在“文件”或其他 App 里对 `.zip`、`.adx`、`.pez` 选“共享 → 用 MajdataPlay 打开”。
+
+`.pez` 用游戏内置的 Universal Rhythm Chart 转换成 simai。详情页的“导出”按钮可以把本地谱面导出为 ZIP、ADX 或 PEZ，再通过系统分享面板存到“文件”或发给其他 App。

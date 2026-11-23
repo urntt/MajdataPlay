@@ -83,7 +83,10 @@ public class ShareFileProvider extends ContentProvider {
             return "application/json";
         } else if (name.endsWith(".txt")) {
             return "text/plain";
+        } else if (name.endsWith(".zip")) {
+            return "application/zip";
         }
+        // Exported .adx and .pez charts are zip files that only their players know.
         return "application/octet-stream";
     }
 

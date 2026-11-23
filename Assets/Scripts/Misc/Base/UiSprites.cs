@@ -32,6 +32,7 @@ namespace MajdataPlay
         static Sprite? _arrowRight;
         static Sprite? _retry;
         static Sprite? _comment;
+        static Sprite? _import;
         static readonly Dictionary<int, Sprite> _rings = new();
         static readonly Dictionary<int, Sprite> _shadows = new();
 
@@ -83,6 +84,10 @@ namespace MajdataPlay
         /// Gets the white comment icon: an outlined speech bubble with three dots and a tail at the bottom left.
         /// </summary>
         public static Sprite Comment => _comment != null ? _comment : (_comment = CreateIconSprite("UiComment", CommentDistance));
+        /// <summary>
+        /// Gets the white import icon: an arrow pointing down into an open box, the share icon reversed.
+        /// </summary>
+        public static Sprite Import => _import != null ? _import : (_import = CreateIconSprite("UiImport", ImportDistance));
 
         /// <summary>
         /// 把 Image 变成半径为 <paramref name="radius"/> 的圆角矩形
@@ -362,6 +367,27 @@ namespace MajdataPlay
                 SegmentDistance(point, new Vector2(0f, -0.3f), tip),
                 Mathf.Min(SegmentDistance(point, tip, new Vector2(-0.3f, 0.56f)),
                           SegmentDistance(point, tip, new Vector2(0.3f, 0.56f))));
+            return Mathf.Min(box, arrow) - STROKE;
+        }
+        /// <summary>
+        /// Gets the signed distance to the import icon: an open-topped box with an arrow pointing down into it.
+        /// </summary>
+        /// <param name="point">The point in icon units.</param>
+        /// <returns>The signed distance in icon units.</returns>
+        static float ImportDistance(Vector2 point)
+        {
+            const float STROKE = 0.085f;
+            var box = Mathf.Min(
+                Mathf.Min(SegmentDistance(point, new Vector2(-0.3f, 0.2f), new Vector2(-0.6f, 0.2f)),
+                          SegmentDistance(point, new Vector2(-0.6f, 0.2f), new Vector2(-0.6f, -0.8f))),
+                Mathf.Min(SegmentDistance(point, new Vector2(-0.6f, -0.8f), new Vector2(0.6f, -0.8f)),
+                          Mathf.Min(SegmentDistance(point, new Vector2(0.6f, -0.8f), new Vector2(0.6f, 0.2f)),
+                                    SegmentDistance(point, new Vector2(0.6f, 0.2f), new Vector2(0.3f, 0.2f)))));
+            var tip = new Vector2(0f, -0.42f);
+            var arrow = Mathf.Min(
+                SegmentDistance(point, new Vector2(0f, 0.86f), tip),
+                Mathf.Min(SegmentDistance(point, tip, new Vector2(-0.3f, -0.12f)),
+                          SegmentDistance(point, tip, new Vector2(0.3f, -0.12f))));
             return Mathf.Min(box, arrow) - STROKE;
         }
         /// <summary>

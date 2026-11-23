@@ -722,6 +722,82 @@ namespace MajdataPlay
             Selection.Clear();
         }
         /// <summary>
+        /// Picks every played difficulty of the given songs that is not picked yet, in the order of the songs and from the lowest
+        /// difficulty up. Whether a difficulty was played is read from the score partition the share options choose.
+        /// </summary>
+        /// <param name="songs">The songs, such as the charts of the category shown in the song list.</param>
+        /// <returns>The number of difficulties that were picked.</returns>
+        public static int SelectPlayed(IReadOnlyList<ISongDetail> songs)
+        {
+            var picked = new HashSet<string>(Selection);
+            var added = 0;
+            ForEachPlayedKey(songs, key =>
+            {
+                if (picked.Add(key))
+                {
+                    Selection.Add(key);
+                    added++;
+                }
+            });
+            return added;
+        }
+        /// <summary>
+        /// Unpicks every played difficulty of the given songs; picks of other songs are kept.
+        /// </summary>
+        /// <param name="songs">The songs, such as the charts of the category shown in the song list.</param>
+        /// <returns>The number of difficulties that were unpicked.</returns>
+        public static int DeselectPlayed(IReadOnlyList<ISongDetail> songs)
+        {
+            var played = new HashSet<string>();
+            ForEachPlayedKey(songs, key => played.Add(key));
+            return Selection.RemoveAll(played.Contains);
+        }
+        /// <summary>
+        /// Counts the played difficulties of the given songs and how many of them are picked.
+        /// </summary>
+        /// <param name="songs">The songs, such as the charts of the category shown in the song list.</param>
+        /// <returns>The number of played difficulties, and how many of those are picked.</returns>
+        public static (int Played, int Picked) GetPlayedSelectionState(IReadOnlyList<ISongDetail> songs)
+        {
+            var picked = new HashSet<string>(Selection);
+            var playedCount = 0;
+            var pickedCount = 0;
+            ForEachPlayedKey(songs, key =>
+            {
+                playedCount++;
+                if (picked.Contains(key))
+                {
+                    pickedCount++;
+                }
+            });
+            return (playedCount, pickedCount);
+        }
+        /// <summary>
+        /// Calls an action with the selection key of every played difficulty of the given songs, in the order of the songs and
+        /// from the lowest difficulty up; songs without a hash are skipped.
+        /// </summary>
+        /// <param name="songs">The songs.</param>
+        /// <param name="action">Receives each selection key.</param>
+        static void ForEachPlayedKey(IReadOnlyList<ISongDetail> songs, Action<string> action)
+        {
+            var isFalling = IsFallingStore(MajEnv.SystemSettings.Score);
+            for (var i = 0; i < songs.Count; i++)
+            {
+                var song = songs[i];
+                if (string.IsNullOrEmpty(song.Hash))
+                {
+                    continue;
+                }
+                for (var level = ChartLevel.Easy; level <= ChartLevel.UTAGE; level++)
+                {
+                    if (ScoreManager.FindScore(song, level, isFalling) is not null)
+                    {
+                        action(GetSelectionKey(song.Hash, level));
+                    }
+                }
+            }
+        }
+        /// <summary>
         /// 按已选列表取成绩（没玩过的也列出），再按“自选排序”排列
         /// </summary>
         static List<ScoreEntry> CollectSelectionEntries(ScoreOptions options, bool isFalling, Dictionary<string, ISongDetail> songs)

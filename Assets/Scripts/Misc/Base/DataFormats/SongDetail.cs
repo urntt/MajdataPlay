@@ -56,6 +56,9 @@ namespace MajdataPlay
 
         /// <summary>Retains the chart directory and its original backend for writing the identity marker later.</summary>
         private readonly StorageDirectory _directory;
+
+        /// <summary>Gets the chart directory, which chart export packs into an archive.</summary>
+        internal StorageDirectory Directory => _directory;
         /// <summary>Retains the authoritative metadata file and its original backend for subsequent chart parsing.</summary>
         private readonly StorageFile _maidataFile;
         /// <summary>Records whether <see cref="Id"/> is stored in the marker file; set once <see cref="PersistId"/> has written it.</summary>
