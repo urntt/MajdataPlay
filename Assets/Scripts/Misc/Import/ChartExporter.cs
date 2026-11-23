@@ -8,6 +8,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using UnityEngine;
+// UnityEngine also has a CompressionLevel; the archives use the one of System.IO.Compression.
+using CompressionLevel = System.IO.Compression.CompressionLevel;
 
 #nullable enable
 namespace MajdataPlay.Import
