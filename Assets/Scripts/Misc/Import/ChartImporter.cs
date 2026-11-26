@@ -4,7 +4,6 @@
 using Cysharp.Threading.Tasks;
 using MajdataPlay.Diagnostics;
 using MajdataPlay.IO.Storage;
-using MajdataPlay.Utils;
 #if UNITY_ANDROID
 using MajdataPlay.Platform.Android;
 using MajdataPlay.Platform.Android.Runtime;
@@ -16,7 +15,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -26,30 +24,55 @@ using UnityEngine;
 #nullable enable
 namespace MajdataPlay.Import
 {
+    /// <summary>How the import button lets the player choose what to import on this platform.</summary>
+    internal enum ChartImportPickerMode
+    {
+        /// <summary>No system picker: the list shows the files and folders in the import folder (desktops).</summary>
+        ImportFolder,
+
+        /// <summary>One system picker for files and folders (iOS).</summary>
+        FilesAndFolders,
+
+        /// <summary>Separate system pickers for a file and for a folder (Android).</summary>
+        FileOrFolder,
+    }
+
+    /// <summary>
+    /// Imports charts from whatever the player hands the game: folders, ZIP archives under any name (.zip, .adx, .pez, ...),
+    /// archives inside archives, simai and Phira charts, telling all of them apart by content rather than by name.
+    /// </summary>
+    /// <remarks>
+    /// Sources are queued by the platforms (iOS "Open in" and document picker, Android share, shortcuts and storage picker, the
+    /// desktop import folder) and imported in the Empty scene. Every chart is copied with its media renamed to what the game
+    /// reads (<see cref="ChartResourceNormalizer"/>); Phira charts are converted with URC first. What was imported and why
+    /// anything failed is collected in a <see cref="ChartImportReport"/>, shown on the loading screen and, through
+    /// <see cref="TakeLastReport"/>, by the song list.
+    /// </remarks>
     internal static class ChartImporter
     {
-        /// <summary>The archive extensions that can be imported: chart packages (.zip, AstroDX .adx) and Phira .pez charts.</summary>
-        internal static readonly string[] SupportedArchiveExtensions = { ".zip", ".adx", ".pez" };
-
-        /// <summary>The name of the folder below <see cref="MajEnv.RootDirectory"/> whose archives can be imported from the list on desktops.</summary>
+        /// <summary>The name of the folder below <see cref="MajEnv.RootDirectory"/> whose files and folders can be imported from the list on desktops.</summary>
         internal const string ImportFolderName = "ChartImports";
 
-        /// <summary>The extension of a Phira chart package, which is converted to simai while it is imported.</summary>
-        private const string PezExtension = ".pez";
+        /// <summary>The collection receiving charts that are not grouped in a named collection.</summary>
+        private const string ImportCollectionName = "Import";
 
-        /// <summary>Matches the info file at the root of a Phira package.</summary>
-        private static readonly Regex s_pezInfoFileName = new(@"^info\.(yml|txt)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>The deepest nesting of archives inside archives that is unpacked.</summary>
+        internal const int MaxNestedArchives = 3;
 
-        /// <summary>The cover extensions a converted chart keeps, mapped to the extension of its <c>bg</c> file.</summary>
-        private static readonly Dictionary<string, string> s_coverExtensions = new(StringComparer.OrdinalIgnoreCase)
-        {
-            [".png"] = ".png",
-            [".jpg"] = ".jpg",
-            [".jpeg"] = ".jpg",
-        };
+        /// <summary>The folder name iOS copies picked and opened files into; those copies are deleted after the import.</summary>
+        private const string InboxFolderName = "maicharts_inbox";
+
+        /// <summary>How long the loading screen shows the result, in milliseconds, plus <see cref="ResultDelayPerFailureMs"/> per failure.</summary>
+        private const int ResultDelayMs = 3000;
+
+        /// <summary>How much longer the loading screen shows the result for each failure, in milliseconds.</summary>
+        private const int ResultDelayPerFailureMs = 1500;
+
+        /// <summary>The longest the loading screen shows the result, in milliseconds.</summary>
+        private const int MaxResultDelayMs = 9000;
 
 #if UNITY_IOS && !UNITY_EDITOR
-        /// <summary>Shows the iOS document picker (Assets/Plugins/iOS/MajDocumentPicker.mm); picked files arrive through <c>GameManager.IOS_OnFileOpen</c>.</summary>
+        /// <summary>Shows the iOS document picker (Assets/Plugins/iOS/MajDocumentPicker.mm); picked files and folders arrive through <c>GameManager.IOS_OnFileOpen</c>.</summary>
         [DllImport("__Internal")]
         private static extern void MajDocumentPicker_Show();
 #endif
@@ -58,6 +81,18 @@ namespace MajdataPlay.Import
         private static StorageDirectory s_importRoot = null!;
         private static ValueTask s_importTask = UniTask.CompletedTask;
         private static readonly ConcurrentQueue<PendingImport> s_pendingImportTasks = new ConcurrentQueue<PendingImport>();
+
+        /// <summary>The report of the import that is running.</summary>
+        private static ChartImportReport s_report = new();
+
+        /// <summary>The report of the last finished import, until the song list takes it.</summary>
+        private static ChartImportReport? s_lastReport;
+
+        /// <summary>When the last import finished, in seconds of <see cref="Time.realtimeSinceStartup"/>.</summary>
+        private static float s_lastReportTime;
+
+        /// <summary>How long a report waits for the touch song list; the classic list does not show it, and it goes stale.</summary>
+        private const float ReportLifetimeSec = 120f;
 
         /// <summary>Describes one queued import source and whether consuming it may delete the source.</summary>
         /// <remarks>
@@ -117,6 +152,7 @@ namespace MajdataPlay.Import
 #endif
         }
 
+
         /// <summary>Processes queued imports and any pending startup shortcut.</summary>
         /// <returns>An operation that completes after the startup import flow.</returns>
         public static async ValueTask OnStartAsync()
@@ -140,48 +176,66 @@ namespace MajdataPlay.Import
                 await s_importTask;
             }
         }
+
+        /// <summary>Gets how the import button lets the player choose what to import on this platform.</summary>
+        internal static ChartImportPickerMode PickerMode
+        {
+            get
+            {
+#if UNITY_IOS && !UNITY_EDITOR
+                return ChartImportPickerMode.FilesAndFolders;
+#elif ANDROID_RUNTIME
+                return ChartImportPickerMode.FileOrFolder;
+#else
+                return ChartImportPickerMode.ImportFolder;
+#endif
+            }
+        }
+
         /// <summary>
-        /// Shows the system file picker so the player can choose chart archives to import.
+        /// Shows the system picker so the player can choose files or folders to import, whatever they are named.
         /// </summary>
         /// <remarks>
-        /// On iOS the picked files are copied by the native picker and queued through <c>GameManager.IOS_OnFileOpen</c>; on
-        /// Android the storage picker runs from <see cref="OnUpdate"/> like the launcher shortcut. Desktops have no picker
-        /// at run time and use <see cref="ListImportFolder"/> instead.
+        /// On iOS one picker takes files and folders; the native picker copies them and queues them through
+        /// <c>GameManager.IOS_OnFileOpen</c>. On Android the storage picker for a file or for a folder runs from
+        /// <see cref="OnUpdate"/>, like the launcher shortcuts. Desktops have no picker at run time and use
+        /// <see cref="ListImportFolder"/> instead.
         /// </remarks>
+        /// <param name="isFolder">On Android, whether to pick a folder rather than a file; ignored elsewhere.</param>
         /// <returns>True when a picker is shown; false when this platform has none.</returns>
-        internal static bool TryShowPicker()
+        internal static bool ShowPicker(bool isFolder)
         {
 #if UNITY_IOS && !UNITY_EDITOR
             MajDocumentPicker_Show();
             return true;
 #elif ANDROID_RUNTIME
-            // OnUpdate shows the storage picker on the next frame, exactly as for the launcher shortcut.
-            s_pendingShortcut = ShortcutImportKind.Archive;
+            // OnUpdate shows the storage picker on the next frame, exactly as for the launcher shortcuts.
+            s_pendingShortcut = isFolder ? ShortcutImportKind.Folder : ShortcutImportKind.Archive;
             return true;
 #else
             return false;
 #endif
         }
 
-        /// <summary>Gets the folder whose archives can be imported from the list, creating it when it is missing.</summary>
+        /// <summary>Gets the folder whose files and folders can be imported from the list, creating it when it is missing.</summary>
         /// <returns>The <see cref="ImportFolderName"/> folder below <see cref="MajEnv.RootDirectory"/>.</returns>
         internal static StorageDirectory GetImportFolder()
         {
             return MajEnv.RootDirectory.CreateDirectory(ImportFolderName);
         }
 
-        /// <summary>Lists the archives in the import folder that can be imported, newest first.</summary>
-        /// <returns>The archive entries; empty when the folder cannot be read.</returns>
+        /// <summary>Lists the files and folders in the import folder, newest first; what they hold is found out when they are imported.</summary>
+        /// <returns>The entries; empty when the folder cannot be read.</returns>
         internal static List<FileSystemEntry> ListImportFolder()
         {
-            var archives = new List<FileSystemEntry>();
+            var entries = new List<FileSystemEntry>();
             try
             {
                 foreach (var entry in GetImportFolder().EnumerateEntries())
                 {
-                    if (!entry.IsDirectory && !IsExcluded(entry) && IsSupportedArchive(entry.Name))
+                    if (!ChartPackageScanner.IsExcluded(entry))
                     {
-                        archives.Add(entry);
+                        entries.Add(entry);
                     }
                 }
             }
@@ -189,35 +243,35 @@ namespace MajdataPlay.Import
             {
                 MajDebug.LogWarning(nameof(ChartImporter), $"Failed to list the import folder: {e.Message}");
             }
-            archives.Sort((x, y) => Nullable.Compare(y.LastWriteTimeUtc, x.LastWriteTimeUtc));
-            return archives;
+            entries.Sort((x, y) => Nullable.Compare(y.LastWriteTimeUtc, x.LastWriteTimeUtc));
+            return entries;
         }
 
-        /// <summary>Queues an archive the player chose in the import folder; the file is kept after the import.</summary>
-        /// <param name="entry">The archive entry.</param>
+        /// <summary>Queues a file or folder the player chose in the import folder; it is kept after the import.</summary>
+        /// <param name="entry">The file or folder.</param>
         internal static void QueueImport(FileSystemEntry entry)
         {
             s_pendingImportTasks.Enqueue(new PendingImport(entry, deleteSourceAfterImport: false));
         }
 
-        /// <summary>Determines whether a file name has an extension that can be imported.</summary>
-        /// <param name="fileName">The file name.</param>
-        /// <returns>True for .zip, .adx and .pez files.</returns>
-        internal static bool IsSupportedArchive(string fileName)
+        /// <summary>Takes the report of the last finished import, so that it is shown once.</summary>
+        /// <returns>The report, or null when no import finished in the last <see cref="ReportLifetimeSec"/> seconds since the last call.</returns>
+        internal static ChartImportReport? TakeLastReport()
         {
-            var extension = Path.GetExtension(fileName).ToLowerInvariant();
-            return Array.IndexOf(SupportedArchiveExtensions, extension) >= 0;
+            var report = s_lastReport;
+            s_lastReport = null;
+            return report is not null && Time.realtimeSinceStartup - s_lastReportTime <= ReportLifetimeSec ? report : null;
         }
 
-        /// <summary>Queues a file that a platform handed to the game, such as an iOS "Open in" or picked document.</summary>
-        /// <param name="tempFilePath">The local path of the file.</param>
+        /// <summary>Queues a file or folder that a platform handed to the game, such as an iOS "Open in" or picked document.</summary>
+        /// <param name="tempFilePath">The local path of the file or folder.</param>
         public static void AddImportTask(string tempFilePath)
         {
             var entry = FileSystem.GetEntry(tempFilePath);
             if (entry != null)
             {
-                // A shared or platform-provided path is a temporary file that the import consumes.
-                s_pendingImportTasks.Enqueue(new PendingImport(entry, deleteSourceAfterImport: false));
+                // The iOS bridges copy what they receive into the inbox; the import consumes those copies.
+                s_pendingImportTasks.Enqueue(new PendingImport(entry, deleteSourceAfterImport: IsInboxCopy(tempFilePath)));
             }
         }
         public static void OnUpdate()
@@ -238,11 +292,10 @@ namespace MajdataPlay.Import
             }
             s_importTask = Import();
         }
-        /// <summary>Imports queued local chart archives and chart directories with traversal protection and storage-backed extraction.</summary>
+        /// <summary>Imports every queued source, refreshes the local chart list and shows what happened.</summary>
         /// <remarks>
-        /// A queued <c>.zip</c> or <c>.adx</c> archive is extracted as a ZIP archive, and a queued directory is walked directly.
-        /// Both then follow the same layout rules: <c>&lt;chart&gt;/maidata.txt</c> becomes a chart of the <c>Import</c> collection,
-        /// while <c>&lt;collection&gt;/&lt;chart&gt;/maidata.txt</c> becomes a chart of the named collection below <see cref="MajEnv.ChartDirectory"/>.
+        /// Each source is told apart by content (<see cref="ImportSourceAsync"/>). The result stays on the loading screen a
+        /// little longer for each failure and is kept for the song list (<see cref="TakeLastReport"/>).
         /// </remarks>
         /// <returns>An operation that completes after importing the queued entries and refreshing the local chart list.</returns>
         private static async ValueTask Import()
@@ -263,28 +316,13 @@ namespace MajdataPlay.Import
                 await MajInstances.SceneSwitcher.SwitchSceneAsync("Empty", false);
                 await UniTask.Delay(300);
             }
-            s_importRoot = MajEnv.ChartDirectory.CreateDirectory("Import");
+            s_importRoot = MajEnv.ChartDirectory.CreateDirectory(ImportCollectionName);
+            var report = new ChartImportReport();
+            s_report = report;
             while (s_pendingImportTasks.TryDequeue(out var pending))
             {
-                var entry = pending.Entry;
-                MajDebug.LogDebug("[ChartImporter] Got entry: " + entry.Location);
-
-                try
-                {
-                    if (entry.IsDirectory)
-                    {
-                        await ImportDirectoryAsync(entry);
-                    }
-                    else
-                    {
-                        await ImportArchiveAsync(entry, pending.DeleteSourceAfterImport);
-                    }
-                }
-                catch (Exception e)
-                {
-                    // A single unreadable package must not discard the remaining queued entries.
-                    MajDebug.LogError($"[ChartImporter] Import FAILED: {entry.Location}\n{e}");
-                }
+                MajDebug.LogDebug(nameof(ChartImporter), "Got entry: " + pending.Entry.Location);
+                await ImportSourceAsync(pending.Entry, pending.DeleteSourceAfterImport);
             }
             var progress = new Progress<string>();
             progress.ProgressChanged += (o, e) =>
@@ -296,167 +334,400 @@ namespace MajdataPlay.Import
             {
                 await UniTask.Yield();
             }
+            MajDebug.LogInfo(nameof(ChartImporter), report.ToText(int.MaxValue));
+            s_lastReport = report;
+            s_lastReportTime = Time.realtimeSinceStartup;
             if (!task.IsCompletedSuccessfully)
             {
-                MajInstances.SceneSwitcher.SetLoadingText("MAJTEXT_ERR_SCAN_CHARTS_FAILED".i18n(), Color.red);
+                MajInstances.SceneSwitcher.SetLoadingText($"{"MAJTEXT_ERR_SCAN_CHARTS_FAILED".i18n()}\n{report.ToLoadingText()}", Color.red);
             }
             else
             {
-                MajInstances.SceneSwitcher.SetLoadingText(string.Empty);
+                MajInstances.SceneSwitcher.SetLoadingText(report.ToLoadingText(), report.Failures.Count > 0 ? new Color(1f, 0.75f, 0.4f) : Color.white);
             }
-            await UniTask.Delay(3000);
+            await UniTask.Delay(Math.Min(ResultDelayMs + ResultDelayPerFailureMs * report.Failures.Count, MaxResultDelayMs));
             if (nextScene is MajScenes scene)
             {
                 await MajInstances.SceneSwitcher.SwitchSceneAsync(scene.ToString());
             }
         }
 
-        /// <summary>Extracts one queued archive into a private temporary directory and imports the chart layout it contains.</summary>
-        /// <param name="entry">The queued <c>.zip</c>, <c>.adx</c> or <c>.pez</c> archive entry.</param>
-        /// <param name="deleteSourceAfterImport">Whether the source is a consumed temporary file that is deleted afterwards.</param>
-        /// <returns>An operation that completes after the archive contents have been imported.</returns>
-        /// <remarks>
-        /// The temporary extraction directory is always removed. The source file is deleted only for a consumed
-        /// temporary file; a document the user picked is left untouched.
-        /// </remarks>
-        private static async ValueTask ImportArchiveAsync(FileSystemEntry entry, bool deleteSourceAfterImport)
+        /// <summary>Imports one queued file or folder, recording what happened in the report.</summary>
+        /// <param name="entry">The queued entry.</param>
+        /// <param name="deleteSourceAfterImport">Whether the source is a consumed temporary copy that is deleted afterwards.</param>
+        /// <returns>An operation that completes after the source has been imported or its failure recorded.</returns>
+        /// <remarks>Any failure is recorded instead of thrown, so one bad source never stops the others.</remarks>
+        private static async ValueTask ImportSourceAsync(FileSystemEntry entry, bool deleteSourceAfterImport)
         {
-            var extension = Path.GetExtension(entry.Name).ToLowerInvariant();
-            if (!IsSupportedArchive(entry.Name))
+            try
             {
-                MajDebug.LogError("[ChartImporter] Unsupported extension: " + extension);
+                var current = FileSystem.GetEntry(entry.Location);
+                if (current is null)
+                {
+                    s_report.AddFailure(entry.Name, ChartImportFailure.NotFound);
+                    return;
+                }
+                if (current.IsDirectory)
+                {
+                    await ImportFolderAsync(FileSystem.Directory.Open(current.Location), current.Name, current.Name, 0);
+                }
+                else
+                {
+                    await ImportFileAsync(FileSystem.File.Open(current.Location), current.Name, 0);
+                }
+            }
+            catch (Exception e)
+            {
+                MajDebug.LogError(nameof(ChartImporter), $"Import failed: {entry.Location}\n{e}");
+                s_report.AddFailure(entry.Name, ChartImportFailure.CopyFailed, e.Message);
+            }
+            finally
+            {
+                if (deleteSourceAfterImport)
+                {
+                    // Only a consumed temporary copy is deleted; a document the user picked must survive.
+                    TryDeleteSource(entry);
+                }
+            }
+        }
+
+        /// <summary>Imports one file by what it holds: a ZIP archive is unpacked, anything else is explained.</summary>
+        /// <param name="file">The file.</param>
+        /// <param name="name">The file name, for the report.</param>
+        /// <param name="depth">How many archives the file is nested in.</param>
+        /// <returns>An operation that completes after the file has been imported or its failure recorded.</returns>
+        private static async ValueTask ImportFileAsync(StorageFile file, string name, int depth)
+        {
+            var kind = ChartFileSniffer.Sniff(file, name);
+            if (kind == ChartFileKind.Zip)
+            {
+                await ImportArchiveAsync(file, name, depth);
                 return;
             }
-            if (FileSystem.GetEntry(entry.Location) is not { IsDirectory: false })
+            if (ChartFileSniffer.IsArchive(kind))
             {
-                MajDebug.LogError("[ChartImporter] File not found: " + entry.Location);
+                s_report.AddFailure(name, ChartImportFailure.UnsupportedArchive, ChartFileSniffer.GetFormatName(kind));
+            }
+            else if (ChartFileSniffer.IsChart(kind))
+            {
+                s_report.AddFailure(name, ChartImportFailure.LoneChartFile);
+            }
+            else if (ChartFileSniffer.IsAudio(kind) || ChartFileSniffer.IsImage(kind) || ChartFileSniffer.IsVideo(kind))
+            {
+                var kindKey = ChartFileSniffer.IsAudio(kind) ? "MAJTEXT_IMPORT_KIND_AUDIO" : ChartFileSniffer.IsImage(kind) ? "MAJTEXT_IMPORT_KIND_IMAGE" : "MAJTEXT_IMPORT_KIND_VIDEO";
+                s_report.AddFailure(name, ChartImportFailure.MediaFile, kindKey.i18n());
+            }
+            else
+            {
+                s_report.AddFailure(name, ChartImportFailure.UnknownFile);
+            }
+        }
+
+        /// <summary>Unpacks a ZIP archive (whatever its name) into a private temporary folder and imports what it holds.</summary>
+        /// <param name="file">The archive.</param>
+        /// <param name="name">The archive name, for the report and as the name of a chart at its root.</param>
+        /// <param name="depth">How many archives the archive is nested in.</param>
+        /// <returns>An operation that completes after the contents have been imported or the failure recorded.</returns>
+        /// <remarks>The temporary folder is always removed.</remarks>
+        private static async ValueTask ImportArchiveAsync(StorageFile file, string name, int depth)
+        {
+            if (depth >= MaxNestedArchives)
+            {
+                s_report.AddFailure(name, ChartImportFailure.TooDeep);
                 return;
             }
             var outputDirectory = MajEnv.TempDirectory.CreateDirectory(Guid.NewGuid().ToString());
-
             try
             {
-                await ExtractArchiveAsync(entry, outputDirectory);
-                if (extension == PezExtension)
+                string? encoding;
+                try
                 {
-                    // A Phira chart becomes a simai chart folder before it joins the Import collection.
-                    await ImportPezAsync(outputDirectory, Path.GetFileNameWithoutExtension(entry.Name));
+                    encoding = await ChartArchiveReader.ExtractAsync(file, outputDirectory, share =>
+                    {
+                        MajInstances.SceneSwitcher.SetLoadingText("MAJTEXT_IMPORT_EXTRACTING".i18n(name, (share * 100).ToString("F0")));
+                    });
+                }
+                catch (ChartArchivePathException e)
+                {
+                    MajDebug.LogError(nameof(ChartImporter), e.Message);
+                    s_report.AddFailure(name, ChartImportFailure.UnsafeArchive, e.EntryName);
                     return;
                 }
-                // An archive may hold a single chart, or a collection directory that groups several charts.
-                await ImportContainerAsync(outputDirectory, Path.GetFileNameWithoutExtension(entry.Name));
+                catch (InvalidDataException e)
+                {
+                    s_report.AddFailure(name, ChartImportFailure.BrokenArchive, e.Message);
+                    return;
+                }
+                if (encoding is not null && encoding != "utf-8")
+                {
+                    s_report.AddWarning(name, ChartImportWarning.LegacyNames, encoding);
+                }
+                await ImportFolderAsync(outputDirectory, Path.GetFileNameWithoutExtension(name), name, depth + 1);
             }
             finally
             {
                 TryDeleteDirectory(outputDirectory);
-#if UNITY_ANDROID
-                if (deleteSourceAfterImport)
-                {
-                    // Only a consumed temporary file is deleted; a document the user picked must survive.
-                    TryDeleteFile(entry.Location);
-                }
-#endif
+            }
+        }
+
+        /// <summary>Finds and imports every chart in a folder tree, and the archives in it.</summary>
+        /// <param name="directory">The folder, which may belong to any storage backend.</param>
+        /// <param name="rootName">The name a chart at the root of the folder gets.</param>
+        /// <param name="sourceName">The name of the queued source, for the report.</param>
+        /// <param name="depth">How many archives the folder is nested in.</param>
+        /// <returns>An operation that completes after everything found has been imported or its failure recorded.</returns>
+        private static async ValueTask ImportFolderAsync(StorageDirectory directory, string rootName, string sourceName, int depth)
+        {
+            MajInstances.SceneSwitcher.SetLoadingText("MAJTEXT_IMPORT_SCANNING".i18n(sourceName));
+            await UniTask.Yield();
+            var scan = ChartPackageScanner.Scan(directory, rootName);
+            foreach (var chart in scan.Charts)
+            {
+                await ImportFoundChartAsync(chart);
+            }
+            foreach (var archive in scan.Archives)
+            {
+                await ImportArchiveAsync(archive.File, archive.Name, depth);
+            }
+            foreach (var archive in scan.UnsupportedArchives)
+            {
+                s_report.AddFailure(archive.Name, ChartImportFailure.UnsupportedArchive, ChartFileSniffer.GetFormatName(archive.Kind));
+            }
+            if (scan.Charts.Count == 0 && scan.Archives.Count == 0 && scan.UnsupportedArchives.Count == 0)
+            {
+                s_report.AddFailure(sourceName, ChartImportFailure.NoChart);
+            }
+        }
+
+        /// <summary>Imports one chart folder into its collection.</summary>
+        /// <param name="chart">The chart folder.</param>
+        /// <returns>An operation that completes after the chart has been copied or its failure recorded.</returns>
+        private static async ValueTask ImportFoundChartAsync(FoundChart chart)
+        {
+            var collectionName = chart.Collection is null ? ImportCollectionName : ChartArchiveReader.ToSafeName(chart.Collection);
+            // A named collection is reused when it exists, so a package extends it instead of duplicating it.
+            var destinationRoot = chart.Collection is null ? s_importRoot : MajEnv.ChartDirectory.CreateDirectory(collectionName);
+            if (chart.Format == FoundChartFormat.Simai)
+            {
+                ImportSimaiChart(chart, destinationRoot, collectionName);
+            }
+            else
+            {
+                await ImportPhiraChartAsync(chart, destinationRoot, collectionName);
+            }
+            await UniTask.Yield();
+        }
+
+        /// <summary>Copies a simai chart folder, storing its chart text and media under the names the game reads.</summary>
+        /// <param name="chart">The chart folder.</param>
+        /// <param name="destinationRoot">The collection folder receiving the chart.</param>
+        /// <param name="collectionName">The collection's name, for the report.</param>
+        private static void ImportSimaiChart(FoundChart chart, StorageDirectory destinationRoot, string collectionName)
+        {
+            var chartFile = ChartResourceNormalizer.FindSimaiChart(chart.Files);
+            if (chartFile is null)
+            {
+                s_report.AddFailure(chart.Name, ChartImportFailure.NoChart);
+                return;
+            }
+            var track = ChartResourceNormalizer.PickTrack(chart.Files, null, out var failure, out var detail);
+            if (track is null)
+            {
+                s_report.AddFailure(chart.Name, failure ?? ChartImportFailure.MissingMusic, detail);
+                return;
+            }
+            var cover = ChartResourceNormalizer.PickCover(chart.Files, null);
+            var video = ChartResourceNormalizer.PickVideo(chart.Files, out var unsupportedVideo);
+            var picks = new[] { track, cover, video };
+            var name = ToDirectoryName(chart.Name, "chart");
+            MajInstances.SceneSwitcher.SetLoadingText("MAJTEXT_IMPORT_COPYING".i18n(name));
+            var destination = CreateUniqueDirectory(destinationRoot, name, out var destinationName);
+            string? convertedFrom;
+            try
+            {
+                convertedFrom = ChartResourceNormalizer.CopySimai(chart, chartFile, picks, destination);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteDirectory(destination);
+                s_report.AddFailure(chart.Name, ChartImportFailure.CopyFailed, e.Message);
+                return;
+            }
+            s_report.AddChart(destinationName, collectionName);
+            if (cover is null)
+            {
+                s_report.AddWarning(destinationName, ChartImportWarning.NoCover);
+            }
+            if (unsupportedVideo is not null)
+            {
+                s_report.AddWarning(destinationName, ChartImportWarning.UnsupportedVideo, unsupportedVideo);
+            }
+            if (ChartResourceNormalizer.DescribeRenames(chartFile, picks) is string renames)
+            {
+                s_report.AddWarning(destinationName, ChartImportWarning.Renamed, renames);
+            }
+            if (convertedFrom is not null)
+            {
+                s_report.AddWarning(destinationName, ChartImportWarning.ConvertedText, convertedFrom);
             }
         }
 
         /// <summary>
-        /// Converts an extracted Phira .pez package to a simai chart folder and imports it into the Import collection.
+        /// Converts a Phira chart folder (RPE or PEC) to a simai chart with URC and stores it with its music and illustration.
         /// </summary>
         /// <remarks>
-        /// The chart file is the one info.yml names (else the only JSON file), converted by <see cref="UrcConverter"/>.
-        /// The music becomes <c>track.&lt;extension&gt;</c> and a PNG or JPEG illustration becomes <c>bg.png</c> or
-        /// <c>bg.jpg</c>. The folder is named after the chart's title.
+        /// The chart file is the one the info names, else the first file that is a chart. Official Phigros and binary (PBC)
+        /// charts are reported before URC is called. The music and illustration are the files the chart or its info names,
+        /// else the ones found by content (<see cref="ChartResourceNormalizer"/>). The folder is named after the chart's title.
         /// </remarks>
-        /// <param name="package">The directory the package was extracted to.</param>
-        /// <param name="archiveName">The archive name without extension, used when the package has no title.</param>
-        /// <returns>An operation that completes after the converted chart has been copied.</returns>
-        /// <exception cref="IOException">The package has no chart or no supported music file.</exception>
-        /// <exception cref="UrcConversionException">The chart could not be converted.</exception>
-        private static async ValueTask ImportPezAsync(StorageDirectory package, string archiveName)
+        /// <param name="chart">The chart folder.</param>
+        /// <param name="destinationRoot">The collection folder receiving the chart.</param>
+        /// <param name="collectionName">The collection's name, for the report.</param>
+        /// <returns>An operation that completes after the converted chart has been stored or its failure recorded.</returns>
+        private static async ValueTask ImportPhiraChartAsync(FoundChart chart, StorageDirectory destinationRoot, string collectionName)
         {
-            var info = FindPezInfo(package);
-            var infoText = info?.ReadAllText() ?? string.Empty;
-            var chartFile = FindPezChart(package, ReadYamlValue(infoText, "chart"))
-                ?? throw new IOException("The .pez package has no chart file.");
-            MajInstances.SceneSwitcher.SetLoadingText($"{"MAJTEXT_IMPORT_CONVERTING_PEZ".i18n()}\n{archiveName}");
-            var result = await UrcConverter.PezToSimaiAsync(chartFile.ReadAllText());
-            await UniTask.SwitchToMainThread();
-
-            var musicName = result.Music ?? ReadYamlValue(infoText, "music");
-            var music = musicName is null ? null : package.FindFile(musicName);
-            var musicExtension = musicName is null ? string.Empty : Path.GetExtension(musicName).ToLowerInvariant();
-            if (music is null || Array.IndexOf(MajEnv.SupportedAudioFormats, musicExtension) < 0)
+            var infoYml = FindFile(chart.Files, "info.yml") ?? FindFile(chart.Files, "info.yaml");
+            var infoTxt = FindFile(chart.Files, "info.txt");
+            var infoYmlText = infoYml?.File.ReadAllText();
+            var infoTxtText = infoTxt?.File.ReadAllText();
+            string? GetInfo(string key, string txtKey)
             {
-                throw new IOException($"The .pez package has no supported music file ({musicName ?? "none named"}).");
+                return ReadInfoValue(infoYmlText, key) ?? ReadInfoValue(infoTxtText, txtKey);
             }
-            var chartDirectory = MajEnv.TempDirectory.CreateDirectory(Guid.NewGuid().ToString());
+            var chartFile = FindPhiraChart(chart.Files, GetInfo("chart", "chart"));
+            if (chartFile is null)
+            {
+                s_report.AddFailure(chart.Name, ChartImportFailure.NoChart);
+                return;
+            }
+            var bytes = chartFile.File.ReadAllBytes();
+            string text;
             try
             {
-                chartDirectory.CreateFile(SongStorage.ChartFileName).WriteAllText(result.Maidata, new UTF8Encoding(false));
-                music.CopyTo(chartDirectory, "track" + musicExtension, overwrite: true);
-                var illustrationName = result.Illustration ?? ReadYamlValue(infoText, "illustration");
-                var illustration = illustrationName is null ? null : package.FindFile(illustrationName);
-                if (illustration is not null && s_coverExtensions.TryGetValue(Path.GetExtension(illustrationName!), out var coverExtension))
-                {
-                    illustration.CopyTo(chartDirectory, "bg" + coverExtension, overwrite: true);
-                }
-                var title = ReadYamlValue(infoText, "name") ?? result.Title ?? archiveName;
-                await ImportChartAsync(chartDirectory, s_importRoot, ToDirectoryName(title, archiveName));
+                text = new UTF8Encoding(false, true).GetString(bytes).TrimStart('﻿');
             }
-            finally
+            catch (DecoderFallbackException)
             {
-                TryDeleteDirectory(chartDirectory);
+                s_report.AddFailure(chart.Name, ChartImportFailure.BinaryChart);
+                return;
+            }
+            var declaredFormat = GetInfo("format", "format")?.ToLowerInvariant();
+            if (declaredFormat == "pbc")
+            {
+                s_report.AddFailure(chart.Name, ChartImportFailure.BinaryChart);
+                return;
+            }
+            if (declaredFormat == "pgr" || (declaredFormat is not ("rpe" or "pec") && ChartFileSniffer.SniffText(text) == ChartFileKind.PhigrosChart))
+            {
+                s_report.AddFailure(chart.Name, ChartImportFailure.PhigrosChart);
+                return;
+            }
+            MajInstances.SceneSwitcher.SetLoadingText($"{"MAJTEXT_IMPORT_CONVERTING_PEZ".i18n()}\n{chart.Name}");
+            UrcSimaiResult result;
+            try
+            {
+                result = await UrcConverter.PezToSimaiAsync(text, infoYmlText, infoTxtText);
+            }
+            catch (UrcConversionException e)
+            {
+                await UniTask.SwitchToMainThread();
+                s_report.AddFailure(chart.Name, ChartImportFailure.ConvertFailed, e.Message);
+                return;
+            }
+            await UniTask.SwitchToMainThread();
+
+            var track = ChartResourceNormalizer.PickTrack(chart.Files, result.Music ?? GetInfo("music", "song"), out var failure, out var detail);
+            if (track is null)
+            {
+                s_report.AddFailure(chart.Name, failure ?? ChartImportFailure.MissingMusic, detail);
+                return;
+            }
+            var cover = ChartResourceNormalizer.PickCover(chart.Files, result.Illustration ?? GetInfo("illustration", "picture"));
+            var title = GetInfo("name", "name") ?? result.Title ?? chart.Name;
+            var name = ToDirectoryName(title, ToDirectoryName(chart.Name, "chart"));
+            var destination = CreateUniqueDirectory(destinationRoot, name, out var destinationName);
+            try
+            {
+                destination.CreateFile(SongStorage.ChartFileName).WriteAllText(result.Maidata, new UTF8Encoding(false));
+                track.File.File.CopyTo(destination, track.TargetName, overwrite: true);
+                cover?.File.File.CopyTo(destination, cover.TargetName, overwrite: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteDirectory(destination);
+                s_report.AddFailure(chart.Name, ChartImportFailure.CopyFailed, e.Message);
+                return;
+            }
+            s_report.AddChart(destinationName, collectionName);
+            if (cover is null)
+            {
+                s_report.AddWarning(destinationName, ChartImportWarning.NoCover);
             }
         }
 
-        /// <summary>Finds the info file at the root of an extracted Phira package.</summary>
-        /// <param name="package">The extracted package.</param>
-        /// <returns>info.yml or info.txt, or null when the package has neither.</returns>
-        private static StorageFile? FindPezInfo(StorageDirectory package)
+        /// <summary>Finds the chart file of a Phira chart folder.</summary>
+        /// <param name="files">The files of the folder.</param>
+        /// <param name="namedChart">The chart file the info names, or null.</param>
+        /// <returns>The named file, else the first file that is a chart, else the first .json or .pec file, or null.</returns>
+        private static ScannedFile? FindPhiraChart(IReadOnlyList<ScannedFile> files, string? namedChart)
         {
-            foreach (var entry in package.EnumerateEntries())
-            {
-                if (!entry.IsDirectory && s_pezInfoFileName.IsMatch(entry.Name))
-                {
-                    return package.FindFile(entry.Name);
-                }
-            }
-            return null;
-        }
-
-        /// <summary>Finds the chart file of an extracted Phira package.</summary>
-        /// <param name="package">The extracted package.</param>
-        /// <param name="namedChart">The chart file info.yml names, or null when it names none.</param>
-        /// <returns>The named chart file, else the first JSON file at the root, or null when there is none.</returns>
-        private static StorageFile? FindPezChart(StorageDirectory package, string? namedChart)
-        {
-            if (namedChart is not null && package.FindFile(namedChart) is StorageFile named)
+            if (namedChart is not null && FindFile(files, Path.GetFileName(namedChart.Replace('\\', '/'))) is ScannedFile named)
             {
                 return named;
             }
-            foreach (var entry in package.EnumerateEntries())
+            foreach (var file in files)
             {
-                if (!entry.IsDirectory && string.Equals(Path.GetExtension(entry.Name), ".json", StringComparison.OrdinalIgnoreCase))
+                if ((file.Kind is ChartFileKind.RpeChart or ChartFileKind.PecChart or ChartFileKind.PhigrosChart) && !ChartPackageScanner.IsInfoFileName(file.Name))
                 {
-                    return package.FindFile(entry.Name);
+                    return file;
+                }
+            }
+            foreach (var file in files)
+            {
+                var extension = Path.GetExtension(file.Name);
+                if ((string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".pec", StringComparison.OrdinalIgnoreCase)) &&
+                    !ChartPackageScanner.IsInfoFileName(file.Name))
+                {
+                    return file;
                 }
             }
             return null;
         }
 
-        /// <summary>Reads a top-level value of info.yml the way URC's command line does.</summary>
-        /// <param name="text">The text of info.yml.</param>
-        /// <param name="key">The key to read.</param>
-        /// <returns>The unquoted value, or null when the key is missing or empty.</returns>
-        internal static string? ReadYamlValue(string text, string key)
+        /// <summary>Finds a file by name, ignoring case.</summary>
+        /// <param name="files">The files.</param>
+        /// <param name="name">The file name.</param>
+        /// <returns>The file, or null when none has the name.</returns>
+        private static ScannedFile? FindFile(IReadOnlyList<ScannedFile> files, string name)
         {
-            var match = Regex.Match(text, $"^{Regex.Escape(key)}:[ \\t]*(.*)$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+            foreach (var file in files)
+            {
+                if (string.Equals(file.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return file;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Reads a <c>key: value</c> line of a Phira info file (info.yml or info.txt) the way URC's command line does.</summary>
+        /// <param name="text">The text of the info file, or null when there is none.</param>
+        /// <param name="key">The key, in any case.</param>
+        /// <returns>The unquoted value, or null when the key is missing, empty or "null".</returns>
+        internal static string? ReadInfoValue(string? text, string key)
+        {
+            if (text is null)
+            {
+                return null;
+            }
+            var match = Regex.Match(text, $"^{Regex.Escape(key)}\\s*:[ \\t]*(.*?)\\s*$",
+                                    RegexOptions.Multiline | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (!match.Success)
             {
                 return null;
             }
             var raw = match.Groups[1].Value.Trim();
-            if (raw.Length >= 2 && raw[0] == '"' && raw[raw.Length - 1] == '"')
+            if (raw.Length >= 1 && raw[0] == '"')
             {
                 try
                 {
@@ -464,14 +735,14 @@ namespace MajdataPlay.Import
                 }
                 catch (Newtonsoft.Json.JsonException)
                 {
-                    raw = raw.Substring(1, raw.Length - 2);
+                    raw = raw.Length >= 2 ? raw.Substring(1, raw.Length - 2) : string.Empty;
                 }
             }
             else if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
             {
                 raw = raw.Substring(1, raw.Length - 2);
             }
-            return raw.Length == 0 ? null : raw;
+            return raw.Length == 0 || raw == "null" ? null : raw;
         }
 
         /// <summary>Turns a chart title into a directory name that every platform accepts.</summary>
@@ -493,208 +764,33 @@ namespace MajdataPlay.Import
             return name.Length == 0 || name.StartsWith(".") ? fallback : name;
         }
 
-        /// <summary>Imports one queued directory using the same layout rules as an extracted archive.</summary>
-        /// <param name="entry">The queued directory entry.</param>
-        /// <returns>An operation that completes after the directory contents have been imported.</returns>
-        private static async ValueTask ImportDirectoryAsync(FileSystemEntry entry)
-        {
-            var directory = FileSystem.Directory.Open(entry.Location);
-            if (IsChartDirectory(directory))
-            {
-                // The queued directory is the chart itself instead of a package that contains charts.
-                await ImportChartAsync(directory, s_importRoot, entry.Name);
-                return;
-            }
-            await ImportContainerAsync(directory, entry.Name);
-        }
-
-        /// <summary>Imports every chart found in an extracted archive root or in a queued directory.</summary>
-        /// <param name="container">The directory holding the import layout, which may belong to any storage backend.</param>
-        /// <param name="containerName">The chart directory name used when the container itself is a chart.</param>
-        /// <returns>An operation that completes after every detected chart has been copied.</returns>
-        /// <remarks>
-        /// A container chart and an immediate chart child are imported into the <c>Import</c> collection, while charts grouped
-        /// one level deeper are imported into the collection named after their parent.
-        /// </remarks>
-        private static async ValueTask ImportContainerAsync(StorageDirectory container, string containerName)
-        {
-            if (IsChartDirectory(container))
-            {
-                await ImportChartAsync(container, s_importRoot, containerName);
-                return;
-            }
-            foreach (var childEntry in container.EnumerateEntries())
-            {
-                if (!childEntry.IsDirectory || IsExcluded(childEntry))
-                {
-                    continue;
-                }
-                var childDirectory = new StorageDirectory(container.FileSystem, childEntry.Location);
-                if (IsChartDirectory(childDirectory))
-                {
-                    await ImportChartAsync(childDirectory, s_importRoot, childEntry.Name);
-                    continue;
-                }
-                var charts = GetChartDirectories(childDirectory);
-                if (charts.Count == 0)
-                {
-                    MajDebug.LogDebug("[ChartImporter] No chart found in " + childEntry.Location);
-                    continue;
-                }
-                // A named collection is reused when it exists, so a package extends it instead of duplicating it.
-                var collectionDirectory = MajEnv.ChartDirectory.CreateDirectory(childEntry.Name);
-                foreach (var (chartDirectory, chartName) in charts)
-                {
-                    await ImportChartAsync(chartDirectory, collectionDirectory, chartName);
-                }
-            }
-        }
-
-        /// <summary>Copies one chart directory into a collection directory under a name that is still available.</summary>
-        /// <param name="source">The chart directory to copy.</param>
-        /// <param name="destinationRoot">The collection directory receiving the chart through its original backend.</param>
-        /// <param name="name">The requested chart directory name.</param>
-        /// <returns>An operation that completes after the chart has been copied.</returns>
-        private static async ValueTask ImportChartAsync(StorageDirectory source, StorageDirectory destinationRoot, string name)
-        {
-            var destinationDirectory = CreateUniqueDirectory(destinationRoot, name);
-            MajInstances.SceneSwitcher.SetLoadingText($"Importing...\n{name}");
-            StorageDirectoryTransfer.Copy(source, destinationDirectory);
-            await UniTask.Yield();
-        }
-
-        /// <summary>Collects the immediate chart children of a collection directory.</summary>
-        /// <param name="collection">The directory that may group several charts.</param>
-        /// <returns>The chart directories paired with their authoritative names, or an empty list when none is a chart.</returns>
-        private static List<(StorageDirectory Directory, string Name)> GetChartDirectories(StorageDirectory collection)
-        {
-            var charts = new List<(StorageDirectory Directory, string Name)>();
-            foreach (var entry in collection.EnumerateEntries())
-            {
-                if (!entry.IsDirectory || IsExcluded(entry))
-                {
-                    continue;
-                }
-                var directory = new StorageDirectory(collection.FileSystem, entry.Location);
-                if (IsChartDirectory(directory))
-                {
-                    charts.Add((directory, entry.Name));
-                }
-            }
-            return charts;
-        }
-
-        /// <summary>Determines whether a directory directly contains a playable chart.</summary>
-        /// <param name="directory">The directory to inspect.</param>
-        /// <returns>True when the directory holds both the chart definition file and a supported track file.</returns>
-        /// <exception cref="DirectoryNotFoundException">The directory does not exist.</exception>
-        /// <exception cref="UnauthorizedAccessException">Enumeration was denied.</exception>
-        /// <exception cref="IOException">Enumeration failed or the location is not a directory.</exception>
-        private static bool IsChartDirectory(StorageDirectory directory)
-        {
-            var hasChartFile = false;
-            var hasTrackFile = false;
-            foreach (var entry in directory.EnumerateEntries())
-            {
-                if (entry.IsDirectory)
-                {
-                    continue;
-                }
-                var fileName = entry.Name.ToLowerInvariant();
-                if (string.Equals(fileName, SongStorage.ChartFileName, StringComparison.Ordinal))
-                {
-                    hasChartFile = true;
-                }
-                else if (Array.IndexOf(SongStorage.SupportedTrackFileNames, fileName) >= 0)
-                {
-                    hasTrackFile = true;
-                }
-                if (hasChartFile && hasTrackFile)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>Determines whether an entry is ignored while the import layout is inspected.</summary>
-        /// <param name="entry">The entry to inspect.</param>
-        /// <returns>True for hidden, system and dot-prefixed entries.</returns>
-        private static bool IsExcluded(FileSystemEntry entry)
-        {
-            return entry.IsHidden || entry.IsSystem || entry.Name.StartsWith(".");
-        }
-
         /// <summary>Creates a destination directory without colliding with an existing directory.</summary>
         /// <param name="root">The existing parent directory and its owning backend.</param>
         /// <param name="name">The requested child directory name.</param>
+        /// <param name="createdName">The name the directory got.</param>
         /// <returns>The created directory, using a <c>name (i)</c> variant when the requested name is occupied.</returns>
         /// <exception cref="ArgumentException">The requested child name is invalid.</exception>
         /// <exception cref="DirectoryNotFoundException">The parent directory no longer exists.</exception>
         /// <exception cref="UnauthorizedAccessException">Querying or creating the destination was denied.</exception>
         /// <exception cref="NotSupportedException">The backend cannot create directories.</exception>
         /// <exception cref="IOException">Querying or creating the destination failed.</exception>
-        private static StorageDirectory CreateUniqueDirectory(StorageDirectory root, string name)
+        private static StorageDirectory CreateUniqueDirectory(StorageDirectory root, string name, out string createdName)
         {
             var candidateName = name;
             for (var i = 1; root.FindDirectory(candidateName) is not null; i++)
             {
                 candidateName = $"{name} ({i})";
             }
+            createdName = candidateName;
             return root.CreateDirectory(candidateName);
         }
 
-        /// <summary>Extracts one archive into a temporary directory while rejecting entries that escape it.</summary>
-        /// <param name="entry">The archive entry to read.</param>
-        /// <param name="destination">The existing temporary directory receiving the extracted entries through its backend.</param>
-        /// <returns>An operation that completes after every archive entry has been extracted.</returns>
-        /// <exception cref="FileNotFoundException">The archive no longer exists.</exception>
-        /// <exception cref="UnauthorizedAccessException">Reading the archive or writing the destination was denied.</exception>
-        /// <exception cref="IOException">An archive entry escapes the destination directory, or extraction failed.</exception>
-        private static async ValueTask ExtractArchiveAsync(FileSystemEntry entry, StorageDirectory destination)
+        /// <summary>Determines whether a path is a copy the iOS bridges made in the inbox.</summary>
+        /// <param name="location">The path.</param>
+        /// <returns>True for a path inside the <see cref="InboxFolderName"/> folder.</returns>
+        private static bool IsInboxCopy(string location)
         {
-            using var archiveStream = FileSystem.File.Open(entry.Location).OpenRead();
-            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
-            var archiveEntries = archive.Entries;
-            var totalSize = 0L;
-            foreach (var archiveEntry in archiveEntries)
-            {
-                totalSize += archiveEntry.Length;
-            }
-            var extractedSize = 0L;
-            foreach (var archiveEntry in archiveEntries)
-            {
-                if (string.IsNullOrEmpty(archiveEntry.Name))
-                {
-                    continue;
-                }
-                string[] names;
-                try
-                {
-                    // Each entry is walked one child name at a time, so a rooted or traversing entry can never leave the destination.
-                    names = FileSystem.Path.Split(archiveEntry.FullName);
-                }
-                catch (ArgumentException exception)
-                {
-                    throw new IOException("Zip entry escapes destination: " + archiveEntry.FullName, exception);
-                }
-                if (names.Length == 0)
-                {
-                    continue;
-                }
-                var parent = destination.CreateDirectoryAt(names.AsSpan(0, names.Length - 1));
-                var file = FileSystem.File.Create(parent.Location, names[names.Length - 1], overwrite: true);
-                using (var entryStream = archiveEntry.Open())
-                using (var outputStream = file.OpenWrite())
-                {
-                    entryStream.CopyTo(outputStream);
-                }
-                file.SetLastWriteTime(archiveEntry.LastWriteTime.DateTime);
-                extractedSize += archiveEntry.Length;
-                var percentage = totalSize == 0 ? 100d : extractedSize * 100 / (double)totalSize;
-                MajInstances.SceneSwitcher.SetLoadingText($"Extracting...\n{percentage:F2}%");
-                await UniTask.Yield();
-            }
+            return location.Replace('\\', '/').IndexOf("/" + InboxFolderName + "/", StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>Deletes a temporary directory without masking an import failure.</summary>
@@ -710,21 +806,28 @@ namespace MajdataPlay.Import
             }
             catch (Exception e)
             {
-                MajDebug.LogWarning("[ChartImporter] Failed to clean up " + directory.Location + ": " + e.Message);
+                MajDebug.LogWarning(nameof(ChartImporter), "Failed to clean up " + directory.Location + ": " + e.Message);
             }
         }
 
-        /// <summary>Deletes an imported temporary file without masking an import failure.</summary>
-        /// <param name="location">The local path or content URI of the consumed file.</param>
-        private static void TryDeleteFile(string location)
+        /// <summary>Deletes a consumed temporary file or folder without masking an import failure.</summary>
+        /// <param name="entry">The local path or content URI of the consumed source.</param>
+        private static void TryDeleteSource(FileSystemEntry entry)
         {
             try
             {
-                FileSystem.File.Open(location).Delete();
+                if (entry.IsDirectory)
+                {
+                    FileSystem.Directory.Open(entry.Location).Delete(recursive: true);
+                }
+                else
+                {
+                    FileSystem.File.Open(entry.Location).Delete();
+                }
             }
             catch (Exception e)
             {
-                MajDebug.LogWarning("[ChartImporter] Failed to delete " + location + ": " + e.Message);
+                MajDebug.LogWarning(nameof(ChartImporter), "Failed to delete " + entry.Location + ": " + e.Message);
             }
         }
 
@@ -805,8 +908,7 @@ namespace MajdataPlay.Import
             }
             try
             {
-                // The picker cannot filter by extension, so the archive picker lists every file and the existing
-                // extension check in ImportArchiveAsync rejects an unsupported selection.
+                // The file picker lists every file; the import tells what the chosen one holds by its content.
                 string? location;
                 if (kind == ShortcutImportKind.Archive)
                 {

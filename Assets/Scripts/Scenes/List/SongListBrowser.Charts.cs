@@ -119,7 +119,8 @@ namespace MajdataPlay.Scenes.List
             return button;
         }
         /// <summary>
-        /// Opens the system file picker for chart archives, or on desktops the dialog listing the import folder.
+        /// Lets the player choose what to import: the system picker for files and folders on iOS, a choice between a file and
+        /// a folder on Android, and the dialog listing the import folder on desktops.
         /// </summary>
         void ImportCharts()
         {
@@ -127,15 +128,50 @@ namespace MajdataPlay.Scenes.List
             {
                 return;
             }
-            if (ChartImporter.TryShowPicker())
+            switch (ChartImporter.PickerMode)
             {
-                return;
+                case ChartImportPickerMode.FilesAndFolders:
+                    ChartImporter.ShowPicker(false);
+                    break;
+                case ChartImportPickerMode.FileOrFolder:
+                    ShowImportChoiceModal();
+                    break;
+                default:
+                    ShowImportFolderModal();
+                    break;
             }
-            ShowImportFolderModal();
         }
         /// <summary>
-        /// Shows the import dialog of desktops: the .zip, .adx and .pez files in the import folder, newest first, each imported
-        /// with a tap, and Open Folder to put new files there.
+        /// Shows the Android import dialog: pick a file (an archive of any name) or a folder, each with its own system picker.
+        /// </summary>
+        void ShowImportChoiceModal()
+        {
+            const float HEIGHT = 86f + 40f + CHART_OPTION_HEIGHT * 2f + 16f + 74f;
+            var panel = CreateModalPanel(CHART_DIALOG_WIDTH, HEIGHT);
+            var title = CreateText(panel, "MAJTEXT_LIST_IMPORT_CHARTS".i18n(), 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
+            var hint = CreateText(panel, "MAJTEXT_LIST_IMPORT_PICK_HINT".i18n(), 16f, MUTED_COLOR, TextAlignmentOptions.TopLeft, FontStyles.Normal);
+            hint.enableAutoSizing = true;
+            hint.fontSizeMin = 12f;
+            hint.fontSizeMax = 16f;
+            PlaceRow(hint.rectTransform, 28f, 70f, 28f, 50f);
+            var options = new[] { ("MAJTEXT_LIST_IMPORT_PICK_FILE", false), ("MAJTEXT_LIST_IMPORT_PICK_FOLDER", true) };
+            for (var i = 0; i < options.Length; i++)
+            {
+                var (key, isFolder) = options[i];
+                var option = CreateButton(panel, key.i18n(), PAGE_COLOR, TEXT_COLOR, 19f, () =>
+                {
+                    HideModal();
+                    ChartImporter.ShowPicker(isFolder);
+                });
+                PlaceRow((RectTransform)option.transform, 28f, 126f + i * CHART_OPTION_HEIGHT, 28f, 54f);
+            }
+            var cancel = CreateButton(panel, "MAJTEXT_LIST_CANCEL".i18n(), PAPER_COLOR, MUTED_COLOR, 18f, HideModal);
+            PlaceRow((RectTransform)cancel.transform, 28f, HEIGHT - 74f, 28f, 50f);
+        }
+        /// <summary>
+        /// Shows the import dialog of desktops: the files and folders in the import folder, newest first, each imported with a
+        /// tap whatever it is named, and Open Folder to put new ones there.
         /// </summary>
         void ShowImportFolderModal()
         {
@@ -174,14 +210,16 @@ namespace MajdataPlay.Scenes.List
                 foreach (var archive in archives)
                 {
                     var entry = archive;
-                    var item = CreateButton(content, entry.Name, PAGE_COLOR, TEXT_COLOR, 18f, () => ImportArchive(entry));
+                    // A folder is marked with a trailing slash, the way file managers list them.
+                    var label = entry.IsDirectory ? entry.Name + "/" : entry.Name;
+                    var item = CreateButton(content, label, PAGE_COLOR, TEXT_COLOR, 18f, () => ImportArchive(entry));
                     ((RectTransform)item.transform).sizeDelta = new Vector2(0f, 54f);
-                    var label = item.GetComponentInChildren<TextMeshProUGUI>();
-                    label.alignment = TextAlignmentOptions.MidlineLeft;
-                    label.textWrappingMode = TextWrappingModes.NoWrap;
-                    label.overflowMode = TextOverflowModes.Ellipsis;
-                    label.rectTransform.offsetMin = new Vector2(16f, 4f);
-                    label.rectTransform.offsetMax = new Vector2(-16f, -4f);
+                    var itemText = item.GetComponentInChildren<TextMeshProUGUI>();
+                    itemText.alignment = TextAlignmentOptions.MidlineLeft;
+                    itemText.textWrappingMode = TextWrappingModes.NoWrap;
+                    itemText.overflowMode = TextOverflowModes.Ellipsis;
+                    itemText.rectTransform.offsetMin = new Vector2(16f, 4f);
+                    itemText.rectTransform.offsetMax = new Vector2(-16f, -4f);
                 }
             }
 
@@ -194,9 +232,9 @@ namespace MajdataPlay.Scenes.List
             PlaceTopLeft((RectTransform)open.transform, 28f + buttonWidth + 12f, buttonTop, buttonWidth, 50f);
         }
         /// <summary>
-        /// Queues an archive from the import folder; the importer then leaves the list, imports it and comes back.
+        /// Queues a file or folder from the import folder; the importer then leaves the list, imports it and comes back.
         /// </summary>
-        /// <param name="entry">The archive in the import folder.</param>
+        /// <param name="entry">The file or folder in the import folder.</param>
         void ImportArchive(FileSystemEntry entry)
         {
             if (_isLeaving)
@@ -328,6 +366,48 @@ namespace MajdataPlay.Scenes.List
             body.fontSizeMax = 17f;
             body.overflowMode = TextOverflowModes.Ellipsis;
             PlaceRow(body.rectTransform, 28f, 74f, 28f, HEIGHT - 74f - 90f);
+            var ok = CreateButton(panel, "MAJTEXT_LIST_OK".i18n(), ACCENT_COLOR, Color.white, 18f, HideModal);
+            ok.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
+            PlaceRow((RectTransform)ok.transform, 28f, HEIGHT - 74f, 28f, 50f);
+        }
+        /// <summary>
+        /// Shows the result of the import that just finished, if any: how many charts were imported, why anything failed and
+        /// which files were renamed.
+        /// </summary>
+        void ShowImportReportIfAny()
+        {
+            var report = ChartImporter.TakeLastReport();
+            if (report is null || report.IsEmpty)
+            {
+                return;
+            }
+            ShowLongMessageModal("MAJTEXT_IMPORT_RESULT".i18n(), report.ToText());
+        }
+        /// <summary>
+        /// Shows a dialog with a title, a long message that scrolls, and an OK button.
+        /// </summary>
+        /// <param name="titleText">The title.</param>
+        /// <param name="message">The message, one item per line.</param>
+        void ShowLongMessageModal(string titleText, string message)
+        {
+            const float WIDTH = 640f;
+            const float HEIGHT = 600f;
+            var panel = CreateModalPanel(WIDTH, HEIGHT);
+            var title = CreateText(panel, titleText, 22f, TEXT_COLOR, TextAlignmentOptions.MidlineLeft, FontStyles.Bold);
+            PlaceRow(title.rectTransform, 28f, 24f, 28f, 38f);
+            var holder = CreateRect("Message", panel);
+            PlaceRow(holder, 28f, 74f, 28f, HEIGHT - 74f - 90f);
+            var content = CreateScroll(holder, 0f, 0f, 0f, 0f, out _);
+            var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var body = CreateText(content, message, 17f, TEXT_COLOR, TextAlignmentOptions.TopLeft, FontStyles.Normal);
+            body.richText = false;
+            body.textWrappingMode = TextWrappingModes.Normal;
+            body.overflowMode = TextOverflowModes.Overflow;
             var ok = CreateButton(panel, "MAJTEXT_LIST_OK".i18n(), ACCENT_COLOR, Color.white, 18f, HideModal);
             ok.GetComponentInChildren<TextMeshProUGUI>().fontStyle = FontStyles.Bold;
             PlaceRow((RectTransform)ok.transform, 28f, HEIGHT - 74f, 28f, 50f);

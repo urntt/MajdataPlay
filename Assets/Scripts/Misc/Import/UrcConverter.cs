@@ -49,19 +49,22 @@ namespace MajdataPlay.Import
         }
 
         /// <summary>
-        /// Converts the RPE chart of a Phira .pez package to maidata.txt.
+        /// Converts the chart of a Phira .pez package (RPE or PhiEdit PEC, told apart by content) to maidata.txt.
         /// </summary>
-        /// <param name="chartJson">The text of the chart file the package's info.yml names.</param>
+        /// <param name="chartText">The text of the package's chart file.</param>
+        /// <param name="infoYml">The text of the package's info.yml, or null when it has none.</param>
+        /// <param name="infoTxt">The text of the package's older info.txt, or null when it has none.</param>
         /// <param name="token">Cancels waiting for the engine; a conversion that has started runs to the end.</param>
         /// <returns>The maidata text, the media the chart refers to and what the conversion reported.</returns>
         /// <exception cref="UrcConversionException">The bundle is missing or the chart could not be converted.</exception>
         /// <exception cref="OperationCanceledException"><paramref name="token"/> was canceled.</exception>
-        internal static async UniTask<UrcSimaiResult> PezToSimaiAsync(string chartJson, CancellationToken token = default)
+        internal static async UniTask<UrcSimaiResult> PezToSimaiAsync(string chartText, string? infoYml, string? infoTxt,
+                                                                     CancellationToken token = default)
         {
             var engine = await GetEngineAsync(token);
             await UniTask.SwitchToThreadPool();
             token.ThrowIfCancellationRequested();
-            var result = engine.PezToSimai(chartJson);
+            var result = engine.PezToSimai(chartText, infoYml, infoTxt);
             LogReport("pez -> simai", result.Warnings, result.Report);
             return result;
         }

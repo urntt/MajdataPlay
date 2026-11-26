@@ -272,6 +272,8 @@ namespace MajdataPlay.Scenes.List
             InputManager.SuppressTouchPanelSimulation = true;
             HideSceneCanvases();
             RestoreState();
+            // 刚导入完谱面：弹出导入结果（成功几个、失败原因、改了哪些文件名）
+            ShowImportReportIfAny();
         }
         /// <summary>
         /// 打开时：有记下的位置就恢复（从详情页进游戏的还会重新打开详情），否则翻到选中的歌所在的页

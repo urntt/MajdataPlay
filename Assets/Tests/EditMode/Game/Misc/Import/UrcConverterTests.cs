@@ -57,7 +57,7 @@ namespace MajdataPlay.Tests.Game.Misc.Import
             {
                 var pez = await UrcConverter.SimaiToPezAsync(ChartFixture.CreateMaidata("Song"), 5, ChartFiles);
 
-                var simai = await UrcConverter.PezToSimaiAsync(pez.ChartJson);
+                var simai = await UrcConverter.PezToSimaiAsync(pez.ChartJson, pez.InfoYaml, null);
                 await UniTask.SwitchToMainThread();
 
                 Assert.That(simai.Title, Is.EqualTo("Song"));
@@ -65,6 +65,26 @@ namespace MajdataPlay.Tests.Game.Misc.Import
                 Assert.That(simai.Illustration, Is.EqualTo("bg.png"));
                 Assert.That(simai.Maidata, Does.Contain("&inote_5="));
                 Assert.That(simai.Maidata, Does.Contain("(120){4}1,2,3,4,"));
+            });
+        }
+
+        /// <summary>Checks that a PhiEdit (PEC) chart is read as PEC, with the title and media its info names.</summary>
+        /// <returns>The test coroutine.</returns>
+        [UnityTest]
+        public IEnumerator PezToSimai_ReadsPec()
+        {
+            return UniTask.ToCoroutine(async () =>
+            {
+                var info = "name: \"PEC Song\"\nlevel: \"IN Lv.13\"\nmusic: \"song.ogg\"\nillustration: \"art.jpg\"\noffset: 0.1\n";
+
+                var simai = await UrcConverter.PezToSimaiAsync(MediaFixture.PecChart, info, null);
+                await UniTask.SwitchToMainThread();
+
+                Assert.That(simai.Format, Is.EqualTo("pec"));
+                Assert.That(simai.Title, Is.EqualTo("PEC Song"));
+                Assert.That(simai.Music, Is.EqualTo("song.ogg"));
+                Assert.That(simai.Illustration, Is.EqualTo("art.jpg"));
+                Assert.That(simai.Maidata, Does.Contain("&inote_"));
             });
         }
 
@@ -79,7 +99,7 @@ namespace MajdataPlay.Tests.Game.Misc.Import
 
                 try
                 {
-                    await UrcConverter.PezToSimaiAsync("{ \"not\": \"a chart\" }");
+                    await UrcConverter.PezToSimaiAsync("{ \"not\": \"a chart\" }", null, null);
                 }
                 catch (Exception exception)
                 {

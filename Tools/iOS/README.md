@@ -93,7 +93,7 @@ Tools/iOS/build_unsigned_ipa.sh
 
 谱面放在“文件”App → 我的 iPad → MajdataPlay → MaiCharts。导入谱面有两种方式：
 
-- 触摸式选歌侧栏底部的“导入谱面”：打开系统的文件选择器，可以选 `.zip`、`.adx`（AstroDX）和 `.pez`（Phira），可以多选。选择器由 `Assets/Plugins/iOS/MajDocumentPicker.mm` 实现。
+- 触摸式选歌侧栏底部的“导入谱面”：打开系统的文件选择器，任何文件和文件夹都能选，可以多选。游戏按内容识别：后缀写错的 zip、`.adx`、`.pez`、谱面文件夹都可以。选择器由 `Assets/Plugins/iOS/MajDocumentPicker.mm` 实现，选中的东西先拷进临时目录，导入后删除。
 - 在“文件”或其他 App 里对 `.zip`、`.adx`、`.pez` 选“共享 → 用 MajdataPlay 打开”。
 
-`.pez` 用游戏内置的 Universal Rhythm Chart 转换成 simai。详情页的“导出”按钮可以把本地谱面导出为 ZIP、ADX 或 PEZ，再通过系统分享面板存到“文件”或发给其他 App。
+`.pez`（RPE 或 PhiEdit 格式）用游戏内置的 Universal Rhythm Chart 转换成 simai。详情页的“导出”按钮可以把本地谱面导出为 ZIP、ADX 或 PEZ，再通过系统分享面板存到“文件”或发给其他 App。

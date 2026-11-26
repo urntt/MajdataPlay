@@ -12,4 +12,6 @@
     <!-- Jint runs the bundled Universal Rhythm Chart converters (UrcEngine) and reaches its own code through reflection. -->
     <assembly fullname="Jint" preserve="all"/>
     <assembly fullname="Acornima" preserve="all"/>
+    <!-- The chart importer reads GBK and Shift-JIS names in ZIP archives with these code pages (ChartArchiveReader). -->
+    <assembly fullname="System.Text.Encoding.CodePages" preserve="all"/>
 </linker>

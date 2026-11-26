@@ -106,10 +106,21 @@ The share dialog has these options, saved with your settings (also when you canc
 
 On the touch song list (Interface Style "Touch"):
 
-- **Import Charts** (bottom of the sidebar) opens the system file picker on iOS and Android; pick `.zip`, `.adx` (AstroDX) or `.pez` (Phira) files. On computers it lists the files in the `ChartImports` folder next to the chart folder, newest first; tap one to import it, or "Open folder" to put new files there. On iOS you can also share a file to MajdataPlay ("Open in").
-  - `.zip` and `.adx`: `<chart>/maidata.txt` becomes a chart of the "Import" category, and `<category>/<chart>/maidata.txt` a chart of that category.
-  - `.pez`: the chart is converted to simai with [Universal Rhythm Chart](https://github.com/urntt/universal-rhythm-chart) (URC), the music becomes `track.*` and the illustration `bg.*`, in the "Import" category.
-  - The game fades to a loading screen while importing, then comes back to the list.
+- **Import Charts** (bottom of the sidebar) takes archives and folders and tells what they hold by their content, not by their names:
+  - iOS: one system picker for any file and for folders. You can also share a `.zip`, `.adx` or `.pez` to MajdataPlay ("Open in").
+  - Android: choose "Pick a file" or "Pick a folder".
+  - Computers: the files and folders in the `ChartImports` folder next to the chart folder, newest first; tap one to import it, or "Open folder" to put new ones there.
+- What is recognised:
+  - Any ZIP archive, whatever its extension (`.zip`, `.adx`, `.pez`, or a wrong one). Archives inside it (a pack of `.adx` files) are unpacked too, up to three levels. File names that Windows tools stored as GBK or Shift-JIS are read correctly.
+  - Folders at any depth: a folder holding `maidata.txt` (any case, or another text file that is a simai chart, such as `maidata.txt.txt`) is a simai chart; a folder holding `info.yml` / `info.txt` or an RPE / PhiEdit (PEC) chart is a Phira chart. macOS metadata (`__MACOSX`, `._*`, `.DS_Store`) is skipped.
+  - A chart in the archive or folder itself, or one level down, goes to the "Import" category; a chart deeper down goes to the category named after its parent folder, unless that folder only wraps the one chart.
+- The files are renamed to what the game reads, so covers and videos show up:
+  - the music becomes `track.mp3` / `.ogg` / `.opus` / `.wav` / `.aac` after its real format (any name: `song.ogg`, `BGM.MP3`, ...);
+  - the cover becomes `bg.jpg` or `bg.png` (`cover.jpg`, `Jacket.PNG`, a WebP, ...);
+  - a video becomes `pv.*`;
+  - chart text saved as GBK, Shift-JIS or UTF-16 is converted to UTF-8.
+- Phira charts (RPE or PEC, including PEC stored under a `.json` name) are converted to simai with [Universal Rhythm Chart](https://github.com/urntt/universal-rhythm-chart) (URC), following Phira's rules for `info.yml`, the older `info.txt` and the `offset`. Official Phigros and binary (PBC) charts cannot be converted yet.
+- The loading screen shows each step and then the result. On the touch song list, an "Import result" dialog lists what was imported, why anything failed (for example a RAR archive, a chart without music, music in M4A or FLAC, which the game does not play), and which files were renamed.
 - **Export** (button left of Play on the detail page of a local chart) offers three formats, then opens the share sheet (on computers, the folder of the file):
   - ZIP: the whole chart folder;
   - ADX: `maidata.txt`, the track, the cover and the video, for AstroDX;

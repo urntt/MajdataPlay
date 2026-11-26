@@ -92,18 +92,21 @@ namespace MajdataPlay.Import
         }
 
         /// <summary>
-        /// Converts the RPE chart of a Phira .pez package to maidata.txt.
+        /// Converts the chart of a Phira .pez package (RPE or PhiEdit PEC, told apart by content) to maidata.txt.
         /// </summary>
-        /// <param name="chartJson">The text of the chart file the package's info.yml names.</param>
+        /// <param name="chartText">The text of the package's chart file.</param>
+        /// <param name="infoYml">The text of the package's info.yml, or null when it has none.</param>
+        /// <param name="infoTxt">The text of the package's older info.txt, or null when it has none.</param>
         /// <returns>The maidata text, the media the chart refers to and what the conversion reported.</returns>
         /// <exception cref="UrcConversionException">The chart could not be converted.</exception>
-        internal UrcSimaiResult PezToSimai(string chartJson)
+        internal UrcSimaiResult PezToSimai(string chartText, string? infoYml, string? infoTxt)
         {
-            var args = JsonConvert.SerializeObject(new { chart = chartJson });
+            var args = JsonConvert.SerializeObject(new { chart = chartText, infoYml, infoTxt });
             var result = Call("pezToSimai", args);
             return new UrcSimaiResult
             {
                 Maidata = result.Value<string>("maidata") ?? string.Empty,
+                Format = result.Value<string>("format") ?? string.Empty,
                 Music = result.Value<string>("music"),
                 Illustration = result.Value<string>("illustration"),
                 Title = result.Value<string>("title"),
@@ -192,6 +195,9 @@ namespace MajdataPlay.Import
     {
         /// <summary>Gets the text of maidata.txt.</summary>
         public string Maidata { get; init; } = string.Empty;
+
+        /// <summary>Gets the format the chart was read as: "rpe" or "pec".</summary>
+        public string Format { get; init; } = string.Empty;
 
         /// <summary>Gets the name of the music file the chart refers to, or null when it names none.</summary>
         public string? Music { get; init; }

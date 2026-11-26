@@ -10,12 +10,16 @@ This folder builds the script the game loads: `Assets/Resources/Urc/UrcBundle.tx
 - `entry.ts` imports URC's simai and RPE adapters and exposes two functions on `globalThis.UrcBridge`. Each function
   takes and returns one JSON string:
   - `simaiToPez` does what `urc convert <chart>.adx --to pez` does;
-  - `pezToSimai` does what `urc convert <chart>.pez --to adx` does.
+  - `pezToSimai` does what `urc convert <chart>.pez --to adx` does. It takes the text of the chart file and of
+    `info.yml` / `info.txt`, tells RPE from PhiEdit (PEC) the way Phira does, reads the info and its `offset`, and
+    refuses official Phigros and binary (PBC) charts.
 
-  Both use the default options. The game unpacks and packs the archives itself
-  (`Assets/Scripts/Misc/Import/ChartImporter.cs` and `ChartExporter.cs`).
+  Both use the default options. The `.pez` reading follows `load` in URC's `packages/cli/src/io.ts`, which the packages
+  do not export, so `entry.ts` keeps a copy of it; update it with URC. The game unpacks and packs the archives itself
+  and finds the chart and info files (`Assets/Scripts/Misc/Import/ChartImporter.cs` and `ChartExporter.cs`).
 - `build.mjs` bundles `entry.ts` and the URC packages into one minified script. The first line of the output records
   the URC commit it was built from.
+- `check.mjs` compares the bundle with the URC command line (see below).
 
 The bundle is committed, because the URC repository is private and CI cannot fetch it.
 
@@ -33,19 +37,15 @@ URC_DIR=/path/to/universal-rhythm-chart node build.mjs
 
 ## Checking the bundle
 
-The bundle must produce the same files as the URC command line. With the bundle loaded in Node:
+The bundle must produce the same files as the URC command line. With the URC checkout ready:
 
-```js
-const vm = require("node:vm");
-const ctx = {};
-vm.createContext(ctx);
-vm.runInContext(fs.readFileSync("Assets/Resources/Urc/UrcBundle.txt", "utf8"), ctx);
-ctx.UrcBridge.simaiToPez(JSON.stringify({ maidata, files: ["track.mp3", "bg.png"] }));
+```bash
+cd Tools/Urc
+URC_DIR=/path/to/universal-rhythm-chart node check.mjs [maidata.txt]
 ```
 
-Compare the result with `urc convert` on an `.adx` holding the same files:
-
-- `chart.json` and `info.yml` should match the `.pez`;
-- `pezToSimai` should match `urc convert <pez> --to simai`.
+It converts the maidata (URC's `examples/urc-demo` by default) to `.pez` with the bundle and with `urc convert`, and
+converts four `.pez` packages back to simai both ways: RPE, RPE with an `info.yml` offset, PEC stored as `chart.json`,
+and PEC described by the older `info.txt`. Every pair must be identical.
 
 Under Jint the conversion is slower than under Node; a dense 240-bar chart takes about 17 seconds on a desktop.
